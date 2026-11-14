@@ -14,6 +14,9 @@ public final class EditorPreviewSession {
             private final String source;
             private final EditorPreviewSession session;
             private java.util.function.BooleanSupplier current;
+            private java.util.function.BooleanSupplier lifetime = () -> true;
+            private PreviewRenderer.PreviewRequest image;
+            private java.util.function.BooleanSupplier imageLifetime;
             private Slot(String source, EditorPreviewSession session, java.util.function.BooleanSupplier current) {
                 this.source = source; this.session = session; this.current = current;
             }
@@ -32,7 +35,8 @@ public final class EditorPreviewSession {
             if (desired == null || !desired.source().equals(source)) {
                 if (desired != null && desired != displayed) desired.session().invalidateDisplayedBody();
                 if (closed || !candidateCurrent.getAsBoolean() || closed) return null;
-                var next = new Slot(Objects.requireNonNull(source), new EditorPreviewSession(clock), candidateCurrent);
+                var next = displayed != null && displayed.source().equals(source) && displayed.lifetime.getAsBoolean()
+                        ? displayed : new Slot(Objects.requireNonNull(source), new EditorPreviewSession(clock), candidateCurrent);
                 desired = next;
                 next.session().observeBody(status -> {
                     if (closed || desired != next || !next.current().getAsBoolean() || closed || desired != next) return;
@@ -44,6 +48,92 @@ public final class EditorPreviewSession {
             selected.session().beginBody(source, cpm, world);
             return !closed && desired == selected && candidateCurrent.getAsBoolean() && !closed && desired == selected
                     ? selected.session() : null;
+        }
+
+        public EditorPreviewSession session(String source) {
+            return !closed && desired != null && desired.source().equals(source) ? desired.session() : null;
+        }
+
+        public EditorPreviewSession retainedSession() {
+            return retainedSource() == null ? null : displayed.session();
+        }
+
+        public EditorPreviewSession prepareImage(Object identity, long startedNanos, boolean inputsReady, boolean indicator) {
+            if (closed || desired == null) return null;
+            var selected = desired;
+            boolean displayedReady = selected == displayed && selected.image != null && selected.session().imageVisible();
+            if (closed || desired != selected) return null;
+            if (displayedReady && (!Objects.equals(selected.session().imageIdentity, identity) || !inputsReady)) {
+                var next = new Slot(selected.source(), new EditorPreviewSession(clock), selected.current());
+                next.lifetime = selected.lifetime;
+                next.session().beginBody(next.source(), selected.session().bodyExpected, selected.session().bodyWorld);
+                desired = next;
+                next.session().observeBody(status -> {
+                    if (!closed && desired == next && next.current().getAsBoolean() && !closed && desired == next) observer.accept(status);
+                });
+                selected = next;
+            }
+            if (closed || desired != selected) return null;
+            var session = selected.session();
+            session.imageIndicator(indicator);
+            session.beginImage(identity, startedNanos);
+            if (!closed && desired == selected) session.imagePrerequisite(inputsReady, startedNanos);
+            if (closed || desired != selected) {
+                if (closed) session.invalidateDisplayedBody();
+                return null;
+            }
+            return session;
+        }
+
+        public void lifetime(String source, java.util.function.BooleanSupplier lifetime) {
+            if (!closed && desired != null && desired.source().equals(source)) desired.lifetime = Objects.requireNonNull(lifetime);
+        }
+
+        public void image(String source, PreviewRenderer.PreviewRequest request,
+                java.util.function.BooleanSupplier lifetime) {
+            var selected = desired;
+            if (closed || selected == null || !selected.source().equals(source) || request.stageLeft() < 0
+                    || !selected.session().imageVisible()) return;
+            selected.image = Objects.requireNonNull(request);
+            selected.imageLifetime = Objects.requireNonNull(lifetime);
+        }
+
+        public java.util.Set<TextureRegistry.TextureHandle> retainedTextures() {
+            var previous = displayed;
+            if (closed || previous == null || previous.image == null || !previous.lifetime.getAsBoolean()
+                    || !previous.imageLifetime.getAsBoolean() || closed || displayed != previous) return java.util.Set.of();
+            var appearance = previous.image.appearance();
+            var textures = new java.util.HashSet<TextureRegistry.TextureHandle>();
+            textures.add(appearance.skin());
+            appearance.cape().ifPresent(textures::add);
+            return java.util.Set.copyOf(textures);
+        }
+
+        public String retainedSource() {
+            var previous = displayed;
+            var next = desired;
+            if (closed || previous == null || previous == next || next == null || previous.image == null
+                    || !next.current().getAsBoolean() || !next.lifetime.getAsBoolean()
+                    || !next.session().imagePreparing() || next.session().imageVisible() || next.session().imageSpinner()
+                    || !previous.lifetime.getAsBoolean() || !previous.imageLifetime.getAsBoolean() || !previous.session().body().current().getAsBoolean()
+                    || closed || displayed != previous || desired != next) return null;
+            return previous.source();
+        }
+
+        public PreviewRenderer.PreviewRequest retainedImage(String source) {
+            return Objects.equals(source, retainedSource()) ? displayed.image : null;
+        }
+
+        public void transformRetained(String source, float yawDegrees, float pitchDegrees, float scale) {
+            var selected = desired;
+            var previous = displayed;
+            if (closed || selected == null || !selected.source().equals(source) || retainedSource() == null
+                    || closed || desired != selected || displayed != previous) return;
+            var image = previous.image;
+            if (image.yawDegrees() == yawDegrees && image.pitchDegrees() == pitchDegrees && image.scale() == scale) return;
+            previous.image = new PreviewRenderer.PreviewRequest(image.appearance(), image.left(), image.top(),
+                    image.width(), image.height(), yawDegrees, pitchDegrees, scale, image.intent(),
+                    image.stageLeft(), image.stageTop(), image.stageWidth(), image.stageHeight());
         }
 
         public void confirm(String source) {
@@ -72,7 +162,7 @@ public final class EditorPreviewSession {
 
         public boolean retains(EditorPreviewSession session) {
             if (closed) return false;
-            if (displayed != null && displayed.session() == session) return true;
+            if (displayed != null && displayed.session() == session) return displayed.lifetime.getAsBoolean() && !closed;
             var selected = desired;
             return selected != null && selected.session() == session && selected.current().getAsBoolean()
                     && !closed && desired == selected;
@@ -111,6 +201,87 @@ public final class EditorPreviewSession {
     private Object displayPlayer;
     private PreviewModelFrames.Completion ordinaryCompletion;
     private java.util.function.Consumer<PreviewRenderer.BodyStatus> bodyObserver = value -> {};
+
+    private Object imageIdentity;
+    private long imageGeneration;
+    private long imageStarted;
+    private boolean imagePending;
+    private boolean imageIndicator = true;
+    private boolean imageInputsReady = true;
+    private PreviewModelFrames.Body imageMaterial;
+
+    public EditorPreviewSession nextImageSession() { return new EditorPreviewSession(nanoTime); }
+
+    public void beginImage(Object identity) { beginImage(identity, nanoTime.getAsLong()); }
+
+    public void beginImage(Object identity, long startedNanos) {
+        Objects.requireNonNull(identity);
+        if (Objects.equals(imageIdentity, identity)) {
+            long generation = imageGeneration;
+            if (imageMaterial == null || imageVisible() || generation != imageGeneration) return;
+        }
+        imageIdentity = identity;
+        imageGeneration++;
+        imageStarted = startedNanos;
+        imageInputsReady = true;
+        imagePending = true;
+        imageMaterial = null;
+    }
+
+    public void imagePrerequisite(boolean ready, long startedNanos) {
+        if (imageInputsReady == ready) return;
+        if (imageVisible()) imageStarted = startedNanos;
+        imageInputsReady = ready;
+        imageGeneration++;
+        imageMaterial = null;
+        imagePending = true;
+    }
+
+    public boolean imageVisible() {
+        long generation = imageGeneration;
+        var material = imageMaterial;
+        if (material == null) return false;
+        boolean current = material.current().getAsBoolean();
+        return generation == imageGeneration && imageMaterial == material && current;
+    }
+
+    public boolean imagePreparing() { return imagePending; }
+
+    public boolean imageTracked() { return imageIdentity != null; }
+
+    public void imageIndicator(boolean enabled) { imageIndicator = enabled; }
+
+    public boolean imageSpinner() {
+        return imageIndicator && !imageVisible() && imagePending && PreviewLoading.delayed(imageStarted, nanoTime.getAsLong());
+    }
+
+    public int imageFrame() {
+        return PreviewLoading.phase(nanoTime.getAsLong());
+    }
+
+    public PreviewModelFrames.Completion imagePreparation(java.util.function.BooleanSupplier current) {
+        Objects.requireNonNull(current);
+        long generation = imageGeneration;
+        return new PreviewModelFrames.Completion() {
+            public boolean requiresConsumption() { return true; }
+            public boolean current() {
+                return imageIdentity != null && generation == imageGeneration && current.getAsBoolean()
+                        && generation == imageGeneration;
+            }
+            public void accept(PreviewModelFrames.Body body) {
+                Objects.requireNonNull(body);
+                if (!current() || body.status() == PreviewRenderer.BodyStatus.PENDING
+                        || !imageInputsReady && (body.status() == PreviewRenderer.BodyStatus.ORDINARY || body.status() == PreviewRenderer.BodyStatus.READY)) return;
+                boolean success = body.status() == PreviewRenderer.BodyStatus.ORDINARY
+                        || body.status() == PreviewRenderer.BodyStatus.READY;
+                if (success && !body.current().getAsBoolean()) return;
+                if (!current()) return;
+                imageMaterial = success ? new PreviewModelFrames.Body(body.status(),
+                        () -> current() && body.current().getAsBoolean() && current()) : null;
+                imagePending = false;
+            }
+        };
+    }
 
     public EditorPreviewSession() { this(System::nanoTime); }
     public EditorPreviewSession(java.util.function.LongSupplier nanoTime) { this.nanoTime = Objects.requireNonNull(nanoTime); }
@@ -158,19 +329,30 @@ public final class EditorPreviewSession {
 
     public void displayAuthority(Object authority, Object world, Object player) {
         if (Objects.equals(displayAuthority, authority) && displayWorld == world && displayPlayer == player) return;
+        boolean firstAuthority = displayAuthority == null;
         displayAuthority = Objects.requireNonNull(authority);
         displayWorld = world;
         displayPlayer = player;
-        invalidateDisplayedBody();
+        if (!firstAuthority && imageIdentity != null) {
+            imageGeneration++;
+            if (imageMaterial != null) {
+                imagePending = true;
+                imageStarted = nanoTime.getAsLong();
+            }
+            imageMaterial = null;
+        }
+        invalidateDisplayedBody(false);
     }
 
     public PreviewModelFrames.Completion ordinaryDisplay(
             java.util.function.BooleanSupplier current) {
         Objects.requireNonNull(current);
+        if (imageIdentity != null && !imageVisible()) return imagePreparation(current);
         if (ordinaryCompletion == null) {
             long generation = displayGeneration;
             var completed = completion(current, () -> true, true);
             ordinaryCompletion = new PreviewModelFrames.Completion() {
+                public boolean requiresConsumption() { return imageIdentity != null; }
                 public boolean current() { return generation == displayGeneration && current.getAsBoolean()
                         && generation == displayGeneration; }
                 public void accept(PreviewModelFrames.Body body) { completed.accept(body); }
@@ -180,7 +362,16 @@ public final class EditorPreviewSession {
     }
 
     public java.util.function.Consumer<PreviewModelFrames.Body> displayBody(java.util.function.BooleanSupplier current) {
-        return completion(current, frame(), false);
+        if (imageIdentity != null && !imageVisible()) return imagePreparation(current);
+        var displayed = completion(current, frame(), false);
+        if (imageIdentity == null) return displayed;
+        long generation = displayGeneration;
+        return new PreviewModelFrames.Completion() {
+            public boolean requiresConsumption() { return true; }
+            public boolean current() { return generation == displayGeneration && current.getAsBoolean()
+                    && generation == displayGeneration; }
+            public void accept(PreviewModelFrames.Body body) { displayed.accept(body); }
+        };
     }
 
     private java.util.function.Consumer<PreviewModelFrames.Body> completion(
@@ -216,7 +407,15 @@ public final class EditorPreviewSession {
         return display == displayGeneration && (ordinaryOnly || frameCurrent(prepared, display, selected));
     }
 
-    public void invalidateDisplayedBody() {
+    public void invalidateDisplayedBody() { invalidateDisplayedBody(true); }
+
+    private void invalidateDisplayedBody(boolean invalidateImage) {
+        if (invalidateImage) {
+            imageIdentity = null;
+            imageGeneration++;
+            imagePending = false;
+            imageMaterial = null;
+        }
         displayGeneration++;
         ordinaryCompletion = null;
         setDisplayedBody(null, null);
@@ -237,7 +436,7 @@ public final class EditorPreviewSession {
                 ? PreviewRenderer.BodyStatus.FAILED : result.status();
         readyBody = bodyStatus == PreviewRenderer.BodyStatus.READY
                 ? readyBody != null && readyBody.current().getAsBoolean() ? readyBody : result : null;
-        if (terminalBody()) invalidateDisplayedBody();
+        if (terminalBody()) invalidateDisplayedBody(false);
         bodyObserver.accept(bodyStatus);
     }
 
@@ -264,7 +463,7 @@ public final class EditorPreviewSession {
         if (bodyExpected && bodyStatus == PreviewRenderer.BodyStatus.PENDING
                 && nanoTime.getAsLong() - bodyStarted >= java.time.Duration.ofSeconds(60).toNanos()) {
             bodyStatus = PreviewRenderer.BodyStatus.TIMED_OUT;
-            invalidateDisplayedBody();
+            invalidateDisplayedBody(false);
             readyBody = null;
             bodyObserver.accept(bodyStatus);
         }
@@ -300,7 +499,7 @@ public final class EditorPreviewSession {
             bodyStatus = PreviewRenderer.BodyStatus.FAILED;
             readyBody = null;
         }
-        invalidateDisplayedBody();
+        invalidateDisplayedBody(false);
         if (bodyExpected) bodyObserver.accept(bodyStatus);
         return true;
     }

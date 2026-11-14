@@ -1584,6 +1584,7 @@ public final class ClientRuntime implements AutoCloseable {
         try { observed = operations.sessionIdentity(); }
         catch (RuntimeException unavailable) { observed = null; }
         if (!Objects.equals(importIdentity, observed)) {
+            editorFlow.clearLayerControlContinuity();
             if (importIdentity != null) CapeProjection.retirePreviewSkins();
             importIdentity = observed;
             importAccountEpoch++;
@@ -1685,6 +1686,7 @@ public final class ClientRuntime implements AutoCloseable {
         onClient(() -> {
             if (disposed) return;
             importWorldEpoch++;
+            editorFlow.clearLayerControlContinuity();
             clearPreviewBody();
             catalogImportFlow.invalidatePendingScope(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.STALE_WORLD);
             CapeProjection.retirePreviewSkins();
@@ -1699,6 +1701,7 @@ public final class ClientRuntime implements AutoCloseable {
                 return;
             }
             importResourceEpoch++;
+            editorFlow.clearLayerControlContinuity();
             boolean bodyChanged = displayedBodyKind != PreviewRenderer.DisplayKind.UNCONFIRMED;
             clearPreviewBody();
             catalogImportFlow.invalidatePendingScope(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.STALE_RESOURCES);
@@ -2022,6 +2025,27 @@ public final class ClientRuntime implements AutoCloseable {
                 && skinExtensionEnvironment.cpmPresent() && input.equals(galleryAccessoryInput);
     }
 
+    public java.util.function.BooleanSupplier previewBodyAdmission(ViewSpec.Preview preview) {
+        Object registration = bodyRegistration;
+        String source = previewBodySource(preview);
+        return () -> registration != null && registration == bodyRegistration && source.equals(bodySource)
+                && bodyContextCurrent() && registration == bodyRegistration;
+    }
+
+    public java.util.function.BooleanSupplier previewBodyLifetime(ViewSpec.Preview preview) {
+        long account = importAccountEpoch, world = importWorldEpoch, resource = importResourceEpoch;
+        long generation = preview.bodySource().filter(s -> s.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent()
+                ? state.galleryScreenGeneration : state.generation;
+        boolean providers = state.providersOpen || !state.providers.galleryAvailable();
+        boolean gallery = galleryMainOpen();
+        var identity = importIdentity;
+        return () -> !disposed && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED
+                && account == importAccountEpoch && world == importWorldEpoch && resource == importResourceEpoch
+                && generation == (gallery ? state.galleryScreenGeneration : state.generation)
+                && providers == (state.providersOpen || !state.providers.galleryAvailable()) && gallery == galleryMainOpen()
+                && Objects.equals(identity, importIdentity);
+    }
+
     public String previewBodySource(ViewSpec.Preview preview) {
         if (preview.bodySource().filter(source -> source.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent())
             return "gallery:" + preview.bodySource().orElseThrow()
@@ -2031,7 +2055,9 @@ public final class ClientRuntime implements AutoCloseable {
                     + ":" + preview.intent();
         return (state.providersOpen || !state.providers.galleryAvailable() ? "providers:" : "editor:")
                 + state.generation + ":" + importAccountEpoch + ":" + importWorldEpoch + ":" + importResourceEpoch
-                + ":" + importEditLifetime + ":" + preview.imageRevision() + ":" + preview.variant();
+                + ":" + importEditLifetime + ":" + preview.imageRevision() + ":" + preview.variant()
+                + ":" + preview.skin() + ":" + preview.capeId() + ":" + preview.capeMode()
+                + ":" + preview.outerLayerVisibility() + ":" + preview.nativeAccessories() + ":" + preview.capeHasElytra();
     }
 
     private ViewSpec.Preview bodyPreview;
@@ -2130,7 +2156,7 @@ public final class ClientRuntime implements AutoCloseable {
                 || bodyProviders != (state.providersOpen || !state.providers.galleryAvailable())
                 || bodyGallery != galleryMainOpen()
                 || (bodyProviders ? providerFlow.providerAdding() || !providerFlow.previewStillCurrent(bodyPreview)
-                        : bodyGallery ? !galleryPreview(bodyPreview) : !editorFlow.editorPreviewStillCurrent(bodyPreview))) return false;
+                        : bodyGallery ? !galleryPreview(bodyPreview) : !editorFlow.editorBodyStillCurrent(bodyPreview))) return false;
         return true;
     }
 
@@ -2175,7 +2201,7 @@ public final class ClientRuntime implements AutoCloseable {
         var previous = displayedBodyKind;
         var next = currentDisplayKind();
         if (bodyRegistration != null && registration != bodyRegistration) return false;
-        if (next != PreviewRenderer.DisplayKind.UNCONFIRMED && bodyGallery && bodyAccepted != null) {
+        if (next != PreviewRenderer.DisplayKind.UNCONFIRMED && bodyAccepted != null) {
             bodyAccepted.run();
             if (registration != bodyRegistration || !bodyPreviewCurrent() || registration != bodyRegistration) return false;
         }
@@ -2486,6 +2512,7 @@ public final class ClientRuntime implements AutoCloseable {
             boolean capeGlint = false;
             boolean nativeAccessories = false;
             boolean nativeCape = false;
+            com.naocraftlab.skins.client.CapeAssetOwner capeAssetOwner = null;
             try {
                 var identity = operations.sessionIdentity();
                 var resolved = CapeProjection.resolveSelf(identity.profileId(), identity.profileName());
@@ -2497,6 +2524,7 @@ public final class ClientRuntime implements AutoCloseable {
                     capeGlint = result.capeGlint();
                     nativeAccessories = result.nativeCape() || result.nativeElytra();
                     nativeCape = result.nativeCape();
+                    capeAssetOwner = result.capeAssetOwner();
                 }
             } catch (RuntimeException unavailableIdentity) {
                 diagnose(DiagnosticEvent.CLIENT_CURRENT_APPEARANCE_FAILED, unavailableIdentity);
@@ -2508,7 +2536,8 @@ public final class ClientRuntime implements AutoCloseable {
                     cape.isPresent() || nativeCape ? PreviewRenderer.CapeMode.CAPE
                             : nativeAccessories ? PreviewRenderer.CapeMode.ELYTRA : PreviewRenderer.CapeMode.OFF,
                     outerLayerVisibilityController.orElseThrow().current(), hasElytra,
-                    capeGlint, nativeAccessories));
+                    capeGlint, nativeAccessories,
+                    com.naocraftlab.skins.client.TextureUseValidity.INVALID, capeAssetOwner));
         } catch (RuntimeException unavailableAppearance) {
             diagnose(DiagnosticEvent.CLIENT_CURRENT_APPEARANCE_FAILED, unavailableAppearance);
             return Optional.empty();
@@ -3056,6 +3085,32 @@ public final class ClientRuntime implements AutoCloseable {
         CompletableFuture<Optional<byte[]>> loaded = loadSkinPreview(preview.skin());
         observeSkinPreview(preview, loaded, preview.skin().optionalAssetId().isPresent());
         return loaded;
+    }
+
+    public Optional<ProviderRefreshUseCases.ImagePreparation> providerImagePreparation(ViewSpec.IconDecoration decoration) {
+        if (!state.providersOpen || decoration.providerTexture().isEmpty()) return Optional.empty();
+        String owner = decoration.ownerWidgetId();
+        if (owner.startsWith("providers.row.")) return providerFlow.imagePreparation(decoration.providerTexture().orElseThrow().skin()
+                        ? AppearanceProviders.Component.SKIN : AppearanceProviders.Component.CAPE,
+                BuiltinProvider.valueOf(owner.substring("providers.row.".length())));
+        if (owner.startsWith("providers.tab.")) {
+            var component = AppearanceProviders.Component.valueOf(owner.substring("providers.tab.".length()));
+            var source = component == AppearanceProviders.Component.SKIN ? state.providers.skin().resolve().map(com.naocraftlab.skins.core.provider.ProviderChannel.Resolved::provider)
+                    : state.providers.cape().resolve().map(com.naocraftlab.skins.core.provider.ProviderChannel.Resolved::provider);
+            return source.flatMap(value -> providerFlow.imagePreparation(component, value));
+        }
+        return Optional.empty();
+    }
+
+    public Optional<ProviderRefreshUseCases.ImagePreparation> providerImagePreparation(ViewSpec.Preview preview) {
+        if (!state.providersOpen || !providerFlow.previewStillCurrent(preview)) return Optional.empty();
+        var skin = providerFlow.previewSource(AppearanceProviders.Component.SKIN)
+                .flatMap(source -> providerFlow.imagePreparation(AppearanceProviders.Component.SKIN, source));
+        var cape = preview.capeMode() == PreviewRenderer.CapeMode.OFF ? Optional.<ProviderRefreshUseCases.ImagePreparation>empty()
+                : providerFlow.previewSource(AppearanceProviders.Component.CAPE)
+                        .flatMap(source -> providerFlow.imagePreparation(AppearanceProviders.Component.CAPE, source));
+        return skin.isEmpty() ? cape : cape.isEmpty() ? skin
+                : skin.orElseThrow().startedNanos() - cape.orElseThrow().startedNanos() <= 0 ? skin : cape;
     }
 
     public CompletableFuture<Optional<byte[]>> loadProviderTexture(ViewSpec.ProviderTexture texture) {

@@ -24,6 +24,29 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodNode;
 
 public final class CpmExtractionBodyProbe {
+    private static boolean galleryImageJoin;
+    private static boolean cpmImageJoin;
+
+    static void cpmImage(PreviewRenderer.PreviewAppearance appearance, com.naocraftlab.skins.runtime.GalleryNativePassFixture gallery) throws Exception {
+        galleryImageJoin=true;cpmImageJoin=true;
+        try { bodyProducer(appearance,() -> {},() -> {},gallery); }
+        finally { galleryImageJoin=false;cpmImageJoin=false; }
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (!java.util.Arrays.equals(args, new String[]{"gallery-image"})) throw new IllegalArgumentException("gallery-image");
+        galleryImageJoin = true;
+        var image = new java.awt.image.BufferedImage(64,64,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        var bytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image,"PNG",bytes);
+        var appearance = new PreviewRenderer.PreviewAppearance(
+                new com.naocraftlab.skins.client.TextureRegistry.TextureHandle("fixture:join-default",64,64),
+                com.naocraftlab.skins.client.SkinModel.CLASSIC, Optional.empty(), PreviewRenderer.CapeMode.OFF,
+                com.naocraftlab.skins.client.OuterLayerVisibility.allVisible());
+        try (var gallery = new com.naocraftlab.skins.runtime.GalleryNativePassFixture(appearance,bytes.toByteArray())) {
+            bodyProducer(appearance, () -> {}, () -> {}, gallery);
+        }
+    }
     private static final String PREFIX = "com.naocraftlab.skins.compat.client.identifier.extraction.";
     private static final String PIP = "net.minecraft.client.gui.render.pip.PictureInPictureRenderer";
     private static final String GUI = "net.minecraft.client.gui.render.pip.GuiEntityRenderer";
@@ -199,7 +222,7 @@ public final class CpmExtractionBodyProbe {
         var constructor = contextType.getDeclaredConstructors()[0]; constructor.setAccessible(true);
         int[] notifications = {0};
         try {
-            for (String scenario : new String[]{"success", "late-binding", "inner-handled", "layer-handled", "late-failure", "cleanup-failure", "retire", "pass-close", "frame-close", "combined-failure", "ordinary", "source-mismatch", "model-mismatch", "cached", "recursive", "different-context", "replacement"}) {
+            for (String scenario : galleryImageJoin ? new String[0] : new String[]{"success", "late-binding", "inner-handled", "layer-handled", "late-failure", "cleanup-failure", "retire", "pass-close", "frame-close", "combined-failure", "ordinary", "source-mismatch", "model-mismatch", "cached", "recursive", "different-context", "replacement"}) {
                 if (!deferred && java.util.Set.of("pass-close", "frame-close", "cached", "recursive", "different-context", "replacement").contains(scenario)) continue;
                 if (!loader.staticFlush && java.util.Set.of("pass-close", "frame-close").contains(scenario)) continue;
                 var session = new EditorPreviewSession();
@@ -376,6 +399,37 @@ public final class CpmExtractionBodyProbe {
                     return (Avatar) state;
                 } catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
             };
+            if (Boolean.getBoolean("nclskins.sourceReplacement")) {
+                submit = ignored -> {}; cached = false;
+                CpmSourceReplacementProbe.Material[] consumed = {null};
+                consumerControl("normal");
+                try {
+                    CpmSourceReplacementProbe.run(renderer, new Graphics(), gallery,
+                            () -> { Graphics.states.clear(); materials.clear(); consumed[0] = null; },
+                            () -> {
+                                check(Graphics.states.size() == 1, "SOURCE1 exactly one selected native extraction");
+                                try {
+                                    consumerFrame(loader, () -> callOuter(outer, outerOwner, Graphics.states.get(0), new GuiRenderState(), new Features(), 1,
+                                            (Operation<Void>) args -> { callPrepare(nativePrepare, nativePipOwner, args); return null; }), () -> {
+                                        check(materials.size() == 1 && !materials.get(0).texture.closed, "SOURCE1 own extracted material survives GUI consumption");
+                                        var own = (PreviewRenderer.PreviewAppearance) materials.get(0).texture.data;
+                                        consumed[0] = new CpmSourceReplacementProbe.Material(own.skin().location(), own.model());
+                                        consumerSubmitted();
+                                    });
+                                    signalConsumers();
+                                } catch (Exception failure) { throw new AssertionError(failure); }
+                            }, () -> Graphics.states.size() == 1 && Graphics.states.get(0).x1() < 0, () -> consumed[0],
+                            () -> { client.level = new CpmPreviewScopeProbe.Level(); client.player = new CpmPreviewScopeProbe.Avatar(client.level); },
+                            () -> client.player = new CpmPreviewScopeProbe.Avatar(client.level));
+                } finally { rendererType.getMethod("close").invoke(renderer); signalConsumers(); resetConsumerControl(); }
+                return;
+            }
+            if (galleryImageJoin) {
+                submit = ignored -> {};
+                nativeFlickerMaterials(rendererType, renderer, gallery, loader, state -> callOuter(outer, outerOwner, state,
+                        new GuiRenderState(), new Features(), 1, (Operation<Void>) args -> { callPrepare(nativePrepare, nativePipOwner, args); return null; }), true);
+                return;
+            }
             var render = rendererType.getMethod("render", Graphics.class, PreviewRenderer.PreviewRequest.class);
             var body = rendererType.getMethod("body");
             var prepareBody = rendererType.getMethod("prepareBody", String.class, boolean.class);
@@ -656,15 +710,20 @@ public final class CpmExtractionBodyProbe {
     private static void nativeRetainedFailure(Class<?> type, Object owner,
             com.naocraftlab.skins.runtime.GalleryNativePassFixture subject, Consumer<GuiState> execute, boolean lateCapture) throws Exception {
         @SuppressWarnings("unchecked") var target = (PreviewRenderer<Graphics>) owner;
+        var imageSession = type.getDeclaredField("session"); imageSession.setAccessible(true);
         materials.clear();
         submit = ignored -> {};
         var a = subject.runtime.galleryPreviewCandidate().orElseThrow();
         String sourceA = subject.runtime.previewBodySource(a);
         target.observeBody(subject.observeBody(a, target));
         var requestA = subject.request();
-        check(target.prepareGalleryBody(sourceA,false, subject.runtime.galleryPreviewAdmission(a)), "N2 actual A admission");
+        check(target.prepareGalleryImage(sourceA,false, subject.runtime.galleryPreviewAdmission(a)), "N2 actual A admission");
         target.renderGallery(new Graphics(),sourceA,subject.request()); execute.accept(Graphics.queued);
+        check(((EditorPreviewSession) imageSession.get(owner)).imageVisible() && subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,
+                "N2 extraction hidden A readiness precedes visible acknowledgement");
+        target.renderGallery(new Graphics(),sourceA,requestA); execute.accept(Graphics.queued);
         check(target.body().current().getAsBoolean(), "N2 own successful A native material prerequisite");
+        check(subject.displayed()==PreviewRenderer.DisplayKind.ORDINARY,"N2 extraction A is acknowledged before replacement");
         target.renderGallery(new Graphics(),sourceA,subject.request());
         GuiState oldA = Graphics.queued;
         if (a.presetId().equals(subject.runtime.snapshot().activePresetId())) subject.selectC();
@@ -673,7 +732,7 @@ public final class CpmExtractionBodyProbe {
         String sourceB = subject.runtime.previewBodySource(b);
         check(!sourceA.equals(sourceB), "N2 real selection creates pending successor");
         target.observeBody(subject.observeBody(b, target));
-        check(target.prepareGalleryBody(sourceB,false, subject.runtime.galleryPreviewAdmission(b)), "N2 B native admission without completion");
+        check(target.prepareGalleryImage(sourceB,false, subject.runtime.galleryPreviewAdmission(b)), "N2 B native admission without completion");
         var field = type.getDeclaredField("session"); field.setAccessible(true);
         var successor = (EditorPreviewSession)field.get(owner);
         int[] accessoryPublications = {0};
@@ -682,9 +741,13 @@ public final class CpmExtractionBodyProbe {
         var commonObserver = subject.runtime.observePreviewAccessories(b, () -> target.galleryAccessories(sourceB, requestB, inputB));
         target.observeAccessories(value -> { accessoryPublications[0]++; commonObserver.accept(value); });
         if (lateCapture) {
-            target.renderGallery(new Graphics(), sourceA, requestA);
-            oldA = Graphics.queued;
+            int queuedStart = Graphics.states.size();
             target.renderGallery(new Graphics(), sourceB, requestB);
+            var hostStates = Graphics.states.subList(queuedStart, Graphics.states.size());
+            check(hostStates.size() == 2 && hostStates.get(0).x0() >= 0 && hostStates.get(1).x1() < 0,
+                    "N2 host order emits legitimate retained A and hidden B after B observer registration");
+            check(hostStates.get(0) != oldA, "N2 retained A is freshly captured after B observer registration");
+            oldA = hostStates.get(0);
             check(oldA != Graphics.queued, "N2 host order captures separate retained A and hidden B states after B observer registration");
         }
         submit = ignored -> { throw new IllegalStateException("synthetic retained A failure"); };
@@ -693,6 +756,9 @@ public final class CpmExtractionBodyProbe {
                 "N2 retained A guarded failure must not disable successor B");
         check(accessoryPublications[0] == 0, "N2 retained A cannot publish into successor accessory observer lateCapture=" + lateCapture);
         submit = ignored -> {};
+        target.renderGallery(new Graphics(),sourceB,subject.request()); execute.accept(Graphics.queued);
+        check(((EditorPreviewSession) imageSession.get(owner)).imageVisible() && subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,
+                "N2 extraction own hidden B readiness is not visible acknowledgement");
         target.renderGallery(new Graphics(),sourceB,subject.request()); execute.accept(Graphics.queued);
         check(target.body().current().getAsBoolean() && subject.displayed() == PreviewRenderer.DisplayKind.ORDINARY,
                 "N2 successor obtains own successful native material after predecessor failure");
@@ -719,15 +785,25 @@ public final class CpmExtractionBodyProbe {
     private static void nativeFlickerMaterials(Class<?> rendererType, Object template,
             com.naocraftlab.skins.runtime.GalleryNativePassFixture original, ClassLoader loader,
             Consumer<GuiState> prepare) throws Exception {
-        nativeFlickerMaterials(rendererType, template, original, loader, prepare, false);
-        nativeFlickerMaterials(rendererType, template, original, loader, prepare, true);
+        boolean imagePolicy = java.util.Arrays.stream(rendererType.getDeclaredMethods()).anyMatch(method -> method.getName().equals("prepareGalleryImage"));
+        if (imagePolicy) {
+            boolean previous = galleryImageJoin;
+            galleryImageJoin = true;
+            try { nativeFlickerMaterials(rendererType, template, original, loader, prepare, true); }
+            finally { galleryImageJoin = previous; }
+        } else {
+            nativeFlickerMaterials(rendererType, template, original, loader, prepare, false);
+            nativeFlickerMaterials(rendererType, template, original, loader, prepare, true);
+        }
     }
 
     private static void nativeFlickerMaterials(Class<?> rendererType, Object template,
             com.naocraftlab.skins.runtime.GalleryNativePassFixture original, ClassLoader loader,
             Consumer<GuiState> prepare, boolean atomicCape) throws Exception {
-        try (var subject = original.freshOwned()) {
+        try (var subject = cpmImageJoin ? original.freshOwnedCpm() : original.freshOwned();
+             var profiles = cpmImageJoin ? CpmBehaviorProbe.nativeProfileScope() : (AutoCloseable)() -> {}) {
             if (atomicCape) subject.localCapes();
+            var definitions=new java.util.ArrayList<AutoCloseable>();
             Object renderer = create(rendererType);
             for (var field : rendererType.getDeclaredFields()) {
                 field.setAccessible(true);
@@ -776,7 +852,11 @@ public final class CpmExtractionBodyProbe {
                         call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
                     }
                     var ownCapeHandles = new java.util.HashSet<com.naocraftlab.skins.client.TextureRegistry.TextureHandle>();
-                    for (String action : atomicCape ? new String[]{"initial", "gallery.card.00000000-0000-0000-0000-000000000323"}
+                    var joinedSources = new java.util.HashSet<String>();
+                    PreviewRenderer.PreviewAppearance lastShownImage = null;
+                    for (String action : cpmImageJoin ? new String[]{"initial", "gallery.card.00000000-0000-0000-0000-000000000323"}
+                            : galleryImageJoin ? new String[]{"initial", "gallery.card.00000000-0000-0000-0000-000000000323", "gallery.outer_layer.head"}
+                            : atomicCape ? new String[]{"initial", "gallery.card.00000000-0000-0000-0000-000000000323"}
                             : new String[]{"initial", "gallery.card.00000000-0000-0000-0000-000000000323", "gallery.outer_layer.head", "gallery.inspect.none", "repeat", "clean-repeat"}) {
                         var before = subject.preview();
                         String beforeSource = subject.runtime.previewBodySource(before);
@@ -784,7 +864,7 @@ public final class CpmExtractionBodyProbe {
                             if (action.equals("repeat") || action.equals("clean-repeat")) subject.selectC();
                             else subject.runtime.dispatchWidget(action);
                         }
-                        if (atomicCape && !action.equals("initial")) {
+                        if (atomicCape && !galleryImageJoin && !action.equals("initial")) {
                             var pending = subject.runtime.galleryPreviewCandidate().orElseThrow();
                             Object ownSkinKey = call(skinKey,host,pending);
                             call(sync,host,subject.runtime.view(854,480,0,0));
@@ -805,18 +885,26 @@ public final class CpmExtractionBodyProbe {
                             check(subject.preview().equals(before), "ATOMIC_CAPE pending B cannot common ACK");
                             subject.drainWorkers(); call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
                         }
+                        if (galleryImageJoin && !action.equals("initial")) {
+                            call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                            call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        }
                         var desired = subject.runtime.galleryPreviewCandidate().orElseThrow();
                         if (!action.equals("initial")) check(subject.preview().equals(before), "FLICKER retained common projection before own candidate pass");
                         @SuppressWarnings("unchecked") var projected = (java.util.Optional<PreviewRenderer.PreviewRequest>) call(request, host, desired);
                         var own = projected.orElseThrow();
                         if (atomicCape) {
                             var cape = own.appearance().cape().orElseThrow();
-                            check(ownCapeHandles.add(cape), "ATOMIC_CAPE A and B carry distinct own cape handles");
+                            if (!galleryImageJoin || !action.equals("gallery.outer_layer.head"))
+                                check(ownCapeHandles.add(cape), "ATOMIC_CAPE A and B carry distinct own cape handles");
                             check(own.appearance().capeValidity().isValid(), "ATOMIC_CAPE own captured cape validity");
                             check(registry.registered.containsKey(cape), "ATOMIC_CAPE native request uses actual registered cape");
                         }
                         check(java.util.Arrays.equals(registry.registered.get(own.appearance().skin()), subject.ownedBytes(desired)), "FLICKER own loaded bitmap before native pass");
-                        check(!desired.bodySource().orElseThrow().cpmExpected(), "FLICKER ordinary producer is genuinely ordinary");
+                        boolean expectedCpm=cpmImageJoin && action.equals("initial");
+                        check(desired.bodySource().orElseThrow().cpmExpected()==expectedCpm,"JOIN actual imported source determines CPM/ordinary expectation");
+                        if(expectedCpm) definitions.add(prepareOwnedFeedback(subject,host,rendererType,renderer,own.appearance().skin()));
+                        else submit=ignored -> {};
                         Graphics.states.clear(); Graphics.strata.clear(); materials.clear();
                         call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
                         var states = new java.util.ArrayList<>(Graphics.states);
@@ -825,6 +913,93 @@ public final class CpmExtractionBodyProbe {
                                 + " sourceChanged=" + !beforeSource.equals(subject.runtime.previewBodySource(desired))
                                 + " imageRevisionChanged=" + !before.imageRevision().equals(desired.imageRevision())
                                 + " bitmapChanged=" + !before.skin().equals(desired.skin()));
+                        if (galleryImageJoin) {
+                            check(joinedSources.add(subject.runtime.previewBodySource(desired)), "JOIN A/B/C are distinct actual semantic source demands");
+                            var sessionField = rendererType.getDeclaredField("session"); sessionField.setAccessible(true);
+                            var imageSession = (EditorPreviewSession)sessionField.get(renderer);
+                            check(!imageSession.imageVisible(), "JOIN actual native source begins hidden");
+                            if (action.equals("initial")) {
+                                check(!imageSession.imageSpinner(), "JOIN actual host/native source has no immediate spinner");
+                                Thread.sleep(310);
+                                check(imageSession.imageSpinner(), "JOIN actual pending own source delays spinner until 300ms");
+                                call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                                check(imageSession.imageSpinner(), "JOIN host frame/stage does not reset 300ms");
+                            }
+                            var consumed = new java.util.IdentityHashMap<GuiState, TextureView>();
+                            consumerControl("normal");
+                            var joinOrder = sdkTraversal(states,true,false);
+                            consumerFrame(loader, () -> joinOrder.forEach(state -> {
+                                int count = materials.size(); prepare.accept(state);
+                                if (materials.size() > count) consumed.put(state,materials.get(materials.size()-1));
+                            }), () -> {
+                                for (var state : states) {
+                                    var material = consumed.get(state);
+                                    check(material != null && !material.texture.closed
+                                                    && ((Avatar)state.renderState()).appearance.equals(material.texture.data),
+                                            "JOIN hidden producer reaches its own actual body/cape material consumer");
+                                }
+                                consumerSubmitted();
+                            });
+                            signalConsumers();
+                            var retainedStates=states.stream().filter(state -> state.x0()<854 && state.x1()>0).toList();
+                            check(retainedStates.size()==(action.equals("initial")?0:1),
+                                    "JOIN_GALLERY_PENDING_IMAGE_RETAINED: first open has no predecessor; successor retains exactly one coherent A");
+                            if(!retainedStates.isEmpty()) {
+                                var retained=((Avatar)retainedStates.get(0).renderState()).appearance;
+                                check(retained.skin().equals(lastShownImage.skin()) && retained.model()==lastShownImage.model()
+                                                && retained.cape().equals(lastShownImage.cape()) && retained.capeMode()==lastShownImage.capeMode()
+                                                && retained.outerLayerVisibility().equals(lastShownImage.outerLayerVisibility())
+                                                && retained.nativeAccessories()==lastShownImage.nativeAccessories() && retained.capeHasElytra()==lastShownImage.capeHasElytra(),
+                                        "JOIN retained visible predecessor consumes its exact last completed whole recipe, never pending B");
+                            }
+                            check(states.stream().filter(state -> state.x1()<0).count()==1,"JOIN own pending B remains a separate hidden preparation");
+                            check(subject.displayed() == PreviewRenderer.DisplayKind.UNCONFIRMED,
+                                    "JOIN hidden material/fence must not grant common ordinary controls");
+                            Graphics.states.clear(); materials.clear();
+                            call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                            var visible = new java.util.ArrayList<>(Graphics.states);
+                            check(visible.stream().filter(state -> state.x0() < 854 && state.x1() > 0).count() == 1,
+                                    "JOIN own hidden material must progress to an actually visible native consumer");
+                            consumerControl("normal");
+                            var visibleOrder = sdkTraversal(visible,true,false);
+                            boolean[] prematureAck = {false};
+                            consumerFrame(loader, () -> visibleOrder.forEach(prepare), () -> {
+                                check(materials.size() == visible.size(), "JOIN visible own native material");
+                                try { prematureAck[0] = subject.displayed() != PreviewRenderer.DisplayKind.UNCONFIRMED; }
+                                catch (Exception failure) { throw new AssertionError(failure); }
+                                consumerSubmitted();
+                            });
+                            signalConsumers();
+                            check(!prematureAck[0], "JOIN_VISIBLE_ACK_AFTER_CONSUMER: visible prepare must remain provisional before GUI consumption/fence");
+                            check(subject.preview().bodySource().equals(desired.bodySource())
+                                            && subject.displayed() == (expectedCpm ? PreviewRenderer.DisplayKind.CPM : PreviewRenderer.DisplayKind.ORDINARY),
+                                    "JOIN visible own native consumer admits correct common CPM/ordinary ACK");
+                            check(imageSession.imageVisible() && !imageSession.imageSpinner(), "JOIN own fence ends pending spinner immediately");
+                            lastShownImage=((Avatar)visible.stream().filter(state->state.x0()<854 && state.x1()>0).findFirst().orElseThrow().renderState()).appearance;
+                            subject.layersVisible(!expectedCpm);
+                            if (action.equals("initial") && !cpmImageJoin) {
+                                String stableSource = subject.runtime.previewBodySource(desired);
+                                var stableBody = ((PreviewRenderer<?>)renderer).body();
+                                subject.favoriteDisplayed();
+                                check(imageSession.imageVisible() && !imageSession.imageSpinner()
+                                                && stableSource.equals(subject.runtime.previewBodySource(subject.runtime.galleryPreviewCandidate().orElseThrow())),
+                                        "JOIN admitted metadata writer/durable regroup does not reset actual image attempt");
+                                check(stableBody.current().getAsBoolean(), "JOIN admitted metadata write retains current body authority before next frame");
+                                Graphics.states.clear(); materials.clear();
+                                call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                                var metadataStates = new java.util.ArrayList<>(Graphics.states);
+                                check(metadataStates.stream().filter(state -> state.x0() < 854 && state.x1() > 0).count() == 1,
+                                        "JOIN metadata-only frame remains renderable");
+                                consumerControl("normal");
+                                consumerFrame(loader, () -> metadataStates.forEach(prepare), CpmExtractionBodyProbe::consumerSubmitted);
+                                signalConsumers();
+                                check(((PreviewRenderer<?>)renderer).displayKind() == PreviewRenderer.DisplayKind.ORDINARY
+                                                && subject.displayed() == PreviewRenderer.DisplayKind.ORDINARY,
+                                        "JOIN metadata-only own material/control authority retained");
+                            }
+                            System.out.println("PASS JOIN actual Gallery owned source/body/cape -> hidden consumer/fence -> visible consumer -> common ACK/controls action=" + action);
+                            continue;
+                        }
                         var ordered = sdkTraversal(states, true, false);
                         check(sdkTraversal(states, false, false).equals(states), "SDK no-prior submission order control");
                         check(sdkTraversal(states, true, true).equals(states), "SDK nonoverlap-prior submission order control");
@@ -857,6 +1032,111 @@ public final class CpmExtractionBodyProbe {
                         System.out.println("PASS FLICKER actual loaded ordinary material action=" + action);
                         if (action.equals("clean-repeat")) check(beforeSource.equals(subject.runtime.previewBodySource(desired)),
                                 "CLEAN_REPEAT_IDENTITY: own unchanged displayed material must not create another BODY source");
+                    }
+                    if(cpmImageJoin) return;
+                    if (galleryImageJoin) {
+                        call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        int uploads = registry.registered.size();
+                        var stablePreview = subject.runtime.galleryPreviewCandidate().orElseThrow();
+                        var stableCape = capes.capeState(subject.runtime.previewCapeSurfaceKey(stablePreview),stablePreview.capeId().orElseThrow()).handle();
+                        for (int mode = 0; mode < 8; mode++) {
+                            var previousMode = subject.runtime.galleryPreviewCandidate().orElseThrow().capeMode();
+                            subject.runtime.dispatchWidget("gallery.preview_mode");
+                            var changed = subject.runtime.galleryPreviewCandidate().orElseThrow();
+                            check(changed.capeMode() != previousMode, "JOIN retained mode control really changes request");
+                            call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                            @SuppressWarnings("unchecked") var modeRequest = (Optional<PreviewRenderer.PreviewRequest>)call(request,host,changed);
+                            check(modeRequest.orElseThrow().appearance().cape().equals(stableCape), "JOIN mode preserves its own prepared cape handle");
+                            for (int phase = 0; phase < 2; phase++) {
+                                Graphics.states.clear(); materials.clear();
+                                call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                                var modeStates = new java.util.ArrayList<>(Graphics.states);
+                                final boolean hidden = phase == 0;
+                                check(modeStates.size()==(hidden?2:1)
+                                                && modeStates.stream().filter(state->state.x1()<0).count()==(hidden?1:0),
+                                        "JOIN mode retained predecessor plus separate hidden successor, then only visible own successor");
+                                if(hidden)check(((Avatar)modeStates.get(0).renderState()).appearance.capeMode()==previousMode
+                                                && ((Avatar)modeStates.get(1).renderState()).appearance.capeMode()==changed.capeMode(),
+                                        "JOIN mode retained and hidden consumers keep independent exact cape recipes");
+                                consumerControl("normal");
+                                consumerFrame(loader, () -> modeStates.forEach(prepare), () -> {
+                                    check(materials.size() == modeStates.size() && materials.stream().allMatch(material -> !material.texture.closed),
+                                            "JOIN each mode phase consumes own leased material");
+                                    consumerSubmitted();
+                                });
+                                signalConsumers();
+                            }
+                            check(subject.preview().bodySource().equals(changed.bodySource()) && subject.displayed() == PreviewRenderer.DisplayKind.ORDINARY,
+                                    "JOIN each mode successor receives own visible common ACK");
+                            check(registry.registered.size() == uploads, "JOIN mode retains actual prepared working set without uploads");
+                            System.out.println("PASS JOIN Gallery mode-cache retained own cape/material hidden/visible/common ACK mode=" + mode);
+                        }
+                        subject.selectB(); call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        var held = subject.runtime.galleryPreviewCandidate().orElseThrow();
+                        String heldSource = subject.runtime.previewBodySource(held);
+                        Graphics.states.clear(); materials.clear();
+                        call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                        var heldStates = new java.util.ArrayList<>(Graphics.states);
+                        consumerControl("normal");
+                        consumerFrame(loader, () -> heldStates.forEach(prepare), CpmExtractionBodyProbe::consumerSubmitted);
+                        var heldMaterial = materials.get(materials.size()-1);
+                        check(!heldMaterial.texture.closed, "JOIN held B material is leased before its fence");
+                        subject.selectC(); call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        var terminal = subject.runtime.galleryPreviewCandidate().orElseThrow();
+                        check(!heldSource.equals(subject.runtime.previewBodySource(terminal)), "JOIN actual B to C replacement has distinct source");
+                        Graphics.states.clear();
+                        call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                        var terminalStates = new java.util.ArrayList<>(Graphics.states);
+                        var sessionField = rendererType.getDeclaredField("session"); sessionField.setAccessible(true);
+                        var terminalSession = (EditorPreviewSession)sessionField.get(renderer);
+                        check(!heldMaterial.texture.closed, "JOIN logical B retirement cannot close its physical material before fence");
+                        signalConsumers();
+                        check(heldMaterial.texture.closes == 1 && !terminalSession.imageVisible()
+                                        && subject.displayed() == PreviewRenderer.DisplayKind.UNCONFIRMED,
+                                "JOIN stale B fence releases exactly once without C image/controls ACK");
+                        materials.clear();
+                        consumerControl("normal");
+                        check(heldStates.stream().filter(state->state.x1()<0).count()==1,"JOIN captured own hidden B is separate from retained visible A");
+                        consumerFrame(loader, () -> heldStates.stream().filter(state->state.x1()<0).forEach(prepare), CpmExtractionBodyProbe::consumerSubmitted);
+                        signalConsumers();
+                        check(materials.isEmpty() && !terminalSession.imageVisible(), "JOIN retired hidden B native work cannot borrow C producer or material");
+                        consumerControl("normal");
+                        Throwable terminalFailure = null;
+                        try { consumerFrame(loader, () -> terminalStates.forEach(prepare), () -> {
+                            consumerSubmitted();
+                            throw new IllegalStateException("synthetic joined Gallery consumer failure");
+                        }); } catch (RuntimeException | Error failure) { terminalFailure = failure; }
+                        signalConsumers();
+                        check(terminalFailure instanceof IllegalStateException
+                                        && terminalFailure.getMessage().equals("synthetic joined Gallery consumer failure")
+                                        && terminalFailure.getSuppressed().length == 0,
+                                "JOIN exact terminal consumer failure is preserved with clean teardown");
+                        check(!terminalSession.imageVisible() && !terminalSession.imagePreparing() && !terminalSession.imageSpinner()
+                                        && subject.displayed() == PreviewRenderer.DisplayKind.UNCONFIRMED,
+                                "JOIN terminal C cannot display, spin forever or grant ordinary controls");
+                        Graphics.states.clear();
+                        call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                        check(Graphics.states.isEmpty(), "JOIN terminal source has no ambient retry");
+                        subject.selectB(); call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
+                        Graphics.states.clear(); materials.clear();
+                        call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                        var closingStates = new java.util.ArrayList<>(Graphics.states);
+                        check(!closingStates.isEmpty(), "JOIN new semantic source after terminal gets its own producer");
+                        consumerControl("normal");
+                        consumerFrame(loader, () -> closingStates.forEach(prepare), CpmExtractionBodyProbe::consumerSubmitted);
+                        var closingMaterial = materials.get(materials.size()-1);
+                        var closingSession = (EditorPreviewSession)sessionField.get(renderer);
+                        subject.runtime.closeScreen(); rendererType.getMethod("close").invoke(renderer);
+                        check(!closingMaterial.texture.closed, "JOIN close retains own queued physical consumer until fence");
+                        signalConsumers();
+                        check(closingMaterial.texture.closes == 1 && !closingSession.imageVisible() && !closingSession.imageSpinner(),
+                                "JOIN close rejects late material/ACK and releases exact once");
+                        System.out.println("PASS JOIN Gallery B->C stale fence/work, terminal consumer/no-retry, legitimate replacement and close/fenced exact-once retirement");
+                        return;
                     }
                     if (atomicCape) {
                         var coldThumbnailStates = new java.util.ArrayList<String>();
@@ -941,6 +1221,7 @@ public final class CpmExtractionBodyProbe {
                     rendererType.getMethod("close").invoke(renderer);
                     AccessoryProjection.cape = true; AccessoryProjection.elytra = true;
                     Graphics.states.clear(); materials.clear(); submit = ignored -> {};
+                    for(int i=definitions.size()-1;i>=0;i--) definitions.get(i).close();
                 }
             }
         }
@@ -954,16 +1235,32 @@ public final class CpmExtractionBodyProbe {
     }
 
     private static java.util.List<GuiState> sdkTraversal(java.util.List<GuiState> states, boolean prior, boolean outside) throws Exception {
-        String name = "net.minecraft.client.renderer.state.gui.GuiRenderState";
+        return sdkTraversal(states, prior, outside, "net.minecraft.client.renderer.state.gui.",
+                state -> new int[]{state.x0(), state.y0(), state.x1(), state.y1()},
+                state -> Graphics.strata.getOrDefault(state, 0), state -> state.scissorArea() == null);
+    }
+
+    static <T> java.util.List<T> sdkTraversal(java.util.List<T> states, boolean prior, boolean outside,
+            String namespace, java.util.function.Function<T, int[]> bounds,
+            java.util.function.ToIntFunction<T> stratumOf, java.util.function.Predicate<T> unclipped) throws Exception {
+        return sdkTraversal(states, prior, outside, namespace, bounds, stratumOf, unclipped, true);
+    }
+
+    static <T> java.util.List<T> sdkTraversal(java.util.List<T> states, boolean prior, boolean outside,
+            String namespace, java.util.function.Function<T, int[]> bounds,
+            java.util.function.ToIntFunction<T> stratumOf, java.util.function.Predicate<T> unclipped, boolean requireAll) throws Exception {
+        boolean added = namespace.equals("net.minecraft.client.renderer.state.gui.");
+        check(added || namespace.equals("net.minecraft.client.gui.render.state."), "exact admitted SDK collector namespace");
+        String name = namespace + "GuiRenderState";
         var resource = CpmExtractionBodyProbe.class.getClassLoader().getResource(name.replace('.', '/') + ".class");
         check(resource != null && resource.getProtocol().equals("jar"), "genuine SDK collector must come from its dependency JAR");
         var connection = (java.net.JarURLConnection)resource.openConnection();
         var jar = connection.getJarFileURL();
-        byte[] debugFlags = sdkDebugFlags(jar);
+        byte[] debugFlags = sdkDebugFlags(jar, namespace);
         try (var sdk = new java.net.URLClassLoader(new java.net.URL[]{jar}, CpmExtractionBodyProbe.class.getClassLoader()) {
             @Override protected Class<?> loadClass(String requested, boolean resolve) throws ClassNotFoundException {
                 if (!requested.startsWith("net.minecraft.")) return super.loadClass(requested, resolve);
-                if (!(requested.startsWith("net.minecraft.client.renderer.state.gui.") || requested.startsWith("net.minecraft.client.gui.navigation.")
+                if (!(requested.startsWith(namespace) || requested.startsWith("net.minecraft.client.gui.navigation.")
                         || requested.equals("net.minecraft.SharedConstants"))) {
                     if (requested.equals("net.minecraft.client.Minecraft") || requested.equals("net.minecraft.server.Bootstrap"))
                         throw new ClassNotFoundException("SDK data-only boundary: " + requested);
@@ -988,39 +1285,113 @@ public final class CpmExtractionBodyProbe {
                     && !constants.getField("DEBUG_SHUFFLE_UI_RENDERING_ORDER").getBoolean(null), "SDK non-debug scalar profile");
             Class<?> rectangle = sdk.loadClass("net.minecraft.client.gui.navigation.ScreenRectangle");
             var rect = rectangle.getConstructor(int.class,int.class,int.class,int.class);
-            Class<?> element = sdk.loadClass("net.minecraft.client.renderer.state.gui.GuiElementRenderState");
-            Class<?> pip = sdk.loadClass("net.minecraft.client.renderer.state.gui.pip.PictureInPictureRenderState");
+            Class<?> element = sdk.loadClass(namespace + "GuiElementRenderState");
+            Class<?> pip = sdk.loadClass(namespace + "pip.PictureInPictureRenderState");
             Object value = collector.getConstructor().newInstance();
-            if (prior) collector.getMethod("addGuiElement",element).invoke(value, sdkArea(sdk,element,
-                    outside ? rect.newInstance(-20,-20,10,10) : rect.newInstance(states.get(0).x0()+100,states.get(0).y0()+100,20,20)));
-            var payloads = new java.util.IdentityHashMap<Object,GuiState>();
-            int stratum = Graphics.strata.getOrDefault(states.get(0),0);
+            if (prior) collector.getMethod(added ? "addGuiElement" : "submitGuiElement",element).invoke(value, sdkArea(sdk,element,
+                    outside ? rect.newInstance(-20,-20,10,10) : rect.newInstance(bounds.apply(states.get(0))[0]+100,bounds.apply(states.get(0))[1]+100,20,20)));
+            var payloads = new java.util.IdentityHashMap<Object,T>();
+            int stratum = stratumOf.applyAsInt(states.get(0));
             for (var state : states) {
-                check(state.scissorArea() == null, "captured fullscreen Gallery PIP has no active scissor");
-                int next = Graphics.strata.getOrDefault(state,stratum);
+                check(unclipped.test(state), "captured native PIP has no active scissor");
+                int next = stratumOf.applyAsInt(state);
                 while (stratum < next) { collector.getMethod("nextStratum").invoke(value); stratum++; }
-                Object proxy = sdkArea(sdk,pip,rect.newInstance(state.x0(),state.y0(),state.x1()-state.x0(),state.y1()-state.y0()));
+                int[] area = bounds.apply(state);
+                Object proxy = sdkArea(sdk,pip,area == null ? null : rect.newInstance(area[0],area[1],area[2]-area[0],area[3]-area[1]));
                 check(!payloads.containsValue(state), "one exact native payload per SDK submission"); payloads.put(proxy,state);
-                collector.getMethod("addPicturesInPictureState",pip).invoke(value,proxy);
+                collector.getMethod(added ? "addPicturesInPictureState" : "submitPicturesInPictureState",pip).invoke(value,proxy);
             }
-            var result = new java.util.ArrayList<GuiState>();
+            var result = new java.util.ArrayList<T>();
             collector.getMethod("forEachPictureInPicture",Consumer.class).invoke(value,(Consumer<Object>) proxy -> {
-                GuiState payload = payloads.get(proxy); check(payload != null, "SDK traversal preserves actual captured payload reference"); result.add(payload);
+                T payload = payloads.get(proxy); check(payload != null, "SDK traversal preserves actual captured payload reference"); result.add(payload);
             });
-            check(result.size() == states.size(), "SDK traversal cannot lose a payload");
+            check(!requireAll || result.size() == states.size(), "SDK traversal cannot lose a payload");
             System.out.println("TRACE SDK collector=" + jar + " classSHA=" + digest(bytes) + " prior=" + prior + " outside=" + outside
                     + " order=" + result.stream().map(states::indexOf).toList());
             return result;
         }
     }
 
-    private static byte[] sdkDebugFlags(java.net.URL jar) throws Exception {
+    static final class SdkFrames implements AutoCloseable {
+        final java.net.URLClassLoader loader;
+        final Class<?> collector, rectangle, element, pip;
+        final Object state;
+        final java.util.IdentityHashMap<Object,Object> payloads = new java.util.IdentityHashMap<>();
+        final java.util.IdentityHashMap<Object,String> labels = new java.util.IdentityHashMap<>();
+        final java.util.IdentityHashMap<Object,Object> nodes = new java.util.IdentityHashMap<>();
+        final java.lang.reflect.Field current;
+        final String namespace = "net.minecraft.client.renderer.state.gui.";
+        SdkFrames() throws Exception {
+            var resource = CpmExtractionBodyProbe.class.getClassLoader().getResource(namespace.replace('.','/') + "GuiRenderState.class");
+            check(resource != null && resource.getProtocol().equals("jar"), "SDK frame dependency JAR");
+            var jar = ((java.net.JarURLConnection)resource.openConnection()).getJarFileURL();
+            byte[] flags = sdkDebugFlags(jar, namespace);
+            loader = new java.net.URLClassLoader(new java.net.URL[]{jar}, CpmExtractionBodyProbe.class.getClassLoader()) {
+                @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                    if (name.equals("net.minecraft.client.Minecraft") || name.equals("net.minecraft.server.Bootstrap"))
+                        throw new ClassNotFoundException("SDK frame data-only boundary: " + name);
+                    if (!(name.startsWith(namespace) || name.startsWith("net.minecraft.client.gui.navigation.") || name.equals("net.minecraft.SharedConstants")))
+                        return super.loadClass(name,resolve);
+                    Class<?> type = findLoadedClass(name);
+                    if (type == null) type = name.equals("net.minecraft.SharedConstants") ? defineClass(name,flags,0,flags.length) : findClass(name);
+                    if (resolve) resolveClass(type);
+                    return type;
+                }
+            };
+            collector = loader.loadClass(namespace+"GuiRenderState");
+            check(collector.getClassLoader()==loader && collector.getProtectionDomain().getCodeSource().getLocation().equals(jar),"SDK frame genuine owner");
+            rectangle = loader.loadClass("net.minecraft.client.gui.navigation.ScreenRectangle");
+            element = loader.loadClass(namespace+"GuiElementRenderState");
+            pip = loader.loadClass(namespace+"pip.PictureInPictureRenderState");
+            state = collector.getConstructor().newInstance();
+            current = collector.getDeclaredField("current"); current.setAccessible(true);
+            System.out.println("BOUND SDK frames JAR="+jar+" collectorSHA="+digest(resource.openStream().readAllBytes()));
+        }
+        Object area(Class<?> type,int[] bounds) throws Exception {
+            return sdkArea(loader,type,bounds==null?null:rectangle.getConstructor(int.class,int.class,int.class,int.class)
+                    .newInstance(bounds[0],bounds[1],bounds[2]-bounds[0],bounds[3]-bounds[1]));
+        }
+        void fill(int[] bounds,String label) throws Exception {
+            Object proxy=area(element,bounds); labels.put(proxy,label);
+            collector.getMethod("addGuiElement",element).invoke(state,proxy);
+        }
+        void submit(Object payload,int[] bounds) throws Exception {
+            Object proxy=area(pip,bounds); payloads.put(proxy,payload);
+            collector.getMethod("addPicturesInPictureState",pip).invoke(state,proxy);
+        }
+        void next() throws Exception {collector.getMethod("nextStratum").invoke(state);}
+        java.util.List<Object> prepareOrder() throws Exception {
+            var result=new java.util.ArrayList<Object>();
+            collector.getMethod("forEachPictureInPicture",Consumer.class).invoke(state,(Consumer<Object>) proxy -> {
+                Object payload=payloads.get(proxy);check(payload!=null,"SDK exact payload mapping");result.add(payload);
+                try {nodes.put(payload,current.get(state));}catch(IllegalAccessException failure){throw new AssertionError(failure);}
+            });
+            return result;
+        }
+        void blit(Object payload,int[] bounds,String label) throws Exception {
+            Object proxy=area(element,bounds);labels.put(proxy,label);
+            Object node=nodes.get(payload);check(node!=null,"SDK blit selected node");
+            var add=node.getClass().getDeclaredMethod("addGuiElement",element);add.setAccessible(true);add.invoke(node,proxy);
+        }
+        java.util.List<String> elements() throws Exception {
+            var result=new java.util.ArrayList<String>();
+            Class<?> range=loader.loadClass(namespace+"GuiRenderState$TraverseRange");
+            collector.getMethod("forEachElement",Consumer.class,range).invoke(state,(Consumer<Object>) proxy -> result.add(labels.get(proxy)),range.getField("ALL").get(null));
+            return result;
+        }
+        void reset() throws Exception {collector.getMethod("reset").invoke(state);payloads.clear();labels.clear();nodes.clear();}
+        public void close() throws java.io.IOException {loader.close();}
+    }
+
+    private static byte[] sdkDebugFlags(java.net.URL jar, String namespace) throws Exception {
         String owner = "net/minecraft/SharedConstants";
         var expected = java.util.Set.of("DEBUG_RENDER_UI_LAYERING_RECTANGLES", "DEBUG_SHUFFLE_UI_RENDERING_ORDER");
         var counts = new HashMap<String, Integer>();
         try (var dependency = new java.util.jar.JarFile(new java.io.File(jar.toURI()))) {
             var constants = new ClassNode();
-            try (var input = dependency.getInputStream(dependency.getJarEntry(owner + ".class"))) {
+            var constantsResource = CpmExtractionBodyProbe.class.getClassLoader().getResource(owner + ".class");
+            check(constantsResource != null && constantsResource.getProtocol().equals("jar"), "SDK debug scalar declaration must come from its dependency JAR");
+            try (var input = constantsResource.openStream()) {
                 new ClassReader(input).accept(constants, 0);
             }
             for (String field : expected) {
@@ -1031,14 +1402,14 @@ public final class CpmExtractionBodyProbe {
             }
             for (var entry : java.util.Collections.list(dependency.entries())) {
                 String name = entry.getName();
-                if (!name.endsWith(".class") || !(name.startsWith("net/minecraft/client/renderer/state/gui/")
+                if (!name.endsWith(".class") || !(name.startsWith(namespace.replace('.', '/'))
                         || name.startsWith("net/minecraft/client/gui/navigation/"))) continue;
                 var node = new ClassNode();
                 try (var input = dependency.getInputStream(entry)) { new ClassReader(input).accept(node, 0); }
                 for (var method : node.methods) for (var instruction : method.instructions) {
                     if (instruction instanceof org.objectweb.asm.tree.FieldInsnNode field && field.owner.equals(owner)) {
                         sdkDebugAccess(field.getOpcode(), field.name, field.desc);
-                        check(node.name.equals("net/minecraft/client/renderer/state/gui/GuiRenderState"),
+                        check(node.name.equals(namespace.replace('.', '/') + "GuiRenderState"),
                                 "SDK debug scalar collector owner");
                         counts.merge(field.name, 1, Integer::sum);
                     }
@@ -1151,7 +1522,7 @@ public final class CpmExtractionBodyProbe {
                     if (!armed[0]) return;
                     try {
                         String source = firstSource[0];
-                        Object slot = ((Map<?,?>)slotsField.get(renderer)).get(source);
+                        Object slot = nativeSlot(renderer,source);
                         boolean retained = false; boolean displayed = false;
                         PreviewRenderer.LiveReason rawReason = PreviewRenderer.LiveReason.LIVE_UNAVAILABLE;
                         if (slot != null) {
@@ -1222,6 +1593,8 @@ public final class CpmExtractionBodyProbe {
                     GuiState p1State = Graphics.queued;
                     if (ownedCpm) ownedFeedbackBinding(subject, production, key, rendererType, renderer, p1State);
                     execute.accept(p1State);
+                    check(subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"P1 hidden own material cannot common ACK");
+                    call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));p1State=Graphics.queued;execute.accept(p1State);
                     check(production.body().current().getAsBoolean() && subject.displayed() == (ownedCpm ? PreviewRenderer.DisplayKind.CPM : PreviewRenderer.DisplayKind.ORDINARY),
                             "P1 own actual native pass/material/common ACK, not metadata readiness");
                     check(lastMaterial != null && !lastMaterial.texture.closed
@@ -1250,6 +1623,8 @@ public final class CpmExtractionBodyProbe {
                         call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
                         if (ownedCpm) ownedFeedbackBinding(subject, production, subject.runtime.previewBodySource(capeOnly), rendererType, renderer, Graphics.queued);
                         execute.accept(Graphics.queued);
+                        check(subject.preview().equals(held) && subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"cape-only hidden own consumer preserves retained common projection");
+                        call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));execute.accept(Graphics.queued);
                         check(subject.preview().equals(capeOnly) && subject.displayed() == (ownedCpm ? PreviewRenderer.DisplayKind.CPM : PreviewRenderer.DisplayKind.ORDINARY),
                                 "cape-only successor commits its own native pass and coherent controls");
                         subject.layersVisible(!ownedCpm);
@@ -1268,7 +1643,9 @@ public final class CpmExtractionBodyProbe {
                                 && inspected.capeId().isEmpty(), "UI09 card frontdoor preserves native inspection through cold successor: inspection=" + inspected.bodySource().orElseThrow().inspectionIdentity() + " cape=" + inspected.capeId() + " native=" + inspected.nativeAccessories());
                         definitions.add(prepareOwnedFeedback(subject,host,rendererType,renderer,firstRequest[0].appearance().skin()));
                         call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                        check(Graphics.queued.x1()<0,"UI09 actual inspected source begins with hidden preparation");
                         execute.accept(Graphics.queued);
+                        check(subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"UI09 hidden inspected source consumer cannot common ACK");
                         subject.runtime.view(854,480,0,0);
                         inspected = subject.runtime.galleryPreviewCandidate().orElseThrow();
                         check(inspected.nativeAccessories() && inspected.capeId().isEmpty(), "UI09 own fresh native facts override writable cape default");
@@ -1322,7 +1699,7 @@ public final class CpmExtractionBodyProbe {
                         && production.prepareGalleryBody(source, true, subject.runtime.galleryPreviewAdmission(candidate)),
                 "genuine host registration precedes own preparation and pinned decode, never a no-op observer");
         var slots = rendererType.getDeclaredField("gallerySlots"); slots.setAccessible(true);
-        Object slot = ((Map<?,?>) slots.get(renderer)).get(source);
+        Object slot = nativeSlot(renderer,source);
         check(slot != null, "compiled host prepares the actual owned slot before pinned CPM decode");
         var profileMethod = slot.getClass().getDeclaredMethod("profile"); profileMethod.setAccessible(true);
         var profile = (com.mojang.authlib.GameProfile) profileMethod.invoke(slot);
@@ -1337,7 +1714,7 @@ public final class CpmExtractionBodyProbe {
     private static void ownedFeedbackBinding(com.naocraftlab.skins.runtime.GalleryNativePassFixture subject,
             PreviewRenderer<Graphics> production, String source, Class<?> rendererType, Object renderer, GuiState state) throws Exception {
         var slots = rendererType.getDeclaredField("gallerySlots"); slots.setAccessible(true);
-        Object slot = ((Map<?,?>) slots.get(renderer)).get(source);
+        Object slot = nativeSlot(renderer,source);
         var profileMethod = slot.getClass().getDeclaredMethod("profile"); profileMethod.setAccessible(true);
         var profile = (com.mojang.authlib.GameProfile) profileMethod.invoke(slot);
         var appearance = ((Avatar) state.renderState()).appearance;
@@ -1347,6 +1724,20 @@ public final class CpmExtractionBodyProbe {
                 && AccessoryProjection.model == appearance.model(), "own metadata matches actual NativeSlot profile/skin/model before CPM binding");
         check(java.util.Arrays.equals(subject.ownedBytes(subject.runtime.galleryPreviewCandidate().orElseThrow()), subject.ownedBytes(subject.preview())),
                 "capability successor preserves its actual owned image bytes");
+    }
+
+    private static Object nativeSlot(Object renderer,String source) throws ReflectiveOperationException {
+        var owner = renderer.getClass();
+        var galleryField = owner.getDeclaredField("gallery"); galleryField.setAccessible(true);
+        var gallery = (EditorPreviewSession.Gallery)galleryField.get(renderer);
+        var slots = owner.getDeclaredField("gallerySlots"); slots.setAccessible(true);
+        var values = (Map<?,?>)slots.get(renderer);
+        Object desired = values.get(gallery.session(source));
+        if (desired != null) return desired;
+        var sourceField = EditorPreviewSession.class.getDeclaredField("bodySource"); sourceField.setAccessible(true);
+        for (var entry : values.entrySet())
+            if (java.util.Objects.equals(source,sourceField.get(entry.getKey()))) return entry.getValue();
+        return null;
     }
 
     private static void nativeMetadataRebuild(Class<?> rendererType, Object renderer,
@@ -1389,7 +1780,7 @@ public final class CpmExtractionBodyProbe {
                 check(beforeBody.current().getAsBoolean(), "host metadata starts from actual displayed body");
                 String source = subject.runtime.previewBodySource(subject.preview());
                 var slotField = rendererType.getDeclaredField("gallerySlots"); slotField.setAccessible(true);
-                Object slot = ((Map<?,?>) slotField.get(renderer)).get(source);
+                Object slot = nativeSlot(renderer,source);
                 Object[] identities = new Object[4];
                 String[] names = {"profile", "player", "target", "baked"};
                 for (int i=0; i<names.length; i++) { var method=slot.getClass().getDeclaredMethod(names[i]); method.setAccessible(true); identities[i]=method.invoke(slot); }
@@ -1411,7 +1802,7 @@ public final class CpmExtractionBodyProbe {
                 check(hostType.getField("editorRenderer").get(host) == renderer && beforeBody.current().getAsBoolean()
                         && source.equals(subject.runtime.previewBodySource(subject.preview())), "rebuild/reopen/assets preserve the same native BODY source and renderer");
                 call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0)); execute.accept(Graphics.queued);
-                Object after = ((Map<?,?>) slotField.get(renderer)).get(source);
+                Object after = nativeSlot(renderer,source);
                 for (int i=0; i<names.length; i++) { var method=after.getClass().getDeclaredMethod(names[i]); method.setAccessible(true); check(method.invoke(after)==identities[i], "same-write host rebuild preserves native "+names[i]); }
                 check(lastMaterial == material && !material.texture.closed && material.texture.data.equals(beforePayload)
                         && material.texture.data.equals(((Avatar) Graphics.queued.renderState()).appearance)
@@ -1446,7 +1837,7 @@ public final class CpmExtractionBodyProbe {
             }
             Method draw = hostType.getDeclaredMethod("drawPreviews", Graphics.class, com.naocraftlab.skins.runtime.ViewSpec.class); draw.setAccessible(true);
             var slotsField = rendererType.getDeclaredField("gallerySlots"); slotsField.setAccessible(true);
-            @SuppressWarnings("unchecked") var slots = (Map<String, ?>) slotsField.get(renderer);
+            @SuppressWarnings("unchecked") var slots = (Map<EditorPreviewSession, ?>) slotsField.get(renderer);
             call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
             execute.accept(Graphics.queued);
             Method releaseBody = hostType.getDeclaredMethod("releasePreviewBody"); releaseBody.setAccessible(true);
@@ -1459,6 +1850,8 @@ public final class CpmExtractionBodyProbe {
             check(capes.capeState(subject.runtime.previewCapeSurfaceKey(readyCape),readyCape.capeId().orElseThrow()).handle().isPresent(),
                     "COMMON-02 predecessor has an actual own registered cape before native execution");
             call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0)); execute.accept(Graphics.queued);
+            check(subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"same-ID cape predecessor hidden preparation cannot common ACK");
+            call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0)); execute.accept(Graphics.queued);
             var capabilityA = subject.preview();
             check(capabilityA.capeHasElytra(), "COMMON-02 real account readback establishes predecessor capability");
             subject.offlineCapeCapability(false);
@@ -1468,23 +1861,25 @@ public final class CpmExtractionBodyProbe {
                     "COMMON-02 equal BodySource distinct exact account cape capability");
             call(sync,host,subject.runtime.view(854,480,0,0)); subject.drainWorkers();
             call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0)); execute.accept(Graphics.queued);
+            check(subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"same-ID cape successor hidden preparation cannot common ACK");
+            call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0)); execute.accept(Graphics.queued);
             check(!subject.preview().capeHasElytra(), "COMMON-02 actual host must execute same-ID successor capability pass");
             System.out.println("PASS COMMON-02 real durable account cape capability -> canonical data producer -> actual host same-ID candidate pass");
             var confirmed = subject.preview();
             String confirmedSource = subject.runtime.previewBodySource(confirmed);
-            check(slots.containsKey(confirmedSource) && subject.displayed() != PreviewRenderer.DisplayKind.UNCONFIRMED,
+            check((nativeSlot(renderer,confirmedSource) != null) && subject.displayed() != PreviewRenderer.DisplayKind.UNCONFIRMED,
                     "late candidate prerequisite: actual host/native pass confirms predecessor");
             subject.selectB();
             var queuedCandidate = subject.runtime.galleryPreviewCandidate().orElseThrow();
             String queuedSource = subject.runtime.previewBodySource(queuedCandidate);
             call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
             GuiState queued = Graphics.queued;
-            check(!queuedSource.equals(confirmedSource) && slots.containsKey(confirmedSource) && slots.containsKey(queuedSource),
+            check(!queuedSource.equals(confirmedSource) && (nativeSlot(renderer,confirmedSource) != null) && (nativeSlot(renderer,queuedSource) != null),
                     "late candidate prerequisite: actual host enqueues hidden candidate and retains confirmed predecessor");
             subject.selectC();
             var newest = subject.runtime.galleryPreviewCandidate().orElseThrow();
             String newestSource = subject.runtime.previewBodySource(newest);
-            check(!newestSource.equals(confirmedSource) && !newestSource.equals(queuedSource) && !slots.containsKey(newestSource),
+            check(!newestSource.equals(confirmedSource) && !newestSource.equals(queuedSource) && (nativeSlot(renderer,newestSource) == null),
                     "late candidate prerequisite: admitted second selection precedes native preparation");
             var captured = subject.runtime.view(854,480,0,0);
             check(captured.previews().stream().filter(p -> p.id().equals("gallery.preview")).findFirst().orElseThrow().equals(confirmed),
@@ -1493,14 +1888,16 @@ public final class CpmExtractionBodyProbe {
             check(subject.preview().equals(confirmed) && subject.runtime.previewBodySource(confirmed).equals(confirmedSource),
                     "late candidate must be rejected by common owner without changing source epoch");
             System.out.println("TRACE superseded native candidate: commonConfirmed=predecessor; appDesired=newest; nativeNewestPrepared="
-                    + slots.containsKey(newestSource) + "; nativeQueuedRetained=" + slots.containsKey(queuedSource)
-                    + "; nativeConfirmedRetained=" + slots.containsKey(confirmedSource) + "; nativeSlots=" + slots.size());
+                    + (nativeSlot(renderer,newestSource) != null) + "; nativeQueuedRetained=" + (nativeSlot(renderer,queuedSource) != null)
+                    + "; nativeConfirmedRetained=" + (nativeSlot(renderer,confirmedSource) != null) + "; nativeSlots=" + slots.size());
             call(draw, host, new Graphics(), captured);
-            check(slots.containsKey(confirmedSource), "superseded completion cannot retire the source still requested by actual captured view");
+            check((nativeSlot(renderer,confirmedSource) != null), "superseded completion cannot retire the source still requested by actual captured view");
             GuiState acceptedCandidate = Graphics.queued;
             execute.accept(acceptedCandidate);
-            check(subject.preview().bodySource().equals(newest.bodySource()) && slots.containsKey(newestSource)
-                    && !slots.containsKey(confirmedSource), "COMMON-01 actual C pass, not stale B, replaces and retires A");
+            check(subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED && subject.preview().equals(confirmed),"COMMON-01 hidden own C material cannot replace retained A projection");
+            call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));acceptedCandidate=Graphics.queued;execute.accept(acceptedCandidate);
+            check(subject.preview().bodySource().equals(newest.bodySource()) && (nativeSlot(renderer,newestSource) != null)
+                    && (nativeSlot(renderer,confirmedSource) == null), "COMMON-01 actual C pass, not stale B, replaces and retires A");
             check(lastMaterial != null && !lastMaterial.texture.closed
                     && lastMaterial.texture.data.equals(((Avatar)acceptedCandidate.renderState()).appearance),
                     "COMMON-01 C owns its actual nonempty native material");
@@ -1560,7 +1957,7 @@ public final class CpmExtractionBodyProbe {
             var positiveB = supplierB.get();
             check(current != old && positiveB.canInspect() && !positiveA.scope().equals(positiveB.scope()), "new real native slot has its own positive profile");
             var slotsField = rendererType.getDeclaredField("gallerySlots"); slotsField.setAccessible(true);
-            Object slot = ((Map<?,?>) slotsField.get(renderer)).get(subject.runtime.previewBodySource(subject.runtime.galleryPreviewCandidate().orElseThrow()));
+            Object slot = nativeSlot(renderer,subject.runtime.previewBodySource(subject.runtime.galleryPreviewCandidate().orElseThrow()));
             var profileMethod = slot.getClass().getDeclaredMethod("profile"); profileMethod.setAccessible(true);
             var profile = (com.mojang.authlib.GameProfile) profileMethod.invoke(slot);
             check(AccessoryProjection.profile.equals(CpmBehaviorProbe.nativeProfileId(profile)) && AccessoryProjection.skin.equals(subject.request().appearance().skin().location())
@@ -1827,9 +2224,14 @@ public final class CpmExtractionBodyProbe {
     }
 
     private static void rendererTerminals(ClassNode node) {
+        for (var method : node.methods) for (var instruction : method.instructions) {
+            if (instruction instanceof org.objectweb.asm.tree.MethodInsnNode call && call.name.equals("blit")
+                    && call.owner.equals("net/minecraft/client/gui/GuiGraphicsExtractor"))
+                call.desc = call.desc.replace("Lnet/minecraft/resources/Identifier;", "Ljava/lang/Object;");
+        }
         var helpers = node.methods.stream().filter(method -> java.util.Set.of("playerSkin", "previewPlayer", "applySettling", "createRenderState", "configurePreviewState", "previewElytraStack").contains(method.name)).toList();
-        node.methods.removeIf(method -> !java.util.Set.of("render", "body", "prepareBody", "observeBody", "onLiveRenderFailure", "onLiveLayerFailure", "clearAccessoryInspection", "accessoryObserverFor",
-                "prepareGalleryBody", "confirmGalleryBody", "renderGallery", "saveGallerySlot", "selectGallerySlot", "retireGallerySlots", "galleryAccessories", "accessories", "observeAccessories", "close").contains(method.name)
+        node.methods.removeIf(method -> !java.util.Set.of("render", "body", "prepareBody", "renderPrepared", "prepareImage", "prepareGalleryImage", "observeBody", "onLiveRenderFailure", "onLiveLayerFailure", "clearAccessoryInspection", "accessoryObserverFor",
+                "prepareGalleryBody", "confirmGalleryBody", "renderGallery", "renderRetained", "retainedTextures", "saveGallerySlot", "selectGallerySlot", "selectGallerySession", "retireGallerySlots", "galleryAccessories", "accessories", "observeAccessories", "close").contains(method.name)
                 && !method.name.startsWith("lambda$"));
 
         init(node);
@@ -1924,6 +2326,12 @@ public final class CpmExtractionBodyProbe {
         public static void retireSkin(java.util.UUID id) {}
     }
     public static final class Graphics {
+        static final java.util.List<CpmBakedDisplayProbe.LoadingFrame> loadingFrames = new java.util.ArrayList<>();
+        public void blit(Pipeline pipeline, Object texture, int x, int y, float u, float v,
+                int width, int height, int sourceWidth, int sourceHeight, int textureWidth, int textureHeight, int color) {
+            loadingFrames.add(new CpmBakedDisplayProbe.LoadingFrame(texture.toString(), x, y, u, v, width, height,
+                    sourceWidth, sourceHeight, textureWidth, textureHeight));
+        }
         static GuiState queued;
         static final java.util.List<GuiState> states = new java.util.ArrayList<>();
         static final java.util.Map<GuiState,Integer> strata = new java.util.IdentityHashMap<>();
@@ -1951,6 +2359,8 @@ public final class CpmExtractionBodyProbe {
         public void submitBlitToCurrentLayer(Blit blit) { addBlitToCurrentLayer(blit); }
         public void reset() {}
     }
+    static void bindAppearance(PreviewRenderer.PreviewAppearance appearance) { submit.accept(appearance); }
+
     static void submissionBoundaries(Runnable binding, Runnable cleanup) {
         submissionBoundaries(ignored -> binding.run(), cleanup);
     }
@@ -1974,10 +2384,16 @@ public final class CpmExtractionBodyProbe {
                 CpmBakedDisplayProbe.RenderType type, int light, int overlay, int color, CpmBakedDisplayProbe.Overlay crumbling) { bakedPayload(this, type.texture); CpmBakedDisplayProbe.primary(); }
     }
     private static void bakedPayload(Collector collector, Object texture) {
-        if (collector instanceof Storage storage) storage.payload = texture;
+        if (collector instanceof Storage storage) {
+            storage.payload = texture;
+            if (texture != null) storage.payloads.add(texture);
+        }
         if (RenderSystem.outputColorTextureOverride != null) RenderSystem.outputColorTextureOverride.texture.data = texture;
     }
-    public static final class Storage implements Collector { Object payload; }
+    public static final class Storage implements Collector {
+        Object payload;
+        final java.util.List<Object> payloads = new java.util.ArrayList<>();
+    }
     public static final class Pose {
         public void pushPose() { CpmBakedDisplayProbe.push(); }
         public void popPose() { CpmBakedDisplayProbe.pop(); }
@@ -1989,23 +2405,43 @@ public final class CpmExtractionBodyProbe {
         public State extractEntity(CpmPreviewScopeProbe.Entity entity, float partialTick) { return new Avatar(); }
         public void submit(State state, CpmPreviewScopeProbe.Camera camera, double x, double y, double z, Pose pose, Collector collector) {
             if (RenderSystem.outputColorTextureOverride != null) RenderSystem.outputColorTextureOverride.texture.data = state instanceof Avatar avatar && avatar.appearance != null ? avatar.appearance : state;
-            if (collector instanceof Storage storage) storage.payload = state instanceof Avatar avatar && avatar.appearance != null ? avatar.appearance : state;
+            if (collector instanceof Storage storage) {
+                storage.payload = state instanceof Avatar avatar && avatar.appearance != null ? avatar.appearance : state;
+                storage.payloads.add(storage.payload);
+            }
             submits++; submit.accept(state instanceof Avatar avatar ? avatar.appearance : null);
         }
     }
     public static final class Features {
         public Storage getSubmitNodeStorage() { return new Storage(); }
         public void renderAllFeatures() { flushes++; late.run(); }
-        public void renderAllFeatures(Storage storage) { renderAllFeatures(); }
-        public PreparedFrame prepareFrame(Storage storage) { return new PreparedFrame(storage.payload); }
+        public void renderAllFeatures(Storage storage) {
+            if (RenderSystem.outputColorTextureOverride != null)
+                RenderSystem.outputColorTextureOverride.texture.materialInputs = java.util.List.copyOf(storage.payloads);
+            storage.payloads.clear();
+            renderAllFeatures();
+        }
+        public PreparedFrame prepareFrame(Storage storage) {
+            var frame = new PreparedFrame(storage.payload, storage.payloads);
+            storage.payloads.clear();
+            return frame;
+        }
         public static void renderAllFeatures(Pass pass, PreparedFrame frame) {
-            if (pass.target() != null && frame.payload != null) pass.target().texture.data = frame.payload;
+            if (pass.target() != null && frame.payload != null) {
+                pass.target().texture.data = frame.payload;
+                pass.target().texture.materialInputs = frame.payloads;
+            }
             flushes++; late.run();
         }
     }
     public static final class PreparedFrame implements AutoCloseable {
         final Object payload;
-        public PreparedFrame(Object payload) { this.payload = payload; }
+        final java.util.List<Object> payloads;
+        public PreparedFrame(Object payload) { this(payload, payload == null ? java.util.List.of() : java.util.List.of(payload)); }
+        public PreparedFrame(Object payload, java.util.List<Object> payloads) {
+            this.payload = payload;
+            this.payloads = java.util.List.copyOf(payloads);
+        }
         public void close() { frameClose.run(); }
     }
     public static final class GameRenderer {
@@ -2045,6 +2481,7 @@ public final class CpmExtractionBodyProbe {
     }
     public static final class LegacyTexture implements GpuTexture {
         Object data;
+        java.util.List<Object> materialInputs = java.util.List.of();
         boolean closed;
         int closes;
         final int width, height;
@@ -2067,7 +2504,7 @@ public final class CpmExtractionBodyProbe {
     public static final class Sampler {}
     public static final class SamplerCache { public Sampler getRepeat(Filter filter) { return new Sampler(); } }
     public static final class Pipeline { public static void updateSortKeySeed() {} }
-    public static final class Pipelines { public static final Pipeline GUI_TEXTURED_PREMULTIPLIED_ALPHA = new Pipeline(); }
+    public static final class Pipelines { public static final Pipeline GUI_TEXTURED = new Pipeline(); public static final Pipeline GUI_TEXTURED_PREMULTIPLIED_ALPHA = new Pipeline(); }
     public record TextureSetup(TextureView view) {
         public static TextureSetup singleTexture(TextureView view, Sampler sampler) { return new TextureSetup(view); }
         public static void updateSortKeySeed() {}

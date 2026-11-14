@@ -36,6 +36,10 @@ public final class CpmOwnedPreviewDispatchProbe {
     private static int nativeDispatches;
 
     public static void main(String[] args) throws Exception {
+        if (args.length == 1 && args[0].equals("loading-geometry")) {
+            loadingGeometry();
+            return;
+        }
         if (args.length==2 && args[0].equals("buttons-only")) {
             buttonFocusConsumers();
             return;
@@ -103,6 +107,93 @@ public final class CpmOwnedPreviewDispatchProbe {
             check(nativeDispatches == SkinVariant.values().length, "each selected type must reach actual native resource policy/resolve/frame binding");
             System.out.println("PASS native model writer -> production import -> compiled loaded dispatch -> actual scoped resource policy/resolve/frame binding, both types; synthetic host/GPU, NOT game-rendered acceptance");
         } else System.out.println("PASS production import -> compiled screen synchronization/dispatch -> exact registered carrier and model; synthetic GPU/borrowed host terminals, NOT native worldless/live rendering or CPM policy acceptance");
+    }
+
+    private static void loadingGeometry() throws Exception {
+        var pixels = new java.awt.image.BufferedImage(64,64,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        var bytes = new java.io.ByteArrayOutputStream(); javax.imageio.ImageIO.write(pixels,"PNG",bytes);
+        var appearance = new PreviewRenderer.PreviewAppearance(new TextureRegistry.TextureHandle("fixture:geometry",64,64),
+                SkinModel.CLASSIC,Optional.empty(),PreviewRenderer.CapeMode.OFF,com.naocraftlab.skins.client.OuterLayerVisibility.allVisible());
+        try (var base = new com.naocraftlab.skins.runtime.GalleryNativePassFixture(appearance,bytes.toByteArray());
+             var subject = base.freshOwned()) {
+            var runtime = subject.runtime;
+            runtime.dispatchWidget("gallery.providers"); subject.drainWorkers();
+            var original = runtime.view(854,480,0,0);
+            var preview = original.previews().stream().filter(p->p.id().equals("editor.preview")).findFirst().orElseThrow();
+            check(!preview.bounds().equals(preview.anchorBounds()),"GEOMETRY main full-screen extent differs from model anchor");
+            var view = copyView(original,preview);
+            var hostType = CpmPreviewScreenSlice.load(CpmPreviewScreenSlice.availableOwner());
+            Object host = hostType.getConstructor().newInstance();
+            var registry = new Registry();
+            var ctor = PreviewAssetCache.class.getDeclaredConstructor(TextureRegistry.class,TextureRegistry.TextureKind.class,DiagnosticSink.class,java.util.function.LongSupplier.class);
+            ctor.setAccessible(true);
+            try (var skins = (PreviewAssetCache<Object>)ctor.newInstance(registry,TextureRegistry.TextureKind.PLAYER_SKIN,DiagnosticSinks.discarding(),(java.util.function.LongSupplier)()->System.nanoTime()-500_000_000L);
+                 var capes = (PreviewAssetCache<Object>)ctor.newInstance(registry,TextureRegistry.TextureKind.IMAGE,DiagnosticSinks.discarding(),(java.util.function.LongSupplier)()->System.nanoTime()-500_000_000L)) {
+                var boundary = new RuntimeBoundary(runtime,bytes.toByteArray(),SkinVariant.CLASSIC,bytes.toByteArray());
+                var terminal = new RenderTerminal(); terminal.boundary=boundary;
+                for (var f : hostType.getDeclaredFields()) {
+                    f.setAccessible(true);
+                    Object value = switch(f.getName()) {
+                        case "runtime" -> boundary;
+                        case "skinTextures" -> skins;
+                        case "capeTextures" -> capes;
+                        case "textureRegistry" -> registry;
+                        case "editorRenderer" -> terminal;
+                        case "capabilities" -> new Capabilities() {
+                            public PreviewRenderer<Graphics> createEditorPreviewRenderer(){return terminal;}
+                            public PreviewRenderer<Graphics> createSimplePreviewRenderer(){return terminal;}
+                        };
+                        case "width" -> 854;
+                        case "height" -> 480;
+                        default -> f.getType()==Map.class ? new HashMap<>() : null;
+                    };
+                    if(value!=null) f.set(host,value);
+                }
+                boolean immediate = hostType.getName().endsWith("NclSkinsImmediateScreen");
+                String sync = immediate?"synchronizePreviews":hostType.getName().contains("submission")?"synchronizePreviewAssets":"syncPreviewAssets";
+                var key = hostType.getDeclaredMethod(immediate?"previewAssetKey":"skinKey",ViewSpec.Preview.class); key.setAccessible(true);
+                skins.request(key.invoke(null,preview),()->new CompletableFuture<>(),()->{});
+                invoke(hostType,host,sync,new Class<?>[]{ViewSpec.class},view);
+                var graphics = new Graphics();
+                String paint=immediate?"renderPreview":hostType.getName().contains("submission")?"renderPreviews":"drawPreviews";
+                invoke(hostType,host,paint,new Class<?>[]{Graphics.class,immediate?ViewSpec.Preview.class:ViewSpec.class},graphics,immediate?preview:view);
+                check(graphics.capeCrops.isEmpty(),"GEOMETRY actual Providers main never paints an indicator while own input is pending");
+                var sizes=new java.util.HashSet<Integer>();
+                for(var decoration:original.iconDecorations()) {
+                    if(decoration.providerTexture().isEmpty())continue;
+                    var texture=decoration.providerTexture().orElseThrow();
+                    String surface=texture.skin()?texture.requestKey():runtime.previewDecorationCapeSurfaceKey(decoration);
+                    capes.retain(java.util.Set.of());
+                    var pending=new CompletableFuture<Optional<byte[]>>();
+                    capes.request(surface,()->pending,()->{});
+                    graphics.capeCrops.clear();
+                    invoke(hostType,host,immediate || hostType.getName().contains("submission")?"renderIconDecorations":"drawIconDecorations",new Class<?>[]{Graphics.class,ViewSpec.class,int.class,int.class},graphics,original,-100,-100);
+                    var b=decoration.bounds();int size=b.width()<=16?16:32;
+                    check(graphics.capeCrops.stream().anyMatch(c->c[0]==b.x()+(b.width()-size)/2 && c[1]==b.y()+(b.height()-size)/2 && c[2]==size && c[3]==size),"GEOMETRY actual Providers dynamic decoration pending at own slot "+decoration.id());
+                    sizes.add(size);pending.complete(Optional.empty());
+                    graphics.capeCrops.clear();
+                    invoke(hostType,host,immediate || hostType.getName().contains("submission")?"renderIconDecorations":"drawIconDecorations",new Class<?>[]{Graphics.class,ViewSpec.class,int.class,int.class},graphics,original,-100,-100);
+                    check(graphics.capeCrops.stream().noneMatch(c->c[0]==b.x() && c[1]==b.y() && c[2]==size && c[3]==size),"GEOMETRY terminal own icon preparation stops spinner");
+                }
+                check(sizes.contains(16) && sizes.contains(32),"GEOMETRY actual Providers producer supplies both tab16 and row32 "+sizes);
+                runtime.dispatchWidget("providers.row.OFFLINE");
+                runtime.dispatchWidget("providers.tab.CAPE");
+                runtime.dispatchWidget("providers.row.MINECRAFT");
+                var inspected=runtime.view(854,480,0,0).previews().stream().filter(p->p.id().equals("editor.preview")).findFirst().orElseThrow();
+                skins.retain(java.util.Set.of());
+                skins.request(key.invoke(null,inspected),()->CompletableFuture.completedFuture(Optional.of(bytes.toByteArray())),()->{});
+                runtime.dispatchWidget("providers.refresh");
+                var refreshing=runtime.view(854,480,0,0);
+                check(!refreshing.widget("providers.refresh").orElseThrow().enabled(),"GEOMETRY actual unrelated cape Refresh is admitted and held on worker");
+                check(runtime.providerImagePreparation(inspected).isEmpty(),"GEOMETRY unrelated cape Refresh does not create main skin image pending");
+                var readyView=copyView(refreshing,inspected);
+                invoke(hostType,host,sync,new Class<?>[]{ViewSpec.class},readyView);
+                graphics.capeCrops.clear();int rendered=terminal.requests.size();
+                invoke(hostType,host,paint,new Class<?>[]{Graphics.class,immediate?ViewSpec.Preview.class:ViewSpec.class},graphics,immediate?inspected:readyView);
+                check(graphics.capeCrops.isEmpty() && terminal.requests.size()==rendered+1,"GEOMETRY actual ready inspected main keeps painting without spinner during unrelated Refresh");
+                System.out.println("PASS GEOMETRY actual Providers producer/compiled paint: tab16 row32, no main spinner; own pending/terminal; admitted unrelated Refresh keeps ready inspected main; synthetic graphics terminal");
+            }
+        }
     }
 
     public static void observe(ClientRuntime runtime, byte[] current, byte[] base, SkinVariant variant) throws Exception {
@@ -173,8 +264,19 @@ public final class CpmOwnedPreviewDispatchProbe {
             if (pending) {
                 check(boundary.loads == 1 && boundary.borrowed == 0 && registry.registered.isEmpty()
                         && terminal.requests.isEmpty(), label + ": pending C never falls back to borrowed A");
-                check(boundary.lastRegistration != null && boundary.releases > 0, label + ": no-texture exit retires its own registration");
+                var registration = boundary.lastRegistration;
+                var source = boundary.lastSource;
+                check(registration != null && boundary.releases == 0
+                        && source.get() == PreviewRenderer.DisplayKind.UNCONFIRMED,
+                        label + ": pending texture preserves its selected source observer without display authority");
+                invoke(screenType, screen, render, new Class<?>[]{Graphics.class, immediate ? ViewSpec.Preview.class : ViewSpec.class},
+                        new Graphics(), immediate ? preview : view);
+                check(registration == boundary.lastRegistration && source == boundary.lastSource && boundary.releases == 0,
+                        label + ": repeated pending frames keep the same source registration");
+                invoke(screenType, screen, immediate ? "releasePreviews" : "releasePreviewBody", new Class<?>[0]);
+                check(boundary.releases > 0, label + ": explicit retirement releases the pending source registration");
                 checkBodyReleased(runtime);
+                terminal.close();
                 return;
             }
             check(terminal.requests.size() == 1, label + ": actual screen submits exactly once");
@@ -1540,10 +1642,12 @@ public final class CpmOwnedPreviewDispatchProbe {
         public double offsetPixels() { return offset; }
         public void acceptedRuntimeOffset(double value) { offset = value; }
         public void render(CpmBakedDisplayProbe.Graphics graphics,int mouseX,int mouseY,float tick) {}
+        public void extractRenderState(CpmBakedDisplayProbe.Graphics graphics,int mouseX,int mouseY,float tick) { render(graphics,mouseX,mouseY,tick); }
     }
 
     public interface RenderFrame {
         void render(CpmBakedDisplayProbe.Graphics graphics,int mouseX,int mouseY,float tick);
+        default void extractRenderState(CpmBakedDisplayProbe.Graphics graphics,int mouseX,int mouseY,float tick) { render(graphics,mouseX,mouseY,tick); }
         default void render(Graphics graphics,int mouseX,int mouseY,float tick) { throw new AssertionError("Unbound root button paint"); }
         default void extractRenderState(Graphics graphics,int mouseX,int mouseY,float tick) { render(graphics,mouseX,mouseY,tick); }
     }
@@ -1694,7 +1798,7 @@ public final class CpmOwnedPreviewDispatchProbe {
     public record ActiveTextTerminal(Graphics graphics) {}
     public enum HoveredTextEffects { NONE }
 
-    public static final class Graphics {
+    public static class Graphics {
         public void setColor(float red,float green,float blue,float alpha) {}
         public void blit(Text texture,int x,int y,float u,float v,int width,int height,int tw,int th) {blits.add(texture.getString());}
         public void blit(Object pipeline,Text texture,int x,int y,float u,float v,int width,int height,int tw,int th,int color) {blits.add(texture.getString());}
@@ -1738,6 +1842,11 @@ public final class CpmOwnedPreviewDispatchProbe {
                 Optional<com.naocraftlab.skins.runtime.Bounds> before, Optional<com.naocraftlab.skins.runtime.Bounds> after) {}
         PreviewRenderer<Graphics> createEditorPreviewRenderer();
         PreviewRenderer<Graphics> createSimplePreviewRenderer();
+        @SuppressWarnings("unchecked") default com.naocraftlab.skins.client.BackEquipmentPreviewRenderer<Graphics> createBackEquipmentPreviewRenderer() {
+            var renderer=createSimplePreviewRenderer();
+            if(!(renderer instanceof com.naocraftlab.skins.client.BackEquipmentPreviewRenderer<?>))throw new AssertionError("Equipment terminal is not bound");
+            return (com.naocraftlab.skins.client.BackEquipmentPreviewRenderer<Graphics>)renderer;
+        }
         default com.naocraftlab.skins.runtime.ViewChromeMetrics viewChromeMetrics() { return com.naocraftlab.skins.runtime.ViewChromeMetrics.STANDARD; }
     }
 
@@ -1854,6 +1963,12 @@ public final class CpmOwnedPreviewDispatchProbe {
         public String previewDecorationCapeSurfaceKey(ViewSpec.IconDecoration decoration) {
             return runtime.previewDecorationCapeSurfaceKey(decoration);
         }
+        public Optional<com.naocraftlab.skins.runtime.ProviderRefreshUseCases.ImagePreparation> providerImagePreparation(ViewSpec.Preview preview) {
+            return runtime.providerImagePreparation(preview);
+        }
+        public Optional<com.naocraftlab.skins.runtime.ProviderRefreshUseCases.ImagePreparation> providerImagePreparation(ViewSpec.IconDecoration decoration) {
+            return runtime.providerImagePreparation(decoration);
+        }
         public void reportCapePreviewFailure(ViewSpec.Preview preview) { runtime.reportCapePreviewFailure(preview); }
         public ViewSpec view(int width, int height, int x, int y) { return presented; }
         public ViewSpec view(int width, int height, int x, int y, com.naocraftlab.skins.runtime.ViewChromeMetrics chrome) { return presented; }
@@ -1877,6 +1992,8 @@ public final class CpmOwnedPreviewDispatchProbe {
         public String previewCapeSurfaceKey(ViewSpec.Preview preview) { return runtime.previewCapeSurfaceKey(preview); }
         public String previewBodySource(ViewSpec.Preview preview) { return runtime.previewBodySource(preview); }
         public boolean waitsForCpmBody(ViewSpec.Preview preview) { return runtime.waitsForCpmBody(preview); }
+        public java.util.function.BooleanSupplier previewBodyAdmission(ViewSpec.Preview preview) { return runtime.previewBodyAdmission(preview); }
+        public java.util.function.BooleanSupplier previewBodyLifetime(ViewSpec.Preview preview) { return runtime.previewBodyLifetime(preview); }
         public java.util.function.BooleanSupplier galleryPreviewAdmission(ViewSpec.Preview preview) { return runtime.galleryPreviewAdmission(preview); }
         public java.util.function.BooleanSupplier galleryAccessoryAdmission(ViewSpec.Preview preview) { return runtime.galleryAccessoryAdmission(preview); }
         public boolean galleryPreviewFrameCurrent(ViewSpec.Preview preview) { return runtime.galleryPreviewFrameCurrent(preview); }

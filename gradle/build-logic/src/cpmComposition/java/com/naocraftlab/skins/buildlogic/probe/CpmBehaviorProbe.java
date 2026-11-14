@@ -144,6 +144,19 @@ public final class CpmBehaviorProbe {
                         java.nio.file.Files.readAllBytes(new File(args[1], "classic-a.png").toPath()));
                 var registration = CapeProjection.installEvents(events())) {
             gallery = ownedGallery;
+            if(args.length>2 && args[2].equals("loading-canonical")) {
+                var appearance = new PreviewRenderer.PreviewAppearance(new TextureHandle("fixture:body-readiness",64,64),SkinModel.CLASSIC,Optional.empty(),PreviewRenderer.CapeMode.OFF,true);
+                CpmBakedDisplayProbe.loadingCanonical = true;
+                CpmPreviewScopeProbe.loadingCanonical = true;
+                CpmPreviewScopeProbe.bodyProducer(appearance,() -> {},() -> {},gallery);
+                if(CpmBehaviorProbe.class.getClassLoader().getResource("com/naocraftlab/skins/compat/client/identifier/submission/PreviewContext.class") != null)
+                    CpmBakedDisplayProbe.submissionBodyProducer(appearance,() -> {},() -> {},gallery);
+                return;
+            }
+            if(args.length>2 && args[2].equals("image")) {
+                imageReadiness();
+                return;
+            }
             if (args.length > 2 && args[2].equals("body")) {
                 nonDrawingBodyReadinessAndPreviewStatus();
                 System.out.println("PASS focused actual primary binding and displayed-body producers");
@@ -157,6 +170,7 @@ public final class CpmBehaviorProbe {
             CpmMaterialBoundaryProbe.sharedSheets(loader, world, registration);
             CpmAccessoryProbe.run(loader, world, registration, new File(args[1]));
             nonDrawingBodyReadinessAndPreviewStatus();
+            imageReadiness();
             CpmMaterialBoundaryProbe.sneakyPreview(loader, new File(args[1]));
             if (Boolean.getBoolean("nclskins.cpm.materialProbe")) {
                 var previousSource = ((CpmPlayerAccess) (Object) world).nclskins$source();
@@ -170,6 +184,13 @@ public final class CpmBehaviorProbe {
         MinecraftCapeFallbackProbe.lifecycle(loader, CpmBehaviorProbe::drain, new File(args[1]));
         lateDecodeCannotSignalNewConnection();
         System.out.println("Transformed CPM behavior passed: textures, priority, subject policy, packets, decode/resolve/frame retirement");
+    }
+
+    private static void imageReadiness() throws Exception {
+        var appearance=new PreviewRenderer.PreviewAppearance(new TextureHandle("fixture:body-readiness",64,64),SkinModel.CLASSIC,Optional.empty(),PreviewRenderer.CapeMode.OFF,true);
+        CpmExtractionBodyProbe.cpmImage(appearance,gallery);
+        CpmBakedDisplayProbe.submissionCpmImage(gallery);
+        CpmPreviewScopeProbe.cpmImage(appearance,gallery);
     }
 
     static AutoCloseable nativeProfileScope() {
@@ -418,6 +439,7 @@ public final class CpmBehaviorProbe {
         CpmPreviewScopeProbe.bodyProducer(appearance, binding, cleanupFailure, gallery);
         CpmPreviewScopeProbe.submissionBodyProducer(appearance, binding, cleanupFailure, gallery);
         CpmExtractionBodyProbe.bodyProducer(appearance, binding, cleanupFailure, gallery);
+        if (Boolean.getBoolean("nclskins.sourceReplacement")) return;
         CpmBakedDisplayProbe.bodyProducer(appearance, gallery);
         check(AUXILIARY.get() == auxiliaryBefore && RESOURCE.get() == resourceBefore
                         && (NET.preview.get() + NET.world.get() + NET.events.get()) == packetsBefore,

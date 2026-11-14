@@ -16,12 +16,23 @@ public interface PreviewRenderer<C> {
     enum BodyStatus { ORDINARY, PENDING, READY, FAILED, BLOCKED, TIMED_OUT }
     enum DisplayKind { UNCONFIRMED, ORDINARY, CPM }
 
+    default void prepareImage(Object source, long startedNanos) {}
+    default void prepareImage(Object source, long startedNanos, boolean inputsReady) { prepareImage(source, startedNanos); }
+    default void prepareImage(Object source, long startedNanos, boolean inputsReady, boolean indicator) {
+        prepareImage(source, startedNanos, inputsReady);
+    }
     default void prepareBody(String source, boolean cpm) {}
     default boolean prepareGalleryBody(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) { return false; }
+    default boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) { return false; }
+    default boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent,
+            java.util.function.BooleanSupplier lifetime) { return prepareGalleryImage(source, cpm, candidateCurrent); }
     default void confirmGalleryBody(String source) {}
     default PreviewAccessories galleryAccessories(String source, PreviewRequest request, java.util.function.BooleanSupplier inputCurrent) {
         return PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
     }
+    default java.util.Set<TextureRegistry.TextureHandle> retainedTextures() { return java.util.Set.of(); }
+    default void renderRetained(C graphicsContext, String source) {}
+    default void transformRetained(String source, float yawDegrees, float pitchDegrees, float scale) {}
     default void renderGallery(C graphicsContext, String source, PreviewRequest request) {
         throw new UnsupportedOperationException("Gallery retained display is not implemented by this renderer");
     }
@@ -56,13 +67,21 @@ public interface PreviewRenderer<C> {
             Optional<TextureRegistry.TextureHandle> cape,
             CapeMode capeMode,
             OuterLayerVisibility outerLayerVisibility, boolean capeHasElytra,
-            boolean capeGlint, boolean nativeAccessories, TextureUseValidity capeValidity) {
+            boolean capeGlint, boolean nativeAccessories, TextureUseValidity capeValidity,
+            CapeAssetOwner capeAssetOwner) {
+        public PreviewAppearance(TextureRegistry.TextureHandle skin, SkinModel model,
+                Optional<TextureRegistry.TextureHandle> cape, CapeMode capeMode,
+                OuterLayerVisibility visibility, boolean capeHasElytra, boolean capeGlint,
+                boolean nativeAccessories, TextureUseValidity capeValidity) {
+            this(skin, model, cape, capeMode, visibility, capeHasElytra, capeGlint,
+                    nativeAccessories, capeValidity, null);
+        }
         public PreviewAppearance(TextureRegistry.TextureHandle skin, SkinModel model,
                 Optional<TextureRegistry.TextureHandle> cape, CapeMode capeMode,
                 OuterLayerVisibility visibility, boolean capeHasElytra, boolean capeGlint,
                 boolean nativeAccessories) {
             this(skin, model, cape, capeMode, visibility, capeHasElytra, capeGlint,
-                    nativeAccessories, TextureUseValidity.INVALID);
+                    nativeAccessories, TextureUseValidity.INVALID, null);
         }
         public PreviewAppearance(TextureRegistry.TextureHandle skin, SkinModel model,
                 Optional<TextureRegistry.TextureHandle> cape, CapeMode capeMode,
@@ -166,6 +185,13 @@ public interface PreviewRenderer<C> {
                     pitchDegrees,
                     scale,
                     PreviewIntent.ASSET_THUMBNAIL);
+        }
+
+        public PreviewRequest hidden() {
+            int offset = Math.max(left + width, stageLeft + stageWidth) + 1;
+            return new PreviewRequest(appearance, left - offset, top, width, height,
+                    yawDegrees, pitchDegrees, scale, intent,
+                    stageLeft - offset, stageTop, stageWidth, stageHeight);
         }
 
         public PreviewRequest {

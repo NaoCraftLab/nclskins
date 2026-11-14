@@ -21,7 +21,7 @@ abstract class GuiRendererMixin {
     private void nclskins$afterConsumer(GuiRenderer renderer, Operation<Void> original) {
         try { original.call(renderer); }
         catch (RuntimeException | Error failure) {
-            try { PreviewConsumerFrame.submitted(); }
+            try { PreviewConsumerFrame.failed(); }
             catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
             throw failure;
         }

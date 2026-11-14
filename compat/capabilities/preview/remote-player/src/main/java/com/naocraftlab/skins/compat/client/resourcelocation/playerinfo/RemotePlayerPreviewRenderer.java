@@ -123,8 +123,8 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
     private final DiagnosticSink diagnostics;
     private EditorPreviewSession session = new EditorPreviewSession();
     private EditorPreviewSession.Gallery gallery;
-    private final java.util.Map<String, NativeSlot> gallerySlots = new java.util.LinkedHashMap<>();
-    private String activeGallerySource;
+    private final java.util.Map<EditorPreviewSession, NativeSlot> gallerySlots = new java.util.LinkedHashMap<>();
+    private EditorPreviewSession activeGallerySource;
     private int renderDepth;
     private java.util.function.Consumer<BodyStatus> bodyObserver = value -> {};
 
@@ -137,7 +137,14 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                     previewLevel, previewClock, previewTickGate));
     }
 
-    private void selectGallerySlot(String source) {
+    private void selectGallerySession(EditorPreviewSession candidate) {
+        gallerySlots.computeIfAbsent(candidate, ignored -> new NativeSlot(candidate,
+                new GameProfile(UUID.randomUUID(), "NCLSkinPreview"), null, null,
+                new EditorPreviewClock(), new EditorPreviewTickGate()));
+        if (renderDepth == 0) selectGallerySlot(candidate);
+    }
+
+    private void selectGallerySlot(EditorPreviewSession source) {
         saveGallerySlot();
         var slot = gallerySlots.get(source);
         activeGallerySource = source;
@@ -168,11 +175,21 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
         if (candidate == null || closed || gallery == null) return false;
         retireGallerySlots();
         if (closed || !gallery.retains(candidate)) return false;
-        gallerySlots.computeIfAbsent(source, ignored -> new NativeSlot(candidate,
-                new GameProfile(UUID.randomUUID(), "NCLSkinPreview"), null, null,
-                new EditorPreviewClock(), new EditorPreviewTickGate()));
-        if (renderDepth == 0) selectGallerySlot(source);
+        selectGallerySession(candidate);
         accessoryPreparation = candidate;
+        return true;
+    }
+
+    @Override public boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) {
+        if (!prepareGalleryBody(source, cpm, candidateCurrent)) return false;
+        if (!session.imageTracked()) session.beginImage(source);
+        return true;
+    }
+
+    @Override public boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent,
+            java.util.function.BooleanSupplier lifetime) {
+        if (!prepareGalleryImage(source, cpm, candidateCurrent)) return false;
+        gallery.lifetime(source, lifetime);
         return true;
     }
 
@@ -182,10 +199,38 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
         if (!closed && gallery != null) retireGallerySlots();
     }
 
+    @Override public java.util.Set<com.naocraftlab.skins.client.TextureRegistry.TextureHandle> retainedTextures() {
+        return closed || gallery == null ? java.util.Set.of() : gallery.retainedTextures();
+    }
+
+    @Override public void transformRetained(String source, float yawDegrees, float pitchDegrees, float scale) {
+        if (!closed && gallery != null) gallery.transformRetained(source, yawDegrees, pitchDegrees, scale);
+    }
+
+    @Override public void renderRetained(GuiGraphics graphics, String source) {
+        if (closed || gallery == null) return;
+        var previous = gallery.retainedSource();
+        if (previous == null) return;
+        var request = gallery.retainedImage(previous);
+        if (request == null) return;
+        selectGallerySlot(gallery.retainedSession());
+        try { render(graphics, request); }
+        finally { saveGallerySlot(); if (!closed && gallerySlots.containsKey(gallery.session(source))) selectGallerySlot(gallery.session(source)); }
+    }
+
     @Override public void renderGallery(GuiGraphics graphics, String source, PreviewRequest request) {
-        var slot = gallerySlots.get(source);
+        if (closed || gallery == null || !gallerySlots.containsKey(gallery.session(source))) return;
+        renderRetained(graphics, source);
+        if (closed || gallery == null || !gallerySlots.containsKey(gallery.session(source))) return;
+        var client = Minecraft.getInstance();
+        var world = client.level;
+        var local = client.player;
+        var registration = NativePlayerSkinLifecycle.registration(request.appearance().skin().location());
+        if (gallery != null) gallery.image(source, request, () -> !closed && client.level == world && client.player == local
+                && NativePlayerSkinLifecycle.registration(request.appearance().skin().location()).equals(registration));
+        var slot = gallerySlots.get(gallery.session(source));
         if (closed || renderDepth != 0 || slot == null || gallery == null || !gallery.retains(slot.session())) return;
-        selectGallerySlot(source);
+        selectGallerySlot(gallery.session(source));
         renderDepth++;
         try { render(graphics, request); }
         finally { saveGallerySlot(); renderDepth--; retireGallerySlots(); }
@@ -195,7 +240,7 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
         if (closed || !inputCurrent.getAsBoolean() || closed)
             return PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
         saveGallerySlot();
-        var slot = gallerySlots.get(source);
+        var slot = gallerySlots.get(gallery.session(source));
         if (closed || slot == null || gallery == null)
             return PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
         var owner = gallery;
@@ -204,7 +249,7 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                 slot.player() != null && slot.level() == minecraft.level);
         var value = CapeProjection.previewAccessories(slot.profile().getId(), request.appearance().skin().location(),
                 request.appearance().model(), reason);
-        return inputCurrent.getAsBoolean() && !closed && gallery == owner && gallerySlots.get(source) == slot
+        return inputCurrent.getAsBoolean() && !closed && gallery == owner && gallerySlots.get(gallery.session(source)) == slot
                 ? value : PreviewAccessories.unavailable(LiveReason.LIVE_UNAVAILABLE);
     }
 
@@ -295,17 +340,55 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
 
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
+        var image = session;
+        if (closed) { image.invalidateDisplayedBody(); return; }
+        image.displayAuthority(java.util.Arrays.asList(request.appearance().skin(), request.appearance().model(),
+                request.intent(), NativePlayerSkinLifecycle.registration(request.appearance().skin().location())),
+                minecraft.level, minecraft.player);
+        if (!image.imageTracked()) { renderPrepared(graphics, request); return; }
+        if (image.imageSpinner()) {
+            var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) image.imageFrame() * 100_000_000L,
+                    request.left(), request.top(), request.width(), request.height(), 32);
+            graphics.blit(ResourceLocation.tryParse(frame.resource()), frame.left(), frame.top(), frame.size(), frame.size(),
+                    (float) frame.u(), (float) frame.v(), frame.width(), frame.height(), frame.textureWidth(), frame.textureHeight());
+        }
+        if (!image.imageVisible() && !image.imagePreparing()) return;
+        renderPrepared(graphics, image.imageVisible() ? request : request.hidden());
+    }
+
+    @Override public void prepareImage(Object source, long startedNanos, boolean inputsReady) {
+        if (closed) return;
+        prepareImage(source, startedNanos);
+        session.imagePrerequisite(inputsReady, startedNanos);
+    }
+
+    @Override public void prepareImage(Object source, long startedNanos, boolean inputsReady, boolean indicator) {
+        if (closed) return;
+        if (gallery != null) {
+            saveGallerySlot();
+            var candidate = gallery.prepareImage(source, startedNanos, inputsReady, indicator);
+            if (candidate == null) return;
+            selectGallerySession(candidate);
+            accessoryPreparation = candidate;
+            retireGallerySlots();
+        } else {
+            session.imageIndicator(indicator);
+            prepareImage(source, startedNanos, inputsReady);
+        }
+    }
+
+    @Override public void prepareImage(Object source, long startedNanos) {
+        if (!closed) session.beginImage(source, startedNanos);
+    }
+
+    private void renderPrepared(GuiGraphics graphics, PreviewRequest request) {
         var session = this.session;
         var frameAccessoryObserver = accessoryObserverFor(session);
         Objects.requireNonNull(graphics, "graphics");
         Objects.requireNonNull(request, "request");
-        if (closed) { session.invalidateDisplayedBody(); return; }
-        session.displayAuthority(java.util.Arrays.asList(request.appearance().skin(), request.appearance().model(),
-                request.intent(), NativePlayerSkinLifecycle.registration(request.appearance().skin().location())),
-                minecraft.level, minecraft.player);
         if (session.waitsForBody() && session.bodyStatus() != BodyStatus.READY) {
             if (session.bodyStatus() != BodyStatus.PENDING) { renderFallback(graphics, request); return; }
-            if (!NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) { session.invalidateDisplayedBody(); return; }
+            if (!NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())) return;
         }
         LocalPlayer localPlayer = minecraft.player;
         if (session.path(request.intent(), minecraft.level != null && localPlayer != null)
@@ -509,10 +592,12 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
 
     private void renderFallback(GuiGraphics graphics, PreviewRequest request) {
         var session = this.session;
+        var frameGallery = gallery;
         var world = minecraft.level;
         var local = minecraft.player;
         var texture = NativePlayerSkinLifecycle.registration(request.appearance().skin().location());
         var completion = session.ordinaryDisplay(() -> !closed && minecraft.level == world && minecraft.player == local
+                && gallery == frameGallery && (frameGallery == null ? this.session == session : frameGallery.retains(session))
                 && NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())
                 && NativePlayerSkinLifecycle.registration(request.appearance().skin().location()).equals(texture));
         try {

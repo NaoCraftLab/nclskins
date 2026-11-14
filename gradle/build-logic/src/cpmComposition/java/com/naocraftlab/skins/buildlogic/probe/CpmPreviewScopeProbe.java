@@ -14,7 +14,26 @@ import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.Remapper;
 
 public final class CpmPreviewScopeProbe {
+    private static boolean imageJoin;
+    static boolean loadingCanonical;
+    static void cpmImage(PreviewRenderer.PreviewAppearance appearance,com.naocraftlab.skins.runtime.GalleryNativePassFixture gallery) throws Exception {
+        imageJoin=true;
+        try { bodyProducer(appearance,() -> {},() -> {},gallery); }
+        finally { imageJoin=false; }
+    }
     public static void main(String[] args) throws Exception {
+        if (args.length == 1 && args[0].equals("provider-retention")) {
+            var pixels = new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            var bytes = new java.io.ByteArrayOutputStream(); javax.imageio.ImageIO.write(pixels, "PNG", bytes);
+            var appearance = new PreviewRenderer.PreviewAppearance(new TextureRegistry.TextureHandle("fixture:policy", 64, 64),
+                    SkinModel.CLASSIC, Optional.empty(), PreviewRenderer.CapeMode.OFF, OuterLayerVisibility.allVisible());
+            try (var fixture = new com.naocraftlab.skins.runtime.GalleryNativePassFixture(appearance, bytes.toByteArray())) {
+                providerRetention = true;
+                try { bodyProducer(appearance, () -> {}, () -> {}, fixture); }
+                finally { providerRetention = false; }
+            }
+            return;
+        }
         String owner = "com.naocraftlab.skins.compat.client.resourcelocation." + args[0] + ".PreviewScope";
         Map<String, Class<?>> types = Map.ofEntries(
                 Map.entry("net/minecraft/client/Minecraft", Client.class),
@@ -112,8 +131,11 @@ public final class CpmPreviewScopeProbe {
                 check(part.invoke(null, player, Part.CAPE) == null, "Sneaky scope closes before next selection");
             }
         }
+        CpmBakedDisplayProbe.immediateMenu(args[0]);
         System.out.println("Actual production PreviewScope methods passed: native/Sneaky bundle, exact atlas, default elytra, isolation and cleanup; synthetic host ABI, not native game rendering");
     }
+
+    private static boolean providerRetention;
 
     static void bodyProducer(PreviewRenderer.PreviewAppearance appearance, Runnable binding, Runnable cleanupFailure,
             com.naocraftlab.skins.runtime.GalleryNativePassFixture gallery) throws Exception {
@@ -165,9 +187,9 @@ public final class CpmPreviewScopeProbe {
                         var node = new org.objectweb.asm.tree.ClassNode();
                         new ClassReader(input).accept(node, 0);
                         if (name.equals(owner)) {
-                            node.methods.removeIf(method -> !java.util.Set.of("render", "renderBody", "body", "prepareBody", "observeBody", "close",
-                                    "renderFallback", "location", "parseTexture", "configureLayers", "saveGallerySlot", "selectGallerySlot",
-                                    "retireGallerySlots", "prepareGalleryBody", "confirmGalleryBody", "renderGallery", "galleryAccessories", "observeAccessories", "clearAccessoryInspection", "accessoryObserverFor").contains(method.name)
+                            node.methods.removeIf(method -> !java.util.Set.of("render", "renderBody", "body", "prepareBody", "renderPrepared", "prepareImage", "prepareGalleryImage", "observeBody", "close",
+                                    "renderFallback", "location", "parseTexture", "configureLayers", "saveGallerySlot", "selectGallerySlot", "selectGallerySession",
+                                    "retireGallerySlots", "prepareGalleryBody", "confirmGalleryBody", "renderGallery", "renderRetained", "retainedTextures", "galleryAccessories", "observeAccessories", "clearAccessoryInspection", "accessoryObserverFor").contains(method.name)
                                     && !method.name.startsWith("lambda$"));
                             var init = new org.objectweb.asm.tree.MethodNode(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
                             init.visitVarInsn(Opcodes.ALOAD, 0);
@@ -245,6 +267,30 @@ public final class CpmPreviewScopeProbe {
         }
         Inventory.draw = binding;
         try {
+            if (providerRetention) {
+                try { immediatePolicyHost(renderer, target, client, gallery); }
+                finally { ((AutoCloseable)target).close(); }
+                return;
+            }
+            if (Boolean.getBoolean("nclskins.sourceReplacement")) {
+                Client.current = client;
+                CpmSourceReplacementProbe.Material[] consumed = {null};
+                var sourceProfile = nativeProfile(target);
+                Inventory.draw = () -> {
+                    var source = com.naocraftlab.skins.runtime.CapeProjection.skinSource(sourceProfile);
+                    check(source != null, "SOURCE1 immediate consumer has actual selected source");
+                    consumed[0] = new CpmSourceReplacementProbe.Material(source.location(), source.model());
+                };
+                try {
+                    CpmSourceReplacementProbe.run(target, new Graphics(), gallery, () -> consumed[0] = null, () -> {},
+                            () -> Inventory.x < 0, () -> consumed[0],
+                            () -> { client.level = new Level(); client.player = new Avatar(client.level); },
+                            () -> client.player = new Avatar(client.level));
+                } finally { ((AutoCloseable) target).close(); Client.current = null; }
+                return;
+            }
+            if(loadingCanonical) { try(var owned=gallery.freshOwned()) { immediateRootFrame(renderer,target,owned); } return; }
+            if(imageJoin) { immediateCpmImage(renderer,target,gallery);return; }
             var render = renderer.getMethod("render", Graphics.class, PreviewRenderer.PreviewRequest.class);
             var request = new PreviewRenderer.PreviewRequest(appearance, 0, 0, 160, 180, 0, 0, 1, PreviewRenderer.PreviewIntent.EDITOR_DRAFT);
             render.invoke(target, new Graphics(), request);
@@ -337,7 +383,7 @@ public final class CpmPreviewScopeProbe {
             java.util.UUID id;
             try { id = (java.util.UUID) profile.getClass().getMethod("getId").invoke(profile); }
             catch (NoSuchMethodException modern) { id = (java.util.UUID) profile.getClass().getMethod("id").invoke(profile); }
-            com.naocraftlab.skins.runtime.CapeProjection.effectiveSkin(id, new java.util.UUID(0, 801),
+            com.naocraftlab.skins.runtime.CapeProjection.effectiveSkin(id, new java.util.UUID(0, imageJoin ? 1 : 801),
                     appearance.skin().location(), appearance.model(), true);
             var previous = (Avatar) nativeField(renderer, "previewPlayer");
             var player = previous != null && previous.level() == client.level ? previous : new Avatar(client.level);
@@ -364,7 +410,8 @@ public final class CpmPreviewScopeProbe {
             fixture.layersVisible(true);
             var before = renderer.body();
             var slots = (Map<?,?>) nativeField(target,"gallerySlots");
-            Object aSlot = slots.get(a);
+            Object aSession = nativeField(target,"session");
+            Object aSlot = slots.get(aSession);
             fixture.selectC();
             var desired = fixture.runtime.galleryPreviewCandidate().orElseThrow();
             String b = fixture.runtime.previewBodySource(desired);
@@ -372,12 +419,12 @@ public final class CpmPreviewScopeProbe {
             renderer.observeBody(next);
             check(renderer.prepareGalleryBody(b,false, fixture.runtime.galleryPreviewAdmission(desired)), "immediate B preparation");
             check(before.current().getAsBoolean(), "A witness retained while B prepared");
-            check(slots.size() == 2 && slots.get(a).equals(aSlot), "A native slot not mutated by B preparation");
+            check(slots.size() == 2 && slots.get(aSession).equals(aSlot), "A native slot not mutated by B preparation");
             check(!renderer.body().current().getAsBoolean(), "prepared B is not its completed pass");
             Inventory.draw = binding;
             renderer.renderGallery(new Graphics(), b, fixture.request());
             check(fixture.displayed() == PreviewRenderer.DisplayKind.CPM, "actual immediate CPM -> selected B callback");
-            check(!before.current().getAsBoolean() && slots.size() == 1 && !slots.containsKey(a), "completed B retires A");
+            check(!before.current().getAsBoolean() && slots.size() == 1 && !slots.containsKey(aSession), "completed B retires A");
             fixture.runtime.invalidatePreviewBody(observer);
             check(fixture.displayed() == PreviewRenderer.DisplayKind.CPM, "stale A cleanup cannot revoke B");
             Inventory.draw = () -> {};
@@ -437,6 +484,145 @@ public final class CpmPreviewScopeProbe {
             } finally { Inventory.draw = () -> {}; ((AutoCloseable) owner).close(); Client.current = null; }
         }
         System.out.println("PASS immediate Gallery actual ordinary/CPM/worldless source A/B isolation, flush, retirement and stale callback");
+    }
+
+    private static void immediateCpmImage(Class<?> rendererType,Object target,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture original) throws Exception {
+        Client previousClient=Client.current;Client.current=(Client)nativeField(target,"minecraft");
+        try(var fixture=original.freshOwnedCpm();var profiles=CpmBehaviorProbe.nativeProfileScope()) {
+            var screenType=CpmPreviewScreenSlice.loadNative(CpmPreviewScreenSlice.availableOwner(),rendererType);
+            Object screen=screenType.getConstructor().newInstance();
+            var registry=new CpmOwnedPreviewDispatchProbe.Registry();
+            try(var skins=new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,TextureRegistry.TextureKind.PLAYER_SKIN,com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding());
+                var capes=new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,TextureRegistry.TextureKind.IMAGE,com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding())) {
+                for(var field:screenType.getDeclaredFields()) {
+                    Object value=switch(field.getName()) {
+                        case "runtime" -> fixture.runtime;case "skinTextures" -> skins;case "capeTextures" -> capes;
+                        case "width" -> 854;case "height" -> 480;
+                        case "capabilities" -> new CpmOwnedPreviewDispatchProbe.Capabilities() {
+                            @SuppressWarnings({"unchecked","rawtypes"}) public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createEditorPreviewRenderer(){return (PreviewRenderer)target;}
+                            public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createSimplePreviewRenderer(){return new CpmOwnedPreviewDispatchProbe.RenderTerminal();}
+                        };
+                        default -> field.getType()==Map.class?new java.util.HashMap<>():null;
+                    };if(value!=null)field.set(screen,value);
+                }
+                var sync=screenType.getDeclaredMethod("synchronizePreviews",com.naocraftlab.skins.runtime.ViewSpec.class);sync.setAccessible(true);
+                sync.invoke(screen,fixture.runtime.view(854,480,0,0));fixture.drainWorkers();sync.invoke(screen,fixture.runtime.view(854,480,0,0));fixture.drainWorkers();
+                var desired=fixture.runtime.galleryPreviewCandidate().orElseThrow();String source=fixture.runtime.previewBodySource(desired);
+                check(desired.bodySource().orElseThrow().cpmExpected(),"IMMEDIATE_CPM actual imported carrier requires own CPM body");
+                @SuppressWarnings("unchecked") var production=(PreviewRenderer<Graphics>)target;
+                var registration=fixture.runtime.observePreviewBody(desired,production::displayKind,() -> production.confirmGalleryBody(source));
+                production.observeBody(registration);
+                check(production.prepareGalleryBody(source,true,fixture.runtime.galleryPreviewAdmission(desired)),"IMMEDIATE_CPM real common registration precedes native source preparation");
+                var requestMethod=screenType.getDeclaredMethod("galleryRequest",com.naocraftlab.skins.runtime.ViewSpec.Preview.class);requestMethod.setAccessible(true);
+                @SuppressWarnings("unchecked") var request=(Optional<PreviewRenderer.PreviewRequest>)requestMethod.invoke(screen,desired);
+                var own=request.orElseThrow();
+                check(java.util.Arrays.equals(registry.registered.get(own.appearance().skin()),fixture.ownedBytes(desired)),"IMMEDIATE_CPM own imported pixels reach cache/relookup");
+                try(var definition=CpmBehaviorProbe.nativeOwnedBody(fixture.ownedBytes(desired),nativeProfile(target),own.appearance())) {
+                    int[] draws={0};
+                    Inventory.draw=() -> {
+                        check(fixture.runtime.previewBodySource(fixture.runtime.galleryPreviewCandidate().orElseThrow()).equals(source),"IMMEDIATE_CPM actual consumer retains current own source");
+                        check(nativeSourceLocation(target).equals(own.appearance().skin().location()),"IMMEDIATE_CPM actual Inventory consumer receives own registered source");
+                        CpmExtractionBodyProbe.bindAppearance(own.appearance());draws[0]++;
+                    };
+                    var render=screenType.getDeclaredMethod("renderPreview",Graphics.class,com.naocraftlab.skins.runtime.ViewSpec.Preview.class);render.setAccessible(true);
+                    render.invoke(screen,new Graphics(),fixture.preview());
+                    var session=(com.naocraftlab.skins.client.EditorPreviewSession)nativeField(target,"session");
+                    check(draws[0]==1 && Inventory.x<0 && session.imageVisible() && fixture.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"IMMEDIATE_CPM hidden own consumer completes preparation without visible common ACK draws="+draws[0]+" image="+session.imageVisible()+" display="+fixture.displayed()+" native="+production.displayKind()+" status="+session.bodyStatus());
+                    render.invoke(screen,new Graphics(),fixture.preview());
+                    check(draws[0]==2 && Inventory.x>=0 && fixture.displayed()==PreviewRenderer.DisplayKind.CPM && fixture.preview().bodySource().equals(desired.bodySource()),"IMMEDIATE_CPM own visible native pass grants current common CPM ACK");
+                    fixture.layersVisible(false);
+                    System.out.println("PASS IMMEDIATE_CPM actual imported source/cache -> hidden own native primary binding -> visible own native consumer -> common CPM ACK");
+                }
+            } finally { ((AutoCloseable)target).close();Client.current=previousClient;Inventory.draw=() -> {};CpmExtractionBodyProbe.submissionBoundaries(() -> {},() -> {}); }
+        }
+    }
+
+    private static String nativeSourceLocation(Object target) {
+        try { var source=com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(target));return source==null?"":source.location(); }
+        catch(Exception failure){throw new AssertionError(failure);}
+    }
+
+    private static void immediatePolicyHost(Class<?> rendererType, Object template, Client client,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture base) throws Exception {
+        client.level = null; client.player = null; Client.current = client;
+        for (boolean early : new boolean[]{false, true}) {
+            Client.current = client;
+            Object target = reopenedNative(rendererType, template);
+            @SuppressWarnings("unchecked") var renderer = (PreviewRenderer<Graphics>)target;
+            var hostType = CpmPreviewScreenSlice.loadNative(CpmPreviewScreenSlice.availableOwner(), rendererType);
+            Object host = hostType.getConstructor().newInstance();
+            var registry = new CpmOwnedPreviewDispatchProbe.Registry();
+            try (var subject = base.freshOwned();
+                 var skins = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry, TextureRegistry.TextureKind.PLAYER_SKIN,
+                         com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding(), renderer::retainedTextures);
+                 var capes = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry, TextureRegistry.TextureKind.IMAGE,
+                         com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding(), renderer::retainedTextures)) {
+                subject.localCapes(); subject.runtime.dispatchWidget("gallery.providers"); subject.drainWorkers();
+                for (var field : hostType.getDeclaredFields()) {
+                    field.setAccessible(true);
+                    Object value = switch (field.getName()) {
+                        case "runtime" -> subject.runtime; case "width" -> 854; case "height" -> 480;
+                        case "skinTextures" -> skins; case "capeTextures" -> capes;
+                        case "capabilities" -> new CpmOwnedPreviewDispatchProbe.Capabilities() {
+                            @SuppressWarnings({"unchecked", "rawtypes"}) public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createEditorPreviewRenderer() { return (PreviewRenderer)target; }
+                            public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createSimplePreviewRenderer() { return new CpmOwnedPreviewDispatchProbe.RenderTerminal(); }
+                        };
+                        default -> field.getType() == Map.class ? new java.util.HashMap<>() : null;
+                    };
+                    if (value != null) field.set(host, value);
+                }
+                var sync = hostType.getDeclaredMethod("synchronizePreviews", com.naocraftlab.skins.runtime.ViewSpec.class); sync.setAccessible(true);
+                var paint = hostType.getDeclaredMethod("renderPreview", Graphics.class, com.naocraftlab.skins.runtime.ViewSpec.Preview.class); paint.setAccessible(true);
+                CpmBakedDisplayProbe.observeImmediateMenu = true;
+                for (int pass = 0; pass < 8 && renderer.displayKind() == PreviewRenderer.DisplayKind.UNCONFIRMED; pass++) {
+                    var view = subject.runtime.view(854,480,0,0); sync.invoke(host, view); subject.drainWorkers();
+                    view = subject.runtime.view(854,480,0,0); sync.invoke(host, view);
+                    CpmBakedDisplayProbe.immediateMaterials.clear(); CpmBakedDisplayProbe.immediateTranslations.clear();
+                    paint.invoke(host,new Graphics(),view.previews().get(0));
+                    if (pass == 0) check(!CpmBakedDisplayProbe.immediateTranslations.isEmpty()
+                            && CpmBakedDisplayProbe.immediateTranslations.get(0) < 0, "PROVIDERS immediate first-open prepares only hidden own material");
+                }
+                check(renderer.displayKind() == PreviewRenderer.DisplayKind.ORDINARY && !CpmBakedDisplayProbe.immediateMaterials.isEmpty(), "PROVIDERS immediate actual A material and ACK");
+                var materialA = CpmBakedDisplayProbe.immediateMaterials.get(0);
+                var a = subject.runtime.view(854,480,0,0).previews().get(0);
+                subject.runtime.dispatchWidget("providers.row.MINECRAFT"); subject.drainWorkers();
+                var view = subject.runtime.view(854,480,0,0); var b = view.previews().get(0);
+                check(!subject.runtime.previewBodySource(a).equals(subject.runtime.previewBodySource(b)), "PROVIDERS immediate admitted row changes actual source");
+                sync.invoke(host, view); subject.drainWorkers(); view = subject.runtime.view(854,480,0,0); sync.invoke(host,view);
+                var key = hostType.getDeclaredMethod("previewAssetKey",com.naocraftlab.skins.runtime.ViewSpec.Preview.class); key.setAccessible(true);
+                var handle = b.requiresLoadedSkin() ? skins.handle(key.invoke(null,b)).orElseThrow() : subject.runtime.previewPlayerAppearance(b).orElseThrow().skin();
+                var pending = com.naocraftlab.skins.client.NativePlayerSkinLifecycle.pending(handle.location());
+                try {
+                    paint.invoke(host,new Graphics(),b);
+                    var session = (com.naocraftlab.skins.client.EditorPreviewSession)nativeField(target,"session");
+                    long[] now = {0}; nativeField(session,"nanoTime",(java.util.function.LongSupplier)() -> now[0]); nativeField(session,"imageStarted",0L);
+                    for (long tick : early ? new long[]{0} : new long[]{0,299_000_000L,300_000_000L,5_000_000_000L}) {
+                        now[0] = tick; CpmBakedDisplayProbe.immediateMaterials.clear(); CpmBakedDisplayProbe.immediateTranslations.clear(); Graphics.loadingFrames.clear();
+                        paint.invoke(host,new Graphics(),b);
+                        check(CpmBakedDisplayProbe.immediateMaterials.equals(java.util.List.of(materialA, new Location(handle.location())))
+                                && CpmBakedDisplayProbe.immediateTranslations.size() == 4
+                                && CpmBakedDisplayProbe.immediateTranslations.get(0) > 0 && CpmBakedDisplayProbe.immediateTranslations.get(2) < 0
+                                && !session.imageVisible() && Graphics.loadingFrames.isEmpty(), "PROVIDERS immediate visible A/hidden B material/no paint spinner at " + tick
+                                + " expected=" + materialA + " actual=" + CpmBakedDisplayProbe.immediateMaterials
+                                + " translations=" + CpmBakedDisplayProbe.immediateTranslations + " visible=" + session.imageVisible()
+                                + " retained=" + ((com.naocraftlab.skins.client.EditorPreviewSession.Gallery)nativeField(target,"gallery")).retainedSource());
+                        check(renderer.displayKind() == PreviewRenderer.DisplayKind.UNCONFIRMED, "PROVIDERS immediate A cannot ACK B");
+                    }
+                    now[0] = early ? 25_000_000L : 5_000_000_000L; pending.ready();
+                    CpmBakedDisplayProbe.immediateMaterials.clear(); CpmBakedDisplayProbe.immediateTranslations.clear(); paint.invoke(host,new Graphics(),b);
+                    check(CpmBakedDisplayProbe.immediateMaterials.contains(new Location(handle.location())) && session.imageVisible()
+                            && renderer.displayKind() == PreviewRenderer.DisplayKind.UNCONFIRMED, "PROVIDERS immediate own hidden B flush is not visible ACK");
+                    CpmBakedDisplayProbe.immediateMaterials.clear(); CpmBakedDisplayProbe.immediateTranslations.clear(); paint.invoke(host,new Graphics(),b);
+                    check(CpmBakedDisplayProbe.immediateMaterials.equals(java.util.List.of(new Location(handle.location())))
+                            && CpmBakedDisplayProbe.immediateTranslations.get(0) > 0 && renderer.displayKind() == PreviewRenderer.DisplayKind.ORDINARY,
+                            "PROVIDERS immediate own B visible material and common ACK");
+                    check(((Map<?,?>)nativeField(target,"gallerySlots")).size() == 1, "PROVIDERS immediate bounded slots retire A after own B");
+                    subject.runtime.closeScreen(); check(renderer.retainedTextures().isEmpty(), "PROVIDERS immediate close revokes retention");
+                } finally { pending.retire(); }
+                System.out.println("PASS PROVIDERS immediate actual host source/cache -> whole A 0/299/300/5000 or early25 -> own hidden B flush -> visible B ACK; early=" + early);
+            } finally { ((AutoCloseable)target).close(); CpmBakedDisplayProbe.observeImmediateMenu=false; Client.current=null; }
+        }
     }
 
     private static void immediateCaller(Class<?> rendererType, Object target,
@@ -631,7 +817,7 @@ public final class CpmPreviewScopeProbe {
                 Inventory.draw = () -> {
                     try {
                         if (frameIdentities.isEmpty()) frameIdentities.add(new java.util.LinkedHashMap<>((Map<?,?>) nativeField(screen,"nativeWidgets")));
-                        frameBodies.add((String) nativeField(target,"activeGallerySource")); }
+                        frameBodies.add((String)nativeField(nativeField(target,"activeGallerySource"),"bodySource")); }
                     catch (Exception failure) { throw new AssertionError(failure); }
                 };
                 var sync = screenType.getDeclaredMethod("synchronizePreviews", com.naocraftlab.skins.runtime.ViewSpec.class); sync.setAccessible(true);
@@ -640,20 +826,31 @@ public final class CpmPreviewScopeProbe {
                 sync.invoke(screen,fixture.runtime.view(854,480,0,0));
                 while (skins.handle(loadingAKey).isEmpty() && fixture.runNextWorker()) sync.invoke(screen,fixture.runtime.view(854,480,0,0));
                 render.invoke(screen,new Graphics(),0,0,0f);
-                var ownedA = fixture.preview();
-                var inputA = fixture.runtime.galleryAccessoryAdmission(ownedA);
-                Object keyA = assetKey.invoke(screen,ownedA);
+                check(fixture.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"initial immediate hidden preparation is not common ACK");
+                render.invoke(screen,new Graphics(),0,0,0f);
+                var initialA = fixture.preview();
+                var initialInput = fixture.runtime.galleryAccessoryAdmission(initialA);
+                Object keyA = assetKey.invoke(screen,initialA);
                 var handleA = skins.handle(keyA).orElseThrow();
-                check(java.util.Arrays.equals(fixture.ownedBytes(ownedA),registry.registered.get(handleA)), "actual A import/storage/load/cache bytes");
-                String a = fixture.runtime.previewBodySource(fixture.preview());
+                check(java.util.Arrays.equals(fixture.ownedBytes(initialA),registry.registered.get(handleA)), "actual A import/storage/load/cache bytes");
+                String initialSource = fixture.runtime.previewBodySource(initialA);
                 var requestMethodA = screenType.getDeclaredMethod("galleryRequest",com.naocraftlab.skins.runtime.ViewSpec.Preview.class); requestMethodA.setAccessible(true);
-                @SuppressWarnings("unchecked") var requestA = ((Optional<PreviewRenderer.PreviewRequest>) requestMethodA.invoke(screen,ownedA)).orElseThrow();
+                @SuppressWarnings("unchecked") var initialRequest = ((Optional<PreviewRenderer.PreviewRequest>) requestMethodA.invoke(screen,initialA)).orElseThrow();
                 @SuppressWarnings("unchecked") var rendererA = (PreviewRenderer<Graphics>) target;
-                var sourceA = com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(target));
+                try (var decodedA = CpmBehaviorProbe.nativeAccessoryObservation(com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(target)))) {
+                    var accessories=rendererA.galleryAccessories(initialSource,initialRequest,initialInput);
+                    check(accessories.canInspect() && accessories.present(),"actual A matching profile/appearance accessories positive");
+                }
+                render.invoke(screen,new Graphics(),0,0,0f);
+                render.invoke(screen,new Graphics(),0,0,0f);
+                var ownedA=fixture.preview();String a=fixture.runtime.previewBodySource(ownedA);
+                var inputA=fixture.runtime.galleryAccessoryAdmission(ownedA);
+                @SuppressWarnings("unchecked") var requestA=((Optional<PreviewRenderer.PreviewRequest>)requestMethodA.invoke(screen,ownedA)).orElseThrow();
+                var sourceA=com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(target));
                 com.naocraftlab.skins.client.PreviewAccessories accessoryA;
-                try (var decodedA = CpmBehaviorProbe.nativeAccessoryObservation(sourceA)) {
-                    accessoryA = rendererA.galleryAccessories(a,requestA,inputA);
-                    check(accessoryA.canInspect() && accessoryA.present(),"actual A matching profile/appearance accessories positive");
+                try(var decodedA=CpmBehaviorProbe.nativeAccessoryObservation(sourceA)) {
+                    accessoryA=rendererA.galleryAccessories(a,requestA,inputA);
+                    check(accessoryA.canInspect() && accessoryA.present(),"stable actual A has its own decoded accessory scope");
                 }
                 int[] staleReadsA = {0};
                 var registrationA = fixture.runtime.observePreviewAccessories(ownedA,() -> { staleReadsA[0]++; return rendererA.galleryAccessories(a,requestA,inputA); });
@@ -674,11 +871,30 @@ public final class CpmPreviewScopeProbe {
                 check(!handleA.equals(handleB) && hidden.variant() == com.naocraftlab.skins.core.model.SkinVariant.SLIM
                         && java.util.Arrays.equals(fixture.ownedBytes(hidden),registry.registered.get(handleB)), "distinct imported B bytes/model reached real hidden cache/relookup");
                 check(fixture.preview().bodySource().equals(ownedA.bodySource()) && fixture.preview().presetId().equals(ownedA.presetId()), "loaded hidden B cannot publish before its actual pass");
+                if(loadingCanonical) {
+                    var held=com.naocraftlab.skins.client.NativePlayerSkinLifecycle.pending(handleB.location());
+                    try {
+                        frameBodies.clear();render.invoke(screen,new Graphics(),0,0,0f);
+                        var pendingSession=(com.naocraftlab.skins.client.EditorPreviewSession)nativeField(target,"session");
+                        long[] now={0};var clock=pendingSession.getClass().getDeclaredField("nanoTime");clock.setAccessible(true);clock.set(pendingSession,(java.util.function.LongSupplier)()->now[0]);
+                        var start=pendingSession.getClass().getDeclaredField("imageStarted");start.setAccessible(true);start.setLong(pendingSession,0);
+                        for(long tick:new long[]{0,299_000_000L,300_000_000L}) {
+                            now[0]=tick;frameBodies.clear();render.invoke(screen,new Graphics(),0,0,0f);
+                            check(frameBodies.equals(tick<300_000_000L?java.util.List.of(a):java.util.List.of()),"IMMEDIATE RETENTION actual root holds whole A until threshold, never pending B at "+tick+" actual="+frameBodies);
+                            check(pendingSession.imageSpinner()==(tick>=300_000_000L) && fixture.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"IMMEDIATE RETENTION own pending clock/spinner never grants B authority");
+                        }
+                        held.ready();
+                    } finally {held.retire();}
+                }
                 frameIdentities.clear();
                 framePainted.clear(); frameBodies.clear();
                 render.invoke(screen,new Graphics(),0,0,0f);
-                check(frameBodies.equals(java.util.List.of(a,b)), "root must execute actual retained A and B candidate native passes: " + frameBodies);
+                check(frameBodies.equals(loadingCanonical?java.util.List.of(b):java.util.List.of(a,b)), "root retains A before threshold and separately executes own B hidden preparation: " + frameBodies);
                 check(frameIdentities.size() == 1 && frameIdentities.get(0).equals(nativeField(screen,"nativeWidgets")), "root snapshot must not rebuild native collections during paint");
+                check(fixture.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED && fixture.runtime.previewBodySource(fixture.preview()).equals(a),"hidden B preparation preserves retained common A without display ACK");
+                framePainted.clear();frameBodies.clear();frameIdentities.clear();
+                render.invoke(screen,new Graphics(),0,0,0f);
+                check(frameBodies.equals(java.util.List.of(b)) && fixture.displayed()==PreviewRenderer.DisplayKind.ORDINARY,"own B visible immediate consumer obtains common ACK");
                 var sourceB = com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(target));
                 @SuppressWarnings("unchecked") var requestB = ((Optional<PreviewRenderer.PreviewRequest>) requestMethodA.invoke(screen,hidden)).orElseThrow();
                 try (var decodedB = CpmBehaviorProbe.nativeAccessoryObservation(sourceB)) {
@@ -696,8 +912,10 @@ public final class CpmPreviewScopeProbe {
                 check(fixture.runtime.previewBodySource(fixture.preview()).equals(b), "metadata alone retains B0 until B1 own native pass");
                 framePainted.clear(); frameBodies.clear();
                 render.invoke(screen,new Graphics(),0,0,0f);
-                check(frameBodies.equals(java.util.List.of(b,metadataSource)), "next root draws retained B0 then its own metadata-derived B1");
+                check(frameBodies.equals(java.util.List.of(b,metadataSource)), "next root retains B0 while separately preparing metadata-derived B1 image");
                 check(framePainted.equals(frameControls(after)), "root keeps B0 controls throughout B1 native completion");
+                check(fixture.runtime.previewBodySource(fixture.preview()).equals(b),"hidden B1 cannot common ACK metadata alone");
+                framePainted.clear();frameBodies.clear();render.invoke(screen,new Graphics(),0,0,0f);
                 check(fixture.runtime.previewBodySource(fixture.preview()).equals(metadataSource), "only B1 actual pass commits its own projection");
                 var metadataView = fixture.runtime.view(854,480,0,0);
                 framePainted.clear(); frameBodies.clear();
@@ -709,7 +927,9 @@ public final class CpmPreviewScopeProbe {
                 sync.invoke(screen,fixture.runtime.view(854,480,0,0)); fixture.drainWorkers();
                 sync.invoke(screen,fixture.runtime.view(854,480,0,0));
                 frameBodies.clear(); render.invoke(screen,new Graphics(),0,0,0f);
-                check(frameBodies.size() == 2 && !frameBodies.get(0).equals(frameBodies.get(1)), "B-C-B return uses new source authority");
+                check(frameBodies.size()==2 && frameBodies.get(0).equals(metadataSource) && !frameBodies.get(1).equals(metadataSource),"B-C-B return retains predecessor while separately preparing new source authority");
+                check(fixture.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"returned hidden preparation does not acknowledge retained image");
+                frameBodies.clear();render.invoke(screen,new Graphics(),0,0,0f);
                 check(fixture.preview().presetId().equals(ownedA.presetId()), "B-C-B actual pass returns original selected preset");
                 var requestMethod = screenType.getDeclaredMethod("galleryRequest",com.naocraftlab.skins.runtime.ViewSpec.Preview.class); requestMethod.setAccessible(true);
                 var current = fixture.preview(); String currentSource = fixture.runtime.previewBodySource(current);
@@ -744,14 +964,21 @@ public final class CpmPreviewScopeProbe {
                     try { render.invoke(screen,new Graphics(),0,0,0f); }
                     catch (java.lang.reflect.InvocationTargetException expected) { failed = expected.getCause() instanceof AssertionError && "frame-terminal-failure".equals(expected.getCause().getMessage()); }
                     check(failed && ((Integer) nativeField(screen,"galleryFrameDepth")) == 0,"root exception settles frame guard");
+                    Inventory.draw=() -> {};
+                    fixture.selectC();
+                    sync.invoke(screen,fixture.runtime.view(854,480,0,0));fixture.drainWorkers();sync.invoke(screen,fixture.runtime.view(854,480,0,0));
+                    render.invoke(screen,new Graphics(),0,0,0f);render.invoke(screen,new Graphics(),0,0,0f);
+                    check(fixture.displayed()==PreviewRenderer.DisplayKind.ORDINARY,"explicit new selected source recovers after terminal image failure");
+                    var closingSource=com.naocraftlab.skins.runtime.CapeProjection.skinSource(nativeProfile(target));
+                    framePainted.clear();
                     Inventory.draw = () -> {
-                        check(source.active(),"native reentrant close starts with actual current source");
+                        check(closingSource.active(),"native reentrant close starts with actual current source");
                         try { ((AutoCloseable) target).close(); } catch (Exception failure) { throw new AssertionError(failure); }
-                        check(source.active(),"source resource retained until immediate native call really returns");
+                        check(closingSource.active(),"source resource retained until immediate native call really returns");
                         fixture.runtime.closeScreen();
                     };
                     render.invoke(screen,new Graphics(),0,0,0f);
-                    check(!source.active() && ((Map<?,?>) nativeField(target,"gallerySlots")).isEmpty(),"native return retires closed source/profile slots");
+                    check(!closingSource.active() && ((Map<?,?>) nativeField(target,"gallerySlots")).isEmpty(),"native return retires closed source/profile slots");
                     check(framePainted.isEmpty() && ((Integer) nativeField(screen,"galleryFrameDepth")) == 0,"reentrant screen close has no after-close widgets and settles frame guard");
                     int oldReads = reads[1]; live.accept(positive);
                     check(reads[1] == oldReads,"closed screen rejects accessory supplier before read");
@@ -801,7 +1028,7 @@ public final class CpmPreviewScopeProbe {
                 System.out.println("PASS DISTINCT_OWNED hidden candidate actual import/storage/load/cache/relookup, model/bytes/no-borrow, old-key retirement and B-C-B");
             }
         }
-        System.out.println("PASS ROOT_FRAME actual A body/B candidate completion -> snapshotChanged -> unchanged A widgets; next frame B body/controls");
+        System.out.println("PASS ROOT_FRAME retained common A/controls, hidden own B preparation -> visible own B consumer/common ACK -> next coherent B widgets");
     }
 
     private static Remapper terminalNames(Map<String, Class<?>> types) {
@@ -868,6 +1095,15 @@ public final class CpmPreviewScopeProbe {
     }
 
     public static final class Graphics {
+        static final java.util.List<CpmBakedDisplayProbe.LoadingFrame> loadingFrames = new java.util.ArrayList<>();
+        public void blit(Location texture, int x, int y, int width, int height, float u, float v,
+                int sourceWidth, int sourceHeight, int textureWidth, int textureHeight) {
+            loadingFrames.add(new CpmBakedDisplayProbe.LoadingFrame(texture.value(), x, y, u, v, width, height, sourceWidth, sourceHeight, textureWidth, textureHeight));
+        }
+        public void blit(CpmOwnedPreviewDispatchProbe.Text texture, int x, int y, int width, int height, float u, float v,
+                int sourceWidth, int sourceHeight, int textureWidth, int textureHeight) {
+            loadingFrames.add(new CpmBakedDisplayProbe.LoadingFrame(texture.toString(), x, y, u, v, width, height, sourceWidth, sourceHeight, textureWidth, textureHeight));
+        }
         public void enableScissor(int x, int y, int right, int bottom) {}
         public void disableScissor() {}
         public Pose pose() { return new Pose(); }
@@ -875,18 +1111,21 @@ public final class CpmPreviewScopeProbe {
         public void flush() { CpmBakedDisplayProbe.flush(); }
     }
     public static final class Pose {
+        public CpmBakedDisplayProbe.ImmediateMatrices last() { return new CpmBakedDisplayProbe.ImmediateMatrices(); }
         public void pushPose() { CpmBakedDisplayProbe.push(); }
         public void popPose() { CpmBakedDisplayProbe.pop(); }
         public void scale(float x, float y, float z) {}
-        public void translate(float x, float y, float z) {}
+        public void translate(float x, float y, float z) { CpmBakedDisplayProbe.translated(x); }
         public void mulPose(org.joml.Quaternionfc rotation) {}
+        public void mulPose(org.joml.Quaternionf rotation) {}
     }
     public static final class Inventory {
         static Runnable draw = () -> {};
+        static float x;
         public static void renderEntityInInventory(Graphics graphics, int x, int y, int scale,
-                org.joml.Quaternionf rotation, org.joml.Quaternionf camera, Entity entity) { draw.run(); }
+                org.joml.Quaternionf rotation, org.joml.Quaternionf camera, Entity entity) { Inventory.x=x;draw.run(); }
         public static void renderEntityInInventory(Graphics graphics, float x, float y, float scale, org.joml.Vector3f translation,
-                org.joml.Quaternionf rotation, org.joml.Quaternionf camera, Entity entity) { draw.run(); }
+                org.joml.Quaternionf rotation, org.joml.Quaternionf camera, Entity entity) { Inventory.x=x;draw.run(); }
     }
 
     static void submissionBodyProducer(PreviewRenderer.PreviewAppearance appearance, Runnable binding, Runnable cleanupFailure,
@@ -921,6 +1160,7 @@ public final class CpmPreviewScopeProbe {
 
     public static final class Level {}
     public static final class Client {
+        public static final boolean ON_OSX = false;
         static Client current;
         public static Client getInstance() { return current; }
         public final GameRenderer gameRenderer = new GameRenderer();

@@ -125,6 +125,7 @@ if (prepared || buffered || combined || immediate != null) {
                     include 'legacy-boot/**/*.java', 'legacy-spi/**/*.java', 'legacy-game/**/*.java', 'legacy-contract/**/*.java'
                     include "legacy-${targetSpec.loader.id}/**/*.java"
                     include '**/CaseLifecycle.java'
+                    include '**/PreparedPreviewContract.java'
                 } else {
                     include 'boot/**/*.java', 'spi/**/*.java', 'terminal/**/*.java', 'game/**/*.java', 'contract/**/*.java'
                     include "${mode.get()}/**/*.java"

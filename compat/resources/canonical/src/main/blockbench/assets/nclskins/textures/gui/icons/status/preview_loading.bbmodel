@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "format_version": "5.0",
+    "model_format": "image",
+    "box_uv": false
+  },
+  "name": "preview_loading",
+  "resolution": {
+    "width": 32,
+    "height": 256
+  },
+  "elements": [],
+  "groups": [],
+  "outliner": [],
+  "textures": [
+    {
+      "name": "preview_loading",
+      "id": "0",
+      "width": 32,
+      "height": 256,
+      "uv_width": 32,
+      "uv_height": 256,
+      "internal": true,
+      "layers_enabled": true,
+      "frame_interpolate": false,
+      "layers": [
+        {
+          "type": "pixel_layer",
+          "name": "preview_loading",
+          "offset": [
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1
+          ],
+          "opacity": 100,
+          "visible": true,
+          "blend_mode": "default",
+          "width": 32,
+          "height": 256,
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAEACAYAAADSoXR2AAABV0lEQVR42u3dwYnDMBAFUNeRUraVtJJWtpRtJa1kfV6MLA0j/h7eB12CEe9gEPNBzvG5yfEn50+P0bp4/mu0DgAAgDhA5HwR3qPVsP9ztAAAAPIAkfNF+Bmti+e/R+vi+ddoAQAA/AvA0mHUPsgAAADEASKrh1Fh/9uWDAAAIAsQaR80Ci0ZAABAHLBaUPQOMgAAAHGAyOphVNj/tiUDAADIAkTaB41CSwYAABAHrBYUvYMMAABAHCCyehgV9r9tyQAAALIAkfZBo9CSAQAAxAGrBUXvIAMAABAHiOy+mDzTkgEAAGQBIu2DRqElAwAAiANWC4reQQYAACAOENl9MXmmJQMAAMgCRNoHjUJLBgAAEAesFhS9gwwAAEAcILL7YvJMSwYAAJAFiLQPGoWWDAAAIA7Y+kdpMx9IBAAAyAJEdl9MnmnJAAAAsgCR9kGj0JIBAABEAb8jhZdJz6f1uAAAAABJRU5ErkJggg=="
+        }
+      ],
+      "source": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAEACAYAAADSoXR2AAABV0lEQVR42u3dwYnDMBAFUNeRUraVtJJWtpRtJa1kfV6MLA0j/h7eB12CEe9gEPNBzvG5yfEn50+P0bp4/mu0DgAAgDhA5HwR3qPVsP9ztAAAAPIAkfNF+Bmti+e/R+vi+ddoAQAA/AvA0mHUPsgAAADEASKrh1Fh/9uWDAAAIAsQaR80Ci0ZAABAHLBaUPQOMgAAAHGAyOphVNj/tiUDAADIAkTaB41CSwYAABAHrBYUvYMMAABAHCCyehgV9r9tyQAAALIAkfZBo9CSAQAAxAGrBUXvIAMAABAHiOy+mDzTkgEAAGQBIu2DRqElAwAAiANWC4reQQYAACAOENl9MXmmJQMAAMgCRNoHjUJLBgAAEAesFhS9gwwAAEAcILL7YvJMSwYAAJAFiLQPGoWWDAAAIA7Y+kdpMx9IBAAAyAJEdl9MnmnJAAAAsgCR9kGj0JIBAABEAb8jhZdJz6f1uAAAAABJRU5ErkJggg=="
+    }
+  ]
+}

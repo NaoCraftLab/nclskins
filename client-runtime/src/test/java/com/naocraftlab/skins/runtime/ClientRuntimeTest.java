@@ -95,6 +95,172 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ClientRuntimeTest {
+    @Test void providerSessionRefreshKeepsOfflineRowsEffectiveTabAndInspectionIndependent(@TempDir Path directory) throws Exception {
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        try (var fixture = new ProviderFailureFixture(directory, false, client, worker)) {
+            drainRefreshQueues(worker, client);
+            var runtime = fixture.runtime;
+            var before = refreshView(runtime, client);
+            var offline = providerIcon(before, "providers.row.OFFLINE");
+            var minecraft = providerIcon(before, "providers.row.MINECRAFT");
+            var effective = providerIcon(before, "providers.tab.SKIN");
+            var resolved = before.previews().get(0);
+            runtime.dispatchWidget("providers.refresh");
+            while (!client.tasks.isEmpty()) client.runFirst();
+            assertTrue(worker.size() > 0);
+            var first = runtime.providerImagePreparation(minecraft).orElseThrow();
+            assertTrue(runtime.providerImagePreparation(offline).isEmpty());
+            assertTrue(runtime.providerImagePreparation(effective).isEmpty());
+            client.execute(() -> assertTrue(runtime.providerImagePreparation(resolved).isEmpty()));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            runtime.dispatchWidget("providers.row.MINECRAFT");
+            while (!client.tasks.isEmpty()) client.runFirst();
+            var own = refreshView(runtime, client).previews().get(0);
+            assertNotEquals(resolved.imageRevision(), own.imageRevision());
+            client.execute(() -> assertEquals(first, runtime.providerImagePreparation(own).orElseThrow()));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            runtime.dispatchWidget("providers.row.OFFLINE");
+            while (!client.tasks.isEmpty()) client.runFirst();
+            var inspection = refreshView(runtime, client).previews().get(0);
+            assertEquals(resolved.imageRevision(), inspection.imageRevision());
+            client.execute(() -> assertTrue(runtime.providerImagePreparation(inspection).isEmpty()));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            assertEquals(first, runtime.providerImagePreparation(minecraft).orElseThrow());
+            drainRefreshQueues(worker, client);
+            assertTrue(runtime.providerImagePreparation(minecraft).isEmpty(), "completion has no minimum spinner display");
+            runtime.dispatchWidget("providers.row.MINECRAFT");
+            drainRefreshQueues(worker, client);
+            runtime.dispatchWidget("providers.refresh");
+            while (!client.tasks.isEmpty()) client.runFirst();
+            var second = runtime.providerImagePreparation(minecraft).orElseThrow();
+            assertNotEquals(first.attempt(), second.attempt(), "same cached source has a new explicit refresh attempt");
+            assertEquals(minecraft.providerTexture(), providerIcon(refreshView(runtime, client), "providers.row.MINECRAFT").providerTexture());
+            drainRefreshQueues(worker, client);
+            assertTrue(runtime.providerImagePreparation(minecraft).isEmpty());
+            assertEquals(List.of(ProviderRefreshRequest.all(AppearanceProviders.Component.SKIN),
+                    ProviderRefreshRequest.one(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT)), fixture.operations.providerRefreshRequests);
+            assertEquals(0, fixture.operations.applyCalls);
+        }
+    }
+
+    @Test void providerExternalImagesEndAtTheirOwnCallbackWhileSiblingRemainsAdmitted() {
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        FakeOperations operations = new FakeOperations();
+        var a = new ProviderCape("synthetic-a", "a".repeat(64));
+        var b = new ProviderCape("synthetic-b", "b".repeat(64));
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.OPTIFINE)
+                .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC);
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape()
+                .observeOptifine(a).observeSkinmc(b).observeMinecraft(null));
+        operations.deferCapeRefresh = true;
+        try (var runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client,
+                CANCELLED_PICKER, worker, TEXT, Optional.empty(), DiagnosticSinks.discarding())) {
+            runtime.initialize();
+            drainRefreshQueues(worker, client);
+            runtime.dispatchWidget("gallery.providers");
+            drainRefreshQueues(worker, client);
+            runtime.dispatchWidget("providers.tab.CAPE");
+            drainRefreshQueues(worker, client);
+            var view = refreshView(runtime, client);
+            var fast = providerIcon(view, "providers.row.OPTIFINE");
+            var slow = providerIcon(view, "providers.row.SKINMC");
+            var tab = providerIcon(view, "providers.tab.CAPE");
+            runtime.dispatchWidget("providers.refresh");
+            while (!client.tasks.isEmpty()) client.runFirst();
+            assertTrue(operations.capeRefreshCompletions.isEmpty());
+            assertTrue(runtime.providerImagePreparation(fast).isEmpty(), "external A is not admitted during session work");
+            assertTrue(runtime.providerImagePreparation(slow).isEmpty());
+            drainRefreshQueues(worker, client);
+            assertEquals(Set.of(BuiltinProvider.OPTIFINE, BuiltinProvider.SKINMC), operations.capeRefreshCompletions.keySet());
+            var own = runtime.providerImagePreparation(fast).orElseThrow();
+            var sibling = runtime.providerImagePreparation(slow).orElseThrow();
+            assertNotEquals(own.attempt(), sibling.attempt());
+            assertEquals(own, runtime.providerImagePreparation(tab).orElseThrow());
+            operations.capeRefreshCompletions.get(BuiltinProvider.OPTIFINE).accept(ProviderObservation.observed(a));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            assertTrue(runtime.providerImagePreparation(fast).isEmpty());
+            assertTrue(runtime.providerImagePreparation(tab).isEmpty());
+            assertEquals(sibling, runtime.providerImagePreparation(slow).orElseThrow());
+            runtime.dispatchWidget("providers.row.OPTIFINE");
+            while (!client.tasks.isEmpty()) client.runFirst();
+            var inspectA = refreshView(runtime, client).previews().get(0);
+            client.execute(() -> assertTrue(runtime.providerImagePreparation(inspectA).isEmpty()));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            runtime.dispatchWidget("providers.row.SKINMC");
+            while (!client.tasks.isEmpty()) client.runFirst();
+            var inspectB = refreshView(runtime, client).previews().get(0);
+            client.execute(() -> assertEquals(sibling, runtime.providerImagePreparation(inspectB).orElseThrow()));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            operations.capeRefreshCompletions.get(BuiltinProvider.SKINMC).accept(ProviderObservation.unknown());
+            drainRefreshQueues(worker, client);
+            assertTrue(runtime.providerImagePreparation(slow).isEmpty(), "terminal unknown is not pending");
+            assertEquals(1, operations.optifineRefreshes);
+            assertEquals(1, operations.skinMcRefreshes);
+            assertEquals(0, operations.applyCalls);
+        }
+    }
+
+    private static ViewSpec.IconDecoration providerIcon(ViewSpec view, String owner) {
+        var icon = view.iconDecorations().stream().filter(value -> value.ownerWidgetId().equals(owner)).findFirst().orElseThrow();
+        assertTrue(icon.providerTexture().isPresent(), owner);
+        return icon;
+    }
+
+    @Test void providerRereadRetainsAlreadyObservedImagesUntilItsReadPublishes(@TempDir Path directory) throws Exception {
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        try (var fixture = new ProviderFailureFixture(directory, false, client, worker)) {
+            drainRefreshQueues(worker, client);
+            var runtime = fixture.runtime;
+            var view = refreshView(runtime, client);
+            var icon = view.iconDecorations().stream()
+                    .filter(value -> value.ownerWidgetId().equals("providers.row.OFFLINE")).findFirst().orElseThrow();
+            var main = view.previews().get(0);
+            assertTrue(icon.providerTexture().isPresent());
+            client.execute(() -> runtime.dispatchWidget("gallery.providers"));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            assertTrue(worker.size() > 0);
+            assertTrue(runtime.providerImagePreparation(icon).isEmpty(), "durable reread has not invalidated observed OFFLINE");
+            client.execute(() -> assertTrue(runtime.providerImagePreparation(main).isEmpty(), "resolved main retains its current image"));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            drainRefreshQueues(worker, client);
+            assertTrue(runtime.providerImagePreparation(icon).isEmpty());
+            assertEquals(0, fixture.operations.applyCalls);
+        }
+    }
+
+    @Test void providerImageProjectionTracksRealRereadAndNotUnrelatedBusy() throws Exception {
+        TrackingClientExecutor client = new TrackingClientExecutor();
+        QueuedExecutor worker = new QueuedExecutor();
+        FakeOperations operations = new FakeOperations();
+        try (var runtime = new ClientRuntime(new DefaultRuntimeServices(), operations, client,
+                CANCELLED_PICKER, worker, TEXT, Optional.empty(), DiagnosticSinks.discarding())) {
+            runtime.initialize();
+            drainRefreshQueues(worker, client);
+            runtime.dispatchWidget("gallery.providers");
+            drainRefreshQueues(worker, client);
+            var field = ClientRuntime.class.getDeclaredField("providerFlow");
+            field.setAccessible(true);
+            var flow = (ProviderFlow) field.get(runtime);
+            var component = AppearanceProviders.Component.SKIN;
+            assertFalse(runtime.snapshot().providers().skin().observation(BuiltinProvider.OFFLINE).known());
+            assertTrue(flow.imagePreparation(component, BuiltinProvider.OFFLINE).isEmpty());
+            client.execute(() -> runtime.dispatchWidget("gallery.providers"));
+            while (!client.tasks.isEmpty()) client.runFirst();
+            assertTrue(worker.size() > 0);
+            var pending = flow.imagePreparation(component, BuiltinProvider.OFFLINE).orElseThrow();
+            assertEquals(pending, flow.imagePreparation(component, BuiltinProvider.OFFLINE).orElseThrow());
+            client.execute(() -> { runtime.closeScreen(); runtime.reopen(ScreenDestination.PROVIDERS); });
+            while (!client.tasks.isEmpty()) client.runFirst();
+            assertTrue(flow.imagePreparation(component, BuiltinProvider.OFFLINE).isEmpty(), "old reread cannot mask a reopened owner");
+            drainRefreshQueues(worker, client);
+            assertTrue(flow.imagePreparation(component, BuiltinProvider.OFFLINE).isEmpty());
+            assertEquals(0, operations.applyCalls);
+        }
+    }
+
     @Test
     void frozenIngressRenamedPngUsesActualBytesInProductionCaller(@TempDir Path directory) throws Exception {
         Path source = Files.write(directory.resolve("renamed.cpmproject"), opaqueSkinPng(false));
@@ -2630,6 +2796,127 @@ final class ClientRuntimeTest {
     }
 
     @Test
+    void editorModelTransitionKeepsConfirmedOrdinaryLayerControlsWhileItsNewBodyIsPending() {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(1);
+        try (var runtime = runtime(operations, Runnable::run, Optional.empty())) {
+            runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            var initial = runtime.view(854, 480, 0, 0).previews().get(0);
+            runtime.observePreviewBody(initial, () -> PreviewRenderer.DisplayKind.ORDINARY)
+                    .accept(PreviewRenderer.BodyStatus.ORDINARY);
+            var ready = runtime.view(854, 480, 0, 0);
+            var controls = ready.widgets().stream().filter(widget -> widget.id().startsWith("editor.outer_layer.")).toList();
+            assertEquals(3, controls.size(), "confirmed ordinary Editor owns all layer controls");
+            String next = initial.variant() == SkinVariant.SLIM ? "classic" : "slim";
+            assertTrue(ready.widget("editor.model_choice." + next).orElseThrow().activationEnabled());
+            runtime.dispatchWidget("editor.model_choice." + next);
+            var replacement = runtime.view(854, 480, 0, 0).previews().get(0);
+            assertNotEquals(initial.variant(), replacement.variant(), "the admitted model action changes the actual preview");
+            runtime.observePreviewBody(replacement, () -> PreviewRenderer.DisplayKind.UNCONFIRMED);
+            var pending = runtime.view(854, 480, 0, 0);
+            var pendingControls = pending.widgets().stream().filter(widget -> widget.id().startsWith("editor.outer_layer.")).toList();
+            assertEquals(controls.stream().map(ViewSpec.Widget::id).toList(), pendingControls.stream().map(ViewSpec.Widget::id).toList(),
+                    "pending replacement image must not remove confirmed ordinary layer chrome");
+            assertEquals(controls.stream().map(ViewSpec.Widget::bounds).toList(), pendingControls.stream().map(ViewSpec.Widget::bounds).toList(),
+                    "pending replacement image must not reflow the layer controls");
+            assertEquals(0, operations.editorSaveCalls);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"model", "cape", "mode", "layers"})
+    void editorAdmittedImageOnlyTransitionsKeepLayerChromeWithoutGrantingPendingBodyActions(String transition) {
+        FakeOperations operations = new FakeOperations();
+        operations.account = TestFixtures.account(2);
+        operations.activePresetId = Optional.of(operations.account.presets().get(1).id());
+        operations.providers = operations.providers.enable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT);
+        operations.ownedCapes = new OwnedCapeInventory(OwnedCapeInventory.CURRENT_SCHEMA_VERSION, TestFixtures.ACCOUNT_ID,
+                List.of(new OwnedCapeEntry("cape-1", "Cape 1", com.naocraftlab.skins.core.model.RemoteAssetState.ACTIVE, "a".repeat(64)),
+                        new OwnedCapeEntry("cape-2", "Cape 2", com.naocraftlab.skins.core.model.RemoteAssetState.ACTIVE, "b".repeat(64))), Instant.EPOCH);
+        operations.session = new SessionValidation(SessionStatus.VALID,
+                new GameSessionTokenSource.SessionIdentity(TestFixtures.ACCOUNT_ID, "Synthetic"),
+                new com.naocraftlab.skins.core.model.RemoteProfile(TestFixtures.ACCOUNT_ID, "Synthetic", List.of(), List.of(
+                        new com.naocraftlab.skins.core.model.RemoteCape("cape-1", com.naocraftlab.skins.core.model.RemoteAssetState.ACTIVE,
+                                java.net.URI.create("https://example.invalid/cape-1"), null),
+                        new com.naocraftlab.skins.core.model.RemoteCape("cape-2", com.naocraftlab.skins.core.model.RemoteAssetState.ACTIVE,
+                                java.net.URI.create("https://example.invalid/cape-2"), null)), Set.of()),
+                null, "synthetic test profile");
+        try (var runtime = runtime(operations, Runnable::run, Optional.empty())) {
+            runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + operations.activePresetId.orElseThrow() + ".edit");
+            var initialPreview = runtime.view(854, 480, 0, 0).previews().get(0);
+            AtomicInteger oldReads = new AtomicInteger();
+            var oldCallback = runtime.observePreviewBody(initialPreview, () -> {
+                oldReads.incrementAndGet();
+                return PreviewRenderer.DisplayKind.ORDINARY;
+            });
+            oldCallback.accept(PreviewRenderer.BodyStatus.ORDINARY);
+            var ready = runtime.view(854, 480, 0, 0);
+            var controls = ready.widgets().stream().filter(widget -> widget.id().startsWith("editor.outer_layer.")).toList();
+            assertEquals(3, controls.size());
+            var before = runtime.snapshot().editor().orElseThrow();
+            var publications = new ArrayList<ViewSpec>();
+            runtime.subscribe(ignored -> publications.add(runtime.view(854, 480, 0, 0)));
+            String action = switch (transition) {
+                case "model" -> "editor.model_choice." + (before.variant() == SkinVariant.SLIM ? "classic" : "slim");
+                case "mode" -> "editor.preview_mode";
+                case "cape" -> null;
+                case "layers" -> "editor.outer_layer.head";
+                default -> throw new AssertionError(transition);
+            };
+            publications.clear();
+            if (action != null) {
+                assertTrue(ready.widget(action).orElseThrow().activationEnabled(), transition);
+                runtime.dispatchWidget(action);
+            } else {
+                runtime.dispatchWidget("editor.tab.cape");
+                var capeView = runtime.view(854, 480, 0, 0);
+                var catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
+                var selected = catalog.cards().stream().filter(card -> card.provider() == BuiltinProvider.MINECRAFT
+                        && !card.key().equals(catalog.minecraft().orElse("none")))
+                        .filter(card -> capeView.widget(card.widgetId()).filter(ViewSpec.Widget::activationEnabled).isPresent())
+                        .findFirst().orElseThrow();
+                publications.clear();
+                runtime.dispatchWidget(selected.widgetId());
+            }
+            var after = runtime.snapshot().editor().orElseThrow();
+            switch (transition) {
+                case "model" -> assertNotEquals(before.variant(), after.variant());
+                case "cape" -> assertNotEquals(before.capeCatalog().minecraft(), after.capeCatalog().minecraft());
+                case "mode" -> assertNotEquals(before.preview().capeMode(), after.preview().capeMode());
+                case "layers" -> assertNotEquals(before.preview().outerLayerVisibility(), after.preview().outerLayerVisibility());
+                default -> throw new AssertionError(transition);
+            }
+            var replacement = runtime.view(854, 480, 0, 0).previews().get(0);
+            assertFalse(publications.isEmpty());
+            var firstPublication = publications.get(0);
+            assertTrue(firstPublication.widgets().stream().filter(widget -> widget.id().startsWith("editor.outer_layer."))
+                    .noneMatch(ViewSpec.Widget::activationEnabled), "first publication must retire A authority before native observes B");
+            int readsAfterChange = oldReads.get();
+            var pending = runtime.view(854, 480, 0, 0);
+            var pendingControls = pending.widgets().stream().filter(widget -> widget.id().startsWith("editor.outer_layer.")).toList();
+            assertEquals(controls.stream().map(ViewSpec.Widget::id).toList(), pendingControls.stream().map(ViewSpec.Widget::id).toList());
+            assertEquals(controls.stream().map(ViewSpec.Widget::bounds).toList(), pendingControls.stream().map(ViewSpec.Widget::bounds).toList());
+            assertTrue(pendingControls.stream().noneMatch(ViewSpec.Widget::activationEnabled), "pending body retains chrome without admitting stale actions");
+            assertTrue(pending.navigationNodes().stream().filter(node -> node.id().startsWith("editor.outer_layer.")).noneMatch(ViewSpec.NavigationNode::enabled));
+            var draft = runtime.snapshot().editor().orElseThrow().saveRequest();
+            runtime.dispatchWidget("editor.outer_layer.body", false, InteractionOrigin.KEYBOARD);
+            runtime.dispatchWidget("editor.outer_layer.body");
+            assertFalse(runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "editor.outer_layer.body"));
+            oldCallback.accept(PreviewRenderer.BodyStatus.ORDINARY);
+            assertEquals(draft, runtime.snapshot().editor().orElseThrow().saveRequest());
+            assertEquals(readsAfterChange, oldReads.get(), "retired A capability must remain unread");
+            runtime.observePreviewBody(replacement, () -> PreviewRenderer.DisplayKind.ORDINARY)
+                    .accept(PreviewRenderer.BodyStatus.ORDINARY);
+            var confirmed = runtime.view(854, 480, 0, 0);
+            assertTrue(confirmed.widget("editor.outer_layer.body").orElseThrow().activationEnabled());
+        }
+    }
+
+    @Test
     void editorBodyHidesOnlyLayersRejectsStaleActionsAndRestoresDraftControls() {
         FakeOperations operations = new FakeOperations();
         operations.account = TestFixtures.account(1);
@@ -2647,9 +2934,12 @@ final class ClientRuntimeTest {
         var callback = runtime.observePreviewBody(preview, renderer::displayKind);
         callback.accept(PreviewRenderer.BodyStatus.READY);
         runtime.dispatchWidget("editor.outer_layer.body", false, InteractionOrigin.KEYBOARD);
+        var changedPreview = runtime.view(854, 480, 0, 0).previews().get(0);
+        callback = runtime.observePreviewBody(changedPreview, renderer::displayKind);
+        callback.accept(PreviewRenderer.BodyStatus.ORDINARY);
         var focused = runtime.view(854, 480, 0, 0);
         assertTrue(focused.focusRequest().isPresent(), "keyboard layer activation must preserve logical Editor focus");
-        assertEquals("editor.outer_layer.body", focused.focusRequest().orElseThrow().widgetId());
+        assertEquals("editor.tab.appearance", focused.focusRequest().orElseThrow().widgetId());
         var draft = runtime.snapshot().editor().orElseThrow().saveRequest();
         var account = operations.account;
         body.set(new com.naocraftlab.skins.client.PreviewModelFrames.Body(PreviewRenderer.BodyStatus.READY, () -> true));
@@ -8374,12 +8664,14 @@ final class ClientRuntimeTest {
         assertFalse(afterReverse.preview().outerLayerVisibility().visible(OuterLayerPart.LEFT_ARM));
         assertTrue(afterReverse.preview().outerLayerVisibility().visible(OuterLayerPart.RIGHT_ARM));
 
+        TestFixtures.confirmOrdinaryDisplay(runtime);
         runtime.dispatchWidget("editor.outer_layer.body");
         PresetEditorModel wrapped = runtime.snapshot().editor().orElseThrow();
         assertTrue(wrapped.preview().outerLayerVisibility().visible(OuterLayerPart.BODY));
         assertTrue(wrapped.preview().outerLayerVisibility().visible(OuterLayerPart.LEFT_ARM));
         assertTrue(wrapped.preview().outerLayerVisibility().visible(OuterLayerPart.RIGHT_ARM));
 
+        TestFixtures.confirmOrdinaryDisplay(runtime);
         runtime.dispatchWidget("editor.outer_layer.body");
         PresetEditorModel afterForward = runtime.snapshot().editor().orElseThrow();
         assertFalse(afterForward.preview().outerLayerVisibility().visible(OuterLayerPart.BODY));

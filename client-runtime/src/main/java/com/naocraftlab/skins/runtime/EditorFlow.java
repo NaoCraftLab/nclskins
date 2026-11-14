@@ -53,11 +53,27 @@ final class EditorFlow {
     private double editorModelScrollPosition;
     private double editorCapeScrollPosition;
     private double editorCapeScrollTarget;
+    private long editorChromeLifetime;
+    private String confirmedOrdinaryChromeSource;
 
     EditorFlow(Context context) { this.context = Objects.requireNonNull(context, "context"); }
 
     boolean editorPreviewStillCurrent(ViewSpec.Preview preview) {
         return editorEvidenceStillCurrent(preview.imageRevision(), preview.variant());
+    }
+
+    boolean editorBodyStillCurrent(ViewSpec.Preview preview) {
+        if (!editorEvidenceStillCurrent(preview.imageRevision(), preview.variant())) return false;
+        var editor = state.editor;
+        var catalog = editor.capeCatalog();
+        var cape = catalog == null ? editor.capeId() : catalog.previewCape();
+        boolean nativeAccessories = catalog != null && catalog.nativePreview();
+        var mode = cape.isPresent() || nativeAccessories ? editor.preview().capeMode() : PreviewRenderer.CapeMode.OFF;
+        return preview.skin().equals(editor.skin()) && preview.capeId().equals(cape)
+                && preview.capeMode() == mode
+                && preview.outerLayerVisibility().equals(editor.preview().outerLayerVisibility())
+                && preview.nativeAccessories() == nativeAccessories
+                && preview.capeHasElytra() == (catalog == null || catalog.previewHasElytra());
     }
 
     boolean acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories value) {
@@ -67,12 +83,42 @@ final class EditorFlow {
         return true;
     }
 
-    private boolean showOuterLayers() {
+    private String ordinaryChromeSource() {
+        if (state.editor == null || context.account() == null) return null;
+        return editorChromeLifetime + ":" + context.account().accountId() + ":" + state.editor.png()
+                .map(PresetEditorModel.DraftPng::revision)
+                .orElseGet(() -> state.editor.originalPresetId().map(id -> "preset:" + id).orElse("new-editor"));
+    }
+
+    private boolean showOuterLayerChrome() {
+        PreviewRenderer.DisplayKind kind = context.currentDisplayKind();
+        String source = ordinaryChromeSource();
+        if (source == null) return false;
+        if (kind == PreviewRenderer.DisplayKind.ORDINARY) {
+            confirmedOrdinaryChromeSource = source;
+            return true;
+        }
+        if (kind != PreviewRenderer.DisplayKind.UNCONFIRMED) {
+            confirmedOrdinaryChromeSource = null;
+            return false;
+        }
+        if (bodyStatus != PreviewRenderer.BodyStatus.ORDINARY) {
+            confirmedOrdinaryChromeSource = null;
+            return false;
+        }
+        return source.equals(confirmedOrdinaryChromeSource);
+    }
+
+    private boolean admitOuterLayerAction() {
         return context.currentDisplayKind() == PreviewRenderer.DisplayKind.ORDINARY;
     }
 
+    void clearLayerControlContinuity() {
+        confirmedOrdinaryChromeSource = null;
+    }
+
     void cycleEditorOuterLayer(String action, boolean reverse) {
-        if (!showOuterLayers()) return;
+        if (!admitOuterLayerAction()) return;
         switch (action) {
             case "head", "body", "legs" -> updateEditor(
                     editor -> editor.cycleOuterLayer(action, reverse ? -1 : 1));
@@ -823,7 +869,7 @@ final class EditorFlow {
 
         if (widgetId.startsWith("editor.outer_layer.")) {
             String group = widgetId.substring("editor.outer_layer.".length());
-            if (state.editor == null || state.editor.busy() || !showOuterLayers()
+            if (state.editor == null || state.editor.busy() || !admitOuterLayerAction()
                     || !List.of("head", "body", "legs").contains(group)) return true;
             context.retainKeyboardFocus(origin, "preset_editor", widgetId);
             cycleEditorOuterLayer(group, reverse);
@@ -887,11 +933,27 @@ final class EditorFlow {
         }
     }
 
+    private ViewSpec disableOuterLayerActions(ViewSpec view) {
+        var widgets = view.widgets().stream().map(widget -> widget.id().startsWith("editor.outer_layer.")
+                ? widget.withActivation(false, null) : widget).toList();
+        var navigation = view.navigationNodes().stream().map(node -> node.id().startsWith("editor.outer_layer.")
+                ? new ViewSpec.NavigationNode(node.id(), node.bounds(), node.surfaceId(), node.documentOrder(),
+                        node.tabOrder(), false, node.pattern(), node.activationActionId())
+                : node).toList();
+        return new ViewSpec(view.screenId(), view.title(), view.width(), view.height(), view.panels(), view.texts(),
+                widgets, view.previews(), view.scrollbar(), view.tabGroups(), view.focusRequest(), view.clipRegions(),
+                view.backEquipmentPreviews(), view.iconDecorations(), view.scrollSurfaces(), view.tooltipRegions(),
+                view.progressDecorations(), navigation);
+    }
+
     ViewSpec presentEditor(int width, int height) {
         PresetEditorModel editor = state.editor;
-            ViewSpec editorView = editor.present(
-                    width, height, editorCapeScrollPosition, editorModelScrollPosition, context.viewChromeMetrics(), showOuterLayers());
-            SkinFeatureEvidence evidence = state.editorEvidence;
+        boolean showLayers = showOuterLayerChrome();
+        boolean layersAdmitted = admitOuterLayerAction();
+        ViewSpec editorView = editor.present(width, height, editorCapeScrollPosition, editorModelScrollPosition,
+                context.viewChromeMetrics(), showLayers);
+        if (showLayers && !layersAdmitted) editorView = disableOuterLayerActions(editorView);
+        SkinFeatureEvidence evidence = state.editorEvidence;
             if (evidence != null) {
                 SkinCompatibility compatibility = new SkinCompatibilityEvaluator().evaluate(
                         evidence, context.snapshot().skinExtensionEnvironment());
@@ -925,7 +987,7 @@ final class EditorFlow {
             }
             ViewSpec focused = context.withRuntimeFocus(editorView);
             if (focused.focusRequest().filter(request -> request.widgetId().startsWith("editor.outer_layer.")
-                    && focused.widget(request.widgetId()).isEmpty()).isPresent()) {
+                    && (!layersAdmitted || focused.widget(request.widgetId()).isEmpty())).isPresent()) {
                 context.requestRuntimeFocus("preset_editor", editor.selectedEditorTab() == EditorTab.CAPE
                         ? "editor.tab.cape" : "editor.tab.appearance");
                 return context.withRuntimeFocus(editorView);
@@ -949,6 +1011,8 @@ final class EditorFlow {
     }
 
     void acceptDraft(EditorDraftTransfer transfer) {
+        editorChromeLifetime++;
+        clearLayerControlContinuity();
         editorCatalogGeneration++;
         draftRevision++;
         if (transfer.saveScope().isEmpty()) retireSaveScope();
@@ -984,6 +1048,8 @@ final class EditorFlow {
     }
 
     void resetSession() {
+        editorChromeLifetime++;
+        clearLayerControlContinuity();
         retireSaveScope();
         state.editor = null;
         retireSneaky();
@@ -993,6 +1059,8 @@ final class EditorFlow {
     }
 
     void closeDraft() {
+        editorChromeLifetime++;
+        clearLayerControlContinuity();
         retireSaveScope();
         state.editor = null;
         retireSneaky();

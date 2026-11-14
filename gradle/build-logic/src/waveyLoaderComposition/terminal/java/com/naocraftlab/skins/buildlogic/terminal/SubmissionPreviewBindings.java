@@ -91,10 +91,11 @@ public final class SubmissionPreviewBindings {
     public static int applyNative(ClassNode node) {
         if (!NATIVE_OWNERS.contains(node.name)) return 0;
         if (node.name.equals(FRAME)) {
-            var method = exact(node, "fence", "()V");
+            var method = exact(node, "fence", "(Ljava/util/List;)V");
             int count = 0;
             for (var instruction : method.instructions) if (instruction instanceof MethodInsnNode call
-                    && call.owner.equals("com/mojang/blaze3d/systems/RenderSystem") && call.name.equals("queueFencedTask") && call.desc.equals("(Ljava/lang/Runnable;)V")) {
+                    && call.owner.equals("com/mojang/blaze3d/systems/RenderSystem") && call.name.equals("queueFencedTask") && call.desc.equals("(Ljava/lang/Runnable;)V")
+                    && call.getOpcode() == Opcodes.INVOKESTATIC && !call.itf) {
                 call.owner = RAW; count++;
             }
             if (count != 1) throw new AssertionError("SUBMISSION_FENCE_COUNT " + count);

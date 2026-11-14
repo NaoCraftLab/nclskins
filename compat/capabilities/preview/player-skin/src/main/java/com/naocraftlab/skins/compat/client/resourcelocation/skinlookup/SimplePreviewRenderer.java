@@ -97,8 +97,104 @@ public final class SimplePreviewRenderer
         elytra = models.elytra;
     }
 
+    private Object imageSource;
+    @Override public void prepareImage(Object source, long startedNanos, boolean inputsReady) {
+        prepareImage(source, startedNanos);
+        imageSession.imagePrerequisite(inputsReady, startedNanos);
+    }
+
+    @Override public void prepareImage(Object source, long startedNanos) {
+        java.util.Objects.requireNonNull(source);
+        if (!java.util.Objects.equals(imageSource, source) && displayedImageSession != null) {
+            if (imageSession != displayedImageSession) imageSession.invalidateDisplayedBody();
+            imageSession = imageSession.nextImageSession();
+        }
+        imageSource = java.util.Objects.requireNonNull(source);
+        imageSession.beginImage(source, startedNanos);
+    }
+
+    private com.naocraftlab.skins.client.EditorPreviewSession imageSession =
+            new com.naocraftlab.skins.client.EditorPreviewSession();
+
+    private Object implicitImageSource;
+    private PreviewRequest displayedImage;
+    private com.naocraftlab.skins.client.EditorPreviewSession displayedImageSession;
+    private java.util.function.BooleanSupplier displayedImageLifetime;
+
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
+        String skin = request.appearance().skin().location();
+        var registration = com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin);
+        if (imageSource == null) {
+            var identity = java.util.List.of(request.appearance(), registration);
+            if (!java.util.Objects.equals(implicitImageSource, identity)) {
+                if (displayedImageSession != null) {
+                    if (imageSession != displayedImageSession) imageSession.invalidateDisplayedBody();
+                    imageSession = imageSession.nextImageSession();
+                }
+                implicitImageSource = identity;
+            }
+            imageSession.beginImage(identity);
+        }
+        if (!imageSession.imageVisible() && !imageSession.imageSpinner() && imageSession.imagePreparing()
+                && displayedImage != null && displayedImageSession.imageVisible() && displayedImageLifetime.getAsBoolean()) {
+            try { renderImage(graphics, displayedImage); }
+            catch (RuntimeException | Error failure) {
+                displayedImageSession.invalidateDisplayedBody();
+                displayedImage = null;
+                imageSession.imagePreparation(() -> true).accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
+                throw failure;
+            }
+        }
+        if (!com.naocraftlab.skins.client.NativePlayerSkinLifecycle.isReady(skin)) {
+            if (registration.filter(value -> value.state() != com.naocraftlab.skins.client.NativePlayerSkinLifecycle.State.PENDING).isPresent())
+                imageSession.imagePreparation(() -> true).accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
+            renderLoading(graphics, imageSession, request);
+            return;
+        }
+        renderLoading(graphics, imageSession, request);
+        if (imageSession.imageVisible()) {
+            renderImage(graphics, request);
+            {
+                var client = Minecraft.getInstance();
+                var world = client.level;
+                var player = client.player;
+                var previous = displayedImageSession;
+                displayedImage = request;
+                displayedImageSession = imageSession;
+                displayedImageLifetime = () -> client.level == world && client.player == player
+                        && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin).equals(registration)
+                        && (request.appearance().cape().isEmpty() || request.appearance().capeMode() == CapeMode.OFF
+                                || request.appearance().capeMode() == CapeMode.ELYTRA && !request.appearance().capeHasElytra()
+                                || request.appearance().capeValidity().isValid());
+                if (previous != null && previous != imageSession) previous.invalidateDisplayedBody();
+            }
+            return;
+        }
+        if (!imageSession.imagePreparing()) return;
+        var completion = imageSession.imagePreparation(
+                () -> com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin).equals(registration)
+                        && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.isReady(skin));
+        try {
+            renderImage(graphics, request.hidden());
+            completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.ORDINARY,
+                    () -> com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin).equals(registration)
+                        && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.isReady(skin)));
+        } catch (RuntimeException | Error failure) {
+            completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
+            throw failure;
+        }
+    }
+
+    static void renderLoading(GuiGraphics graphics, com.naocraftlab.skins.client.EditorPreviewSession session, PreviewRequest request) {
+        if (!session.imageSpinner()) return;
+        var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) session.imageFrame() * 100_000_000L,
+                request.left(), request.top(), request.width(), request.height(), 32);
+        graphics.blit(ResourceLocation.tryParse(frame.resource()), frame.left(), frame.top(), frame.size(), frame.size(),
+                (float) frame.u(), (float) frame.v(), frame.width(), frame.height(), frame.textureWidth(), frame.textureHeight());
+    }
+
+    private void renderImage(GuiGraphics graphics, PreviewRequest request) {
         Objects.requireNonNull(graphics, "graphics");
         Objects.requireNonNull(request, "request");
         ResourceLocation skin = parseTexture(request.appearance().skin().location());
@@ -162,6 +258,28 @@ public final class SimplePreviewRenderer
 
     @Override
     public void render(GuiGraphics graphics, BackEquipmentPreviewRenderer.Request request) {
+        if (imageSource == null) imageSession.beginImage(java.util.List.of(request.texture(), request.mode(), request.capeHasElytra()));
+        if (!imageSession.imageVisible() && !imageSession.imagePreparing()) return;
+        if (imageSession.imageSpinner()) {
+            var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) imageSession.imageFrame() * 100_000_000L,
+                    request.left(), request.top(), request.width(), request.height(), 32);
+            graphics.blit(ResourceLocation.tryParse(frame.resource()), frame.left(), frame.top(), frame.size(), frame.size(),
+                    (float) frame.u(), (float) frame.v(), frame.width(), frame.height(), frame.textureWidth(), frame.textureHeight());
+        }
+        if (imageSession.imageVisible()) { renderEquipment(graphics, request); return; }
+        var hidden = new BackEquipmentPreviewRenderer.Request(request.texture(), request.mode(), -request.width() - 1,
+                request.top(), request.width(), request.height(), request.capeHasElytra());
+        var completion = imageSession.imagePreparation(() -> true);
+        try {
+            renderEquipment(graphics, hidden);
+            completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.ORDINARY, () -> true));
+        } catch (RuntimeException | Error failure) {
+            completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
+            throw failure;
+        }
+    }
+
+    private void renderEquipment(GuiGraphics graphics, BackEquipmentPreviewRenderer.Request request) {
         Objects.requireNonNull(graphics, "graphics");
         Objects.requireNonNull(request, "request");
         PoseStack pose = graphics.pose();

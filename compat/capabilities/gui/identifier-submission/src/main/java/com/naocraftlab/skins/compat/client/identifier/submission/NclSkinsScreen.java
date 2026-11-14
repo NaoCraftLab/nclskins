@@ -176,9 +176,9 @@ public final class NclSkinsScreen extends Screen {
         if (textureRegistry == null) {
             textureRegistry = new IdentifierTextureRegistry();
             skinTextures = new PreviewAssetCache<>(
-                    textureRegistry, TextureKind.PLAYER_SKIN, runtime.diagnostics());
+                    textureRegistry, TextureKind.PLAYER_SKIN, runtime.diagnostics(), editorRenderer::retainedTextures);
             capeTextures = new PreviewAssetCache<>(
-                    textureRegistry, TextureKind.IMAGE, runtime.diagnostics());
+                    textureRegistry, TextureKind.IMAGE, runtime.diagnostics(), editorRenderer::retainedTextures);
         }
         runtime.reopen(destination);
         if (subscription == null) {
@@ -743,6 +743,16 @@ public final class NclSkinsScreen extends Screen {
                 var texture = decoration.providerTexture().orElseThrow();
                 String surfaceKey = texture.skin() ? texture.requestKey()
                         : runtime.previewDecorationCapeSurfaceKey(decoration);
+                var preparation = runtime.providerImagePreparation(decoration).map(value -> new PreviewAssetCache.ImageState(
+                        PreviewAssetCache.ImageStatus.PREPARING, value.attempt(), value.startedNanos()))
+                        .orElseGet(() -> capeTextures.imageState(surfaceKey, texture.skin() ? null : texture.requestKey()));
+                if (preparation.status() == PreviewAssetCache.ImageStatus.PREPARING) {
+                    clipped(graphics, current, decoration.id(), () -> {
+                        drawPreviewLoading(graphics, decoration.bounds(), preparation.startedNanos(), decoration.bounds().width() <= 16 ? 16 : 32);
+                        renderProviderArrows(graphics, current, decoration, mouseX, mouseY);
+                    });
+                    continue;
+                }
                 var handle = capeTextures.handle(surfaceKey);
                 if (handle.isPresent()) {
                     var loaded = handle.orElseThrow();
@@ -902,7 +912,11 @@ public final class NclSkinsScreen extends Screen {
             bodyObserver = registration;
             renderer.observeBody(registration);
             var admission = runtime.galleryPreviewAdmission(desired);
-            boolean prepared = renderer.prepareGalleryBody(source, cpm, admission);
+            boolean imagePolicy = renderer.prepareGalleryImage(source, cpm, admission, runtime.previewBodyLifetime(desired));
+            boolean prepared = imagePolicy || renderer.prepareGalleryBody(source, cpm, admission);
+            var preparation = previewPreparation(desired);
+            if (imagePolicy) renderer.prepareImage(source, preparation.map(PreviewAssetCache.ImageState::startedNanos).orElseGet(System::nanoTime), preparation.isEmpty());
+            if (preparation.isPresent()) drawPreviewLoading(graphics, desired.bounds(), preparation.orElseThrow().startedNanos(), 32);
             var accessoryAdmission = runtime.galleryAccessoryAdmission(desired);
             desiredRequest.ifPresent(request -> {
                 var observer = runtime.observePreviewAccessories(desired,
@@ -910,7 +924,12 @@ public final class NclSkinsScreen extends Screen {
                 accessoryObserver = observer;
                 renderer.observeAccessories(observer);
             });
-            if (shown.filter(runtime::galleryPreviewFrameCurrent).isPresent()) {
+            if (imagePolicy) {
+                if (admission.getAsBoolean()) {
+                    if (desiredRequest.isEmpty()) renderer.renderRetained(graphics, source);
+                    desiredRequest.ifPresent(request -> renderer.renderGallery(graphics, source, preparation.isPresent() ? request.hidden() : request));
+                }
+            } else if (shown.filter(runtime::galleryPreviewFrameCurrent).isPresent()) {
                 shownRequest.ifPresent(request -> renderer.renderGallery(graphics, shownSource, request));
                 if (prepared && admission.getAsBoolean() && !source.equals(shownSource)) desiredRequest.ifPresent(request -> {
                     graphics.nextStratum();
@@ -931,32 +950,48 @@ public final class NclSkinsScreen extends Screen {
             if (staticOnly ? bodyPhase : "gallery".equals(current.screenId()) && !bodyPhase) continue;
             if (galleryLease && preview.id().equals("gallery.preview")) continue;
             boolean ownedBody = ViewHostPolicy.screenOwnedBody(current.screenId(), preview);
+            String imageSource = runtime.previewBodySource(preview);
+            boolean retainedImage = false;
             if (ownedBody) {
                 if (bodyCapability == null) bodyCapability = editorRenderer::displayKind;
-                bodyObserver = runtime.observePreviewBody(preview, bodyCapability);
+                bodyObserver = runtime.observePreviewBody(preview, bodyCapability, () -> editorRenderer.confirmGalleryBody(imageSource));
                 editorRenderer.observeBody(bodyObserver);
-                editorRenderer.prepareBody(runtime.previewBodySource(preview), runtime.waitsForCpmBody(preview));
+                retainedImage = editorRenderer.prepareGalleryImage(imageSource, runtime.waitsForCpmBody(preview),
+                        runtime.previewBodyAdmission(preview), runtime.previewBodyLifetime(preview));
+                if (!retainedImage) editorRenderer.prepareBody(imageSource, runtime.waitsForCpmBody(preview));
             }
+            var preparation = previewPreparation(preview);
+            var imageRenderer = ownedBody ? editorRenderer : bakedRenderer("preview:" + preview.id());
+            boolean indicator = !ownedBody || !"providers".equals(current.screenId());
+            imageRenderer.prepareImage(previewImageSource(preview), preparation.map(PreviewAssetCache.ImageState::startedNanos).orElseGet(System::nanoTime), preparation.isEmpty(), indicator);
             Optional<TextureHandle> cape = preview.capeId().flatMap(capeId -> capeTextures.handle(runtime.previewCapeSurfaceKey(preview)));
             var loaded = Optional.ofNullable(previewKeys.get(preview.id())).flatMap(skinTextures::handle).map(skin -> previewAppearance(preview, skin,
                     preview.variant() == SkinVariant.SLIM ? SkinModel.SLIM : SkinModel.CLASSIC, cape));
             var borrowed = preview.requiresLoadedSkin() ? Optional.<PreviewRenderer.PreviewAppearance>empty()
                     : runtime.previewPlayerAppearance(preview).map(source -> previewAppearance(preview, source.skin(), source.model(), cape));
             var projected = ViewHostPolicy.previewRequest(preview, loaded, borrowed);
+            if (preparation.isPresent()) {
+                if (indicator) clipped(graphics, current, preview.id(), () -> drawPreviewLoading(graphics, preview.anchorBounds(), preparation.orElseThrow().startedNanos(), 32));
+                projected = projected.map(PreviewRenderer.PreviewRequest::hidden);
+            }
+            if (retainedImage) editorRenderer.transformRetained(imageSource, preview.yawDegrees(), preview.pitchDegrees(), preview.scale());
             if (projected.isEmpty()) {
-                if (ownedBody) {
+                if (retainedImage) editorRenderer.renderRetained(graphics, imageSource);
+                if (ownedBody && preparation.isEmpty()) {
                     releasePreviewAccessories();
                     releasePreviewBody();
                 }
                 continue;
             }
             PreviewRenderer.PreviewRequest request = projected.orElseThrow();
+            boolean renderRetained = retainedImage;
             clipped(graphics, current, preview.id(), () -> {
                 if (ownedBody) {
                     var observer = runtime.observePreviewAccessories(preview, () -> editorRenderer.accessories(request));
                     accessoryObserver = observer;
                     editorRenderer.observeAccessories(observer);
-                    editorRenderer.render(graphics, request);
+                    if (renderRetained) editorRenderer.renderGallery(graphics, imageSource, request);
+                    else editorRenderer.render(graphics, request);
                     observer.accept(editorRenderer.accessories(request));
                     runtime.reconcilePreviewBody(bodyObserver);
                 } else {
@@ -964,6 +999,31 @@ public final class NclSkinsScreen extends Screen {
                 }
             });
         }
+    }
+
+    private Optional<PreviewAssetCache.ImageState> previewPreparation(ViewSpec.Preview preview) {
+        var skin = skinTextures.imageState(skinKey(preview), null);
+        var cape = preview.capeId().map(id -> capeTextures.imageState(runtime.previewCapeSurfaceKey(preview), id));
+        var provider = runtime.providerImagePreparation(preview).map(value -> new PreviewAssetCache.ImageState(
+                PreviewAssetCache.ImageStatus.PREPARING, value.attempt(), value.startedNanos()));
+        return java.util.stream.Stream.of(Optional.of(skin), cape, provider).flatMap(Optional::stream)
+                .filter(value -> value.status() == PreviewAssetCache.ImageStatus.PREPARING)
+                .min((a, b) -> Long.compare(a.startedNanos() - b.startedNanos(), 0L));
+    }
+
+    private Object previewImageSource(ViewSpec.Preview preview) {
+        return java.util.Arrays.asList(preview.intent() == PreviewRenderer.PreviewIntent.EDITOR_DRAFT
+                        ? runtime.previewBodySource(preview) : null, skinKey(preview), preview.capeId(),
+                preview.capeMode(), preview.outerLayerVisibility(), preview.nativeAccessories());
+    }
+
+    private static void drawPreviewLoading(GuiGraphics graphics, Bounds bounds, long started, int size) {
+        long now = System.nanoTime();
+        if (!com.naocraftlab.skins.client.PreviewLoading.delayed(started, now)) return;
+        var frame = com.naocraftlab.skins.client.PreviewLoading.frame(now, bounds.x(), bounds.y(), bounds.width(), bounds.height(), size);
+        graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.parse(frame.resource()), frame.left(), frame.top(),
+                (float) frame.u(), (float) frame.v(), frame.size(), frame.size(), frame.width(), frame.height(),
+                frame.textureWidth(), frame.textureHeight(), -1);
     }
 
     private Optional<PreviewRenderer.PreviewRequest> galleryRequest(ViewSpec.Preview preview) {
@@ -996,6 +1056,16 @@ public final class NclSkinsScreen extends Screen {
 
     private void renderBackEquipment(GuiGraphics graphics, ViewSpec current) {
         for (ViewSpec.BackEquipmentPreview preview : current.backEquipmentPreviews()) {
+            var preparation = capeTextures.imageState(ViewHostPolicy.cardCapeKey(preview), preview.capeId());
+            if (preview.projection() == ViewSpec.BackEquipmentPreview.Projection.EQUIPMENT) {
+                bakedRenderer("equipment:" + preview.id()).prepareImage(java.util.List.of(preview.capeId(), preview.mode(), preview.capeHasElytra()),
+                        preparation.status() == PreviewAssetCache.ImageStatus.PREPARING ? preparation.startedNanos() : System.nanoTime(),
+                        preparation.status() != PreviewAssetCache.ImageStatus.PREPARING);
+            }
+            if (preparation.status() == PreviewAssetCache.ImageStatus.PREPARING) {
+                clipped(graphics, current, preview.id(), () -> drawPreviewLoading(graphics, preview.bounds(), preparation.startedNanos(), 32));
+                continue;
+            }
             if (preview.projection() == ViewSpec.BackEquipmentPreview.Projection.PROVIDER_THUMBNAIL) {
                 capeTextures.handle(ViewHostPolicy.cardCapeKey(preview)).ifPresent(texture -> clipped(
                         graphics, current, preview.id(), () -> renderCapeThumbnail(graphics, preview, texture)));
@@ -1228,7 +1298,7 @@ public final class NclSkinsScreen extends Screen {
             runtime.reconcileCapePreviewIdentity(preview.capeId(),
                     capeTextures.capeVisualIdentity(surfaceKey, preview.capeId()));
         }
-        skinTextures.retain(skins);
+        skinTextures.retain(skins, editorRenderer.retainedTextures());
         for (ViewSpec.IconDecoration decoration : current.iconDecorations()) {
             decoration.providerTexture().ifPresent(texture -> {
                 String surfaceKey = texture.skin() ? texture.requestKey()
@@ -1245,7 +1315,7 @@ public final class NclSkinsScreen extends Screen {
                 }
             });
         }
-        capeTextures.retain(capes);
+        capeTextures.retain(capes, editorRenderer.retainedTextures());
         Set<String> bakedIds = new HashSet<>();
         current.previews().stream()
                 .filter(preview -> !ViewHostPolicy.screenOwnedBody(current.screenId(), preview))

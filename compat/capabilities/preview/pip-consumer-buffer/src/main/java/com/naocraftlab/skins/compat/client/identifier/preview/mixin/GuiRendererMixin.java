@@ -22,7 +22,7 @@ abstract class GuiRendererMixin {
     private void nclskins$afterConsumer(GuiRenderer renderer, GpuBufferSlice buffer, Operation<Void> original) {
         try { original.call(renderer, buffer); }
         catch (RuntimeException | Error failure) {
-            try { PreviewConsumerFrame.submitted(); }
+            try { PreviewConsumerFrame.failed(); }
             catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
             throw failure;
         }

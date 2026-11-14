@@ -36,6 +36,44 @@ public final class SubmissionPreviewContract {
         try { SubmissionPreviewBindings.apply(node); throw new IllegalStateException("SUBMISSION_MUTANT_ACCEPTED"); }
         catch (AssertionError expected) { check(expected.getMessage().startsWith("SUBMISSION_DESCRIPTOR_COUNT") || expected.getMessage().startsWith("EXTRACTION_DESCRIPTOR_COUNT"), "SUBMISSION_WRONG_REJECTION"); }
     }
+    private static MethodNode exact(ClassNode node, String name, String desc) {
+        var methods = node.methods.stream().filter(m -> m.name.equals(name) && m.desc.equals(desc)).toList();
+        check(methods.size() == 1, "SUBMISSION_DESCRIPTOR_COUNT " + name + desc);
+        return methods.getFirst();
+    }
+    public static void verifyConsumerFrame(ClassNode original, ClassNode bound) {
+        check(original.name.equals(SubmissionPreviewBindings.FRAME) && bound.name.equals(original.name), "SUBMISSION_FRAME_OWNER");
+        String descriptor = "(Ljava/util/List;)V";
+        var fence = exact(bound, "fence", descriptor);
+        var bridge = exact(bound, "fence", "()V");
+        check(Arrays.stream(bridge.instructions.toArray()).filter(i -> i instanceof MethodInsnNode call
+                && call.owner.equals(bound.name) && call.name.equals("fence") && call.desc.equals(descriptor)
+                && call.getOpcode() == Opcodes.INVOKEVIRTUAL && !call.itf).count() == 1, "SUBMISSION_FENCE_BRIDGE_COUNT");
+        long hooks = 0;
+        for (MethodNode method : bound.methods) for (var instruction : method.instructions) {
+            if (!(instruction instanceof MethodInsnNode call) || !call.name.equals("queueFencedTask")) continue;
+            check(method == fence && call.owner.equals(PROBE + "SubmissionRawInputs")
+                    && call.desc.equals("(Ljava/lang/Runnable;)V") && call.getOpcode() == Opcodes.INVOKESTATIC && !call.itf,
+                    "SUBMISSION_FENCE_UNEXPECTED_HOOK");
+            hooks++;
+        }
+        check(hooks == 1, "SUBMISSION_FENCE_COUNT " + hooks);
+        Map<String, byte[]> before = new HashMap<>();
+        for (MethodNode method : original.methods)
+            check(before.put(method.name + method.desc, bytes(original, method)) == null, "SUBMISSION_FRAME_DUPLICATE_METHOD");
+        check(bound.methods.size() == before.size(), "SUBMISSION_FRAME_METHOD_COUNT");
+        Set<String> seen = new HashSet<>();
+        ClassNode normalized = new ClassNode(); bound.accept(normalized);
+        for (MethodNode method : normalized.methods) {
+            check(seen.add(method.name + method.desc), "SUBMISSION_FRAME_DUPLICATE_METHOD");
+            if (method.name.equals("fence") && method.desc.equals(descriptor))
+                for (var instruction : method.instructions) if (instruction instanceof MethodInsnNode call
+                        && call.owner.equals(PROBE + "SubmissionRawInputs") && call.name.equals("queueFencedTask")
+                        && call.desc.equals("(Ljava/lang/Runnable;)V")) call.owner = "com/mojang/blaze3d/systems/RenderSystem";
+            check(Arrays.equals(before.get(method.name + method.desc), bytes(normalized, method)),
+                    "SUBMISSION_FRAME_BODY_CHANGED " + method.name + method.desc);
+        }
+    }
     public static void verify(List<Path> inputs) throws Exception {
         ClassNode entry = read(PROBE + "BufferedPreviewCapeProbe", inputs);
         check(entry.methods.stream().flatMap(m -> Arrays.stream(m.instructions.toArray())).anyMatch(i -> i instanceof LdcInsnNode literal
@@ -96,9 +134,10 @@ public final class SubmissionPreviewContract {
                 catch (AssertionError expected) { check(expected.getMessage().startsWith("SUBMISSION_PROJECTION_ANCHOR_COUNT"), "PRE_MIXIN_PROJECTION_WRONG_REJECTION"); }
             }
             Map<String, byte[]> retained = new HashMap<>();
-            for (MethodNode method : nativeOwner.methods) if (owner.equals(SubmissionPreviewBindings.FRAME) ? !method.name.equals("fence") : Set.of("prepare", "renderToTexture", "textureIsReadyToBlit", "getTranslateY", "getRenderStateClass", "getTextureLabel").contains(method.name))
+            for (MethodNode method : nativeOwner.methods) if (owner.equals(SubmissionPreviewBindings.FRAME) ? !(method.name.equals("fence") && method.desc.equals("(Ljava/util/List;)V")) : Set.of("prepare", "renderToTexture", "textureIsReadyToBlit", "getTranslateY", "getRenderStateClass", "getTextureLabel").contains(method.name))
                 retained.put(method.name + method.desc, bytes(nativeOwner, method));
             check(SubmissionPreviewBindings.apply(nativeOwner) == (owner.equals(SubmissionPreviewBindings.FRAME) ? 1 : 3), "LIVE_NATIVE_TERMINAL_COUNT");
+            if (owner.equals(SubmissionPreviewBindings.FRAME)) verifyConsumerFrame(read(owner, inputs), nativeOwner);
             if (owner.equals(SubmissionPreviewBindings.PIP)) SubmissionPreviewBindings.verifyProjectionAnchor(nativeOwner, true);
             for (MethodNode method : nativeOwner.methods) {
                 if (retained.containsKey(method.name + method.desc)) check(Arrays.equals(retained.get(method.name + method.desc), bytes(nativeOwner, method)), "LIVE_NATIVE_BODY_CHANGED " + method.name);
@@ -117,8 +156,10 @@ public final class SubmissionPreviewContract {
                 check(Arrays.equals(bytes(original, before), bytes(normalized, method)), "LIVE_NATIVE_NON_TERMINAL_BYTES_CHANGED " + method.name);
             }
             String name = owner.equals(SubmissionPreviewBindings.FRAME) ? "fence" : "prepare";
-            ClassNode wrong = read(owner, inputs); wrong.methods.stream().filter(m -> m.name.equals(name)).findFirst().orElseThrow().desc = "()Ljava/lang/Object;"; rejected(wrong);
-            ClassNode duplicate = read(owner, inputs); duplicate.methods.add(duplicate.methods.stream().filter(m -> m.name.equals(name)).findFirst().orElseThrow()); rejected(duplicate);
+            String descriptor = owner.equals(SubmissionPreviewBindings.FRAME) ? "(Ljava/util/List;)V"
+                    : "(Lnet/minecraft/client/gui/render/state/pip/PictureInPictureRenderState;Lnet/minecraft/client/gui/render/state/GuiRenderState;I)V";
+            ClassNode wrong = read(owner, inputs); exact(wrong, name, descriptor).desc = "()Ljava/lang/Object;"; rejected(wrong);
+            ClassNode duplicate = read(owner, inputs); duplicate.methods.add(exact(duplicate, name, descriptor)); rejected(duplicate);
         }
         check(SubmissionPreviewBindings.applyNative(unknown) == 0, "SUBMISSION_UNKNOWN_DEVICE_OWNER_CHANGED");
         ClassNode depthInput = read(PROBE + "SubmissionRawInputs$DepthTarget", inputs);

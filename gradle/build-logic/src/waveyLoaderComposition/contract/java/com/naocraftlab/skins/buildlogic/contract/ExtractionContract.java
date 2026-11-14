@@ -36,9 +36,9 @@ public final class ExtractionContract {
                 try { ExtractionTerminalBindings.apply(badCall, null); throw new IllegalStateException("EXTRACTION_WRONG_OPERATION_ACCEPTED"); }
                 catch (AssertionError expected) { if (!expected.getMessage().startsWith("EXTRACTION_OPERATION_COUNT")) throw expected; }
                 for (ClassNode observed : List.of(node, spi)) {
-                    long publications = observed.methods.stream().filter(m -> m.name.equals("render")).flatMap(m -> Arrays.stream(m.instructions.toArray()))
-                            .filter(i -> i instanceof MethodInsnNode call && call.name.equals("nclskins$setCapeMaterial")).count();
-                    if (publications != 1) throw new AssertionError("PRODUCTION_PUBLICATION_CHANGED");
+                    PreparedPreviewContract.verifyMutations(observed, "GuiGraphicsExtractor",
+                            "com/naocraftlab/skins/compat/client/identifier/CapeMaterialSnapshot$Carrier", "nclskins$setCapeMaterial",
+                            "(Lcom/naocraftlab/skins/compat/client/identifier/CapeMaterialSnapshot;)V", Opcodes.INVOKEINTERFACE, true);
                 }
             }
         }

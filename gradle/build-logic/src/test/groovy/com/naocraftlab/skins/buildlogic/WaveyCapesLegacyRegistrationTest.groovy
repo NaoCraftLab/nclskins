@@ -56,7 +56,7 @@ class WaveyCapesLegacyRegistrationTest {
         assertEquals(task.loaderSources.files, guards.loaderSources.files)
         assertTrue(task.probeSources.files*.name.containsAll(['CapeRegistrationFailureProbe.java', 'CapeUnsupportedAbiProbe.java', 'ImmediateGuardProbe.java', 'ImmediatePublicPreviewProbe.java', 'ImmediatePreviewInputs.java', 'ImmediatePreviewBindings.java']))
         assertFalse(task.probeSources.files*.name.any { it in ['CapeGuardProbe.java', 'CapeCallbackLinkageProbe.java', 'CapeClosedLegacyProbe.java'] })
-        assertTrue(task.loaderSources.files*.name.containsAll(['LegacyClientLaunchHandler.java', 'LegacyGameService.java', 'LegacyCapeTerminalPlugin.java', 'LegacyCapeBatch.java', 'LegacyTerminalContract.java']))
+        assertTrue(task.loaderSources.files*.name.containsAll(['LegacyClientLaunchHandler.java', 'LegacyGameService.java', 'LegacyCapeTerminalPlugin.java', 'LegacyCapeBatch.java', 'LegacyTerminalContract.java', 'PreparedPreviewContract.java']))
         def check = project.tasks.named('check').get()
         assertTrue(check.taskDependencies.getDependencies(check).containsAll([task, guards]))
         assertEquals(0, effects)

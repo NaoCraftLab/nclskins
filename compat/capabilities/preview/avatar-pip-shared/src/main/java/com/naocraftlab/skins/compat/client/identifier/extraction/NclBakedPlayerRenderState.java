@@ -91,7 +91,8 @@ public record NclBakedPlayerRenderState(
                 depthExtent,
                 completion,
                 scissorArea,
-                PictureInPictureRenderState.getBounds(x0, y0, x1, y1, scissorArea));
+                PictureInPictureRenderState.getBounds(x0, y0, x1, y1,
+                        completion != null && x1 < 0 ? null : scissorArea));
     }
 
     public NclBakedPlayerRenderState {

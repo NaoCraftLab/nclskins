@@ -226,7 +226,7 @@ final class WaveyLegacyComposition {
         List<File> pureSources = [pure, sources.find { it.name == 'ImmediatePreviewBindings.java' }]
         compile('spi', loader.findAll { it.path.contains('/legacy-spi/') } + pureSources, cp)
         compile('game', (sources.findAll { !pureSources.contains(it) } + loader.findAll { it.path.contains('/legacy-game/') || it.name == 'CaseLifecycle.java' }).unique(), outputs.spi.absolutePath + File.pathSeparator + cp)
-        compile('contract', loader.findAll { it.path.contains('/legacy-contract/') }, outputs.spi.absolutePath + File.pathSeparator + cp)
+        compile('contract', loader.findAll { it.path.contains('/legacy-contract/') || it.name == 'PreparedPreviewContract.java' }, outputs.spi.absolutePath + File.pathSeparator + cp)
         run('legacy-terminal-contract', [java, '-Dnclskins.wavey.mode=' + mode, '-cp', ([outputs.contract, outputs.spi] + runtime).collect { it.absolutePath }.join(File.pathSeparator),
                 'com.naocraftlab.skins.buildlogic.contract.LegacyTerminalContract'] + (runtime + compilerInputs).unique(), 0, 'CANONICAL_LEGACY_CONTRACT_PASS')
         File root = new File(work, 'runtime'), mods = new File(root, 'mods'); mods.mkdirs()

@@ -353,6 +353,21 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
         behaviorClasspath.addAll(inputs)
         runProbe(work, 'behavior', behaviorClasspath, 'CpmBehaviorProbe',
                 [new File(work, 'fixture-config.json').path, carrierFixtures.get().asFile.absolutePath])
+        runProbe(work, 'preview-loading-geometry', behaviorClasspath, 'CpmOwnedPreviewDispatchProbe', ['loading-geometry'])
+        if (rawFamily == null) {
+            runProbe(work, 'preview-static-surfaces', behaviorClasspath, 'CpmBakedDisplayProbe', ['card-image'])
+            runProbe(work, 'preview-gallery-mode', behaviorClasspath, 'CpmBakedDisplayProbe', ['gallery-mode'])
+            runProbe(work, 'preview-menu-panel', behaviorClasspath, 'CpmBakedDisplayProbe', ['menu-panel'])
+            runProbe(work, 'preview-retention-host', behaviorClasspath, 'CpmBakedDisplayProbe', ['retention-host'])
+            runProbe(work, 'preview-retention-image', behaviorClasspath, 'CpmBakedDisplayProbe', ['retention-image'])
+        } else {
+            runProbe(work, 'preview-static-surfaces', behaviorClasspath, 'CpmBakedDisplayProbe', ['immediate-static', rawFamily])
+            runProbe(work, 'preview-menu-panel', behaviorClasspath, 'CpmBakedDisplayProbe', ['immediate-panel', rawFamily])
+            runProbe(work, 'preview-retention-host', behaviorClasspath, 'CpmPreviewScopeProbe', ['provider-retention'])
+            runProbe(work, 'preview-retention-delayed-root', behaviorClasspath, 'CpmBehaviorProbe',
+                    [new File(work, 'loading-config.json').path, carrierFixtures.get().asFile.absolutePath, 'loading-canonical'])
+        }
+
     }
 
     private void runProbe(File work, String label, List<File> classpath, String main, List<String> args,

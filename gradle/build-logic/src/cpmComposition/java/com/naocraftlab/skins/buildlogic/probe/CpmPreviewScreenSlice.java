@@ -87,6 +87,7 @@ final class CpmPreviewScreenSlice {
             names.put("net/minecraft/network/chat/MutableComponent", internal(CpmOwnedPreviewDispatchProbe.Text.class));
             names.put(namespace + "ExtractionGuiApi", internal(CpmOwnedPreviewDispatchProbe.GuiTerminal.class));
         }
+        if(rendererType == null) names.put("net/minecraft/client/Minecraft",internal(CpmOwnedPreviewDispatchProbe.ClientTerminal.class));
         names.put("com/naocraftlab/skins/runtime/ClientRuntime", internal(CpmOwnedPreviewDispatchProbe.RuntimeBoundary.class));
         names.put("net/minecraft/resources/Identifier", internal(CpmOwnedPreviewDispatchProbe.Text.class));
         names.put("net/minecraft/resources/ResourceLocation", internal(CpmOwnedPreviewDispatchProbe.Text.class));
@@ -154,6 +155,7 @@ final class CpmPreviewScreenSlice {
             names.put(namespace + renderer, internal(CpmOwnedPreviewDispatchProbe.RenderTerminal.class));
         }
         if (rendererType != null) {
+            if (Boolean.getBoolean("nclskins.frameCards")) names.put("net/minecraft/client/gui/components/AbstractWidget", internal(CpmOwnedPreviewDispatchProbe.WidgetTerminal.class));
             names.remove("com/naocraftlab/skins/runtime/ClientRuntime");
             if (owner.endsWith("NclSkinsImmediateScreen"))
                 names.put("net/minecraft/client/gui/GuiGraphics", internal(CpmPreviewScopeProbe.Graphics.class));
@@ -163,7 +165,15 @@ final class CpmPreviewScreenSlice {
                 names.remove(namespace + "SubmissionPreviewRenderer");
             }
             names.remove(namespace + "AvatarRenderStatePreviewRenderer");
+            if (java.util.Arrays.stream(rendererType.getDeclaredMethods()).anyMatch(method -> method.getName().equals("render")
+                    && method.getParameterCount() == 2 && method.getParameterTypes()[0] == CpmBakedDisplayProbe.Graphics.class))
+                names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmBakedDisplayProbe.Graphics.class));
             names.put(namespace + "AvatarPipPreviewRenderer", internal(CpmExtractionBodyProbe.Baked.class));
+            if (rendererType.getName().endsWith("SimplePreviewRenderer") || rendererType.getName().endsWith("AvatarPipPreviewRenderer")) {
+                names.remove(namespace + "SimplePreviewRenderer");
+                names.remove(namespace + "AvatarPipPreviewRenderer");
+                names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmBakedDisplayProbe.Graphics.class));
+            }
         }
         ClassLoader loader = new ClassLoader(rendererType == null ? CpmPreviewScreenSlice.class.getClassLoader() : rendererType.getClassLoader()) {
             @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
@@ -232,6 +242,7 @@ final class CpmPreviewScreenSlice {
         names.put("net/minecraft/client/gui/GuiGraphics", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
         names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
         names.put("net/minecraft/client/Minecraft", internal(CpmOwnedPreviewDispatchProbe.ClientTerminal.class));
+        if (Boolean.getBoolean("nclskins.rootBoundary")) names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmBakedDisplayProbe.Graphics.class));
         names.put("net/minecraft/client/gui/screens/Screen", internal(CpmOwnedPreviewDispatchProbe.ScreenTerminal.class));
         names.put("net/minecraft/resources/Identifier", internal(CpmOwnedPreviewDispatchProbe.Text.class));
         names.put("com/mojang/blaze3d/pipeline/RenderPipeline", "java/lang/Object");
@@ -244,7 +255,7 @@ final class CpmPreviewScreenSlice {
             new ClassReader(input).accept(node,0);
         }
         String root = owner.contains("submission") ? "renderFramePanels" : "drawFrameBackgrounds";
-        node.methods.removeIf(method -> !List.of(root,"blitSeparator","<clinit>").contains(method.name) && !method.name.startsWith("lambda$"+root+"$"));
+        if (!Boolean.getBoolean("nclskins.rootBoundary")) node.methods.removeIf(method -> !List.of(root,"blitSeparator","<clinit>").contains(method.name) && !method.name.startsWith("lambda$"+root+"$"));
         node.access = Opcodes.ACC_PUBLIC;
         node.methods.forEach(method -> method.access = (method.access & ~Opcodes.ACC_PRIVATE) | Opcodes.ACC_PUBLIC);
         var writer = new ClassWriter(0);
@@ -266,9 +277,14 @@ final class CpmPreviewScreenSlice {
         if (node.methods.stream().anyMatch(m -> m.name.equals("nclskins$paintRoot"))) roots = List.of("nclskins$paintRoot");
         if (!textConsumers) roots = new java.util.ArrayList<>(roots);
         if (!textConsumers) roots.add("renderStaticPreviews");
+        if (Boolean.getBoolean("nclskins.frameCards")) {
+            roots.add("drawCardBackgrounds");
+        }
+        if (!textConsumers) roots.add(immediate || node.name.contains("submission") ? "renderIconDecorations" : "drawIconDecorations");
         if (!textConsumers) roots.add(immediate ? "renderBackEquipmentPreviews" : node.name.contains("submission") ? "renderBackEquipment" : "drawBackEquipmentPreviews");
         if (lifecycleConsumers) {
             roots.addAll(immediate || node.name.contains("submission") ? List.of("render", "snapshotChanged") : List.of("init", "snapshotChanged", "clearWidgets", "setInitialFocus"));
+            if (Boolean.getBoolean("nclskins.rootBoundary")) roots.add("extractRenderState");
             if (node.name.contains("submission")) for (var method : node.methods) {
                 if (List.of("renderListPanels","renderCardBackgrounds","renderBackEquipment","renderScrollbar","renderSurfaceOverlays",
                         "renderProgressDecorations","renderIconDecorations","renderTabHighlights","renderTexts","renderStateFrames","renderTooltips","renderPassiveIndicatorTooltip").contains(method.name)) {

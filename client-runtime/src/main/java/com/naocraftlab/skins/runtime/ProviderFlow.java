@@ -210,10 +210,21 @@ final class ProviderFlow {
         if (id.equals("gallery.providers")) {
             context.showProviders();
             state.providerPreviewSources.clear();
-            context.submit(UiMessage.info("nclskins.providers.title"), context.providerOperations()::reloadProviders, appearance -> {
-                acceptProviderChange(appearance);
-                adoptSharedCapeObservation(appearance.providers());
-            });
+            if (!context.busy()) {
+                var reread = new Reread(new ProviderRefreshUseCases.ImagePreparation(new Object(), System.nanoTime()),
+                        context.clientSessionView().sessionIdentity(), context.providers(), context.snapshot().generation() + 1);
+                imageReread = reread;
+                try {
+                    context.submit(UiMessage.info("nclskins.providers.title"), context.providerOperations()::reloadProviders, appearance -> {
+                        if (imageReread == reread) imageReread = null;
+                        acceptProviderChange(appearance);
+                        adoptSharedCapeObservation(appearance.providers());
+                    }, failure -> { if (imageReread == reread) imageReread = null; });
+                } catch (RuntimeException failure) {
+                    if (imageReread == reread) imageReread = null;
+                    throw failure;
+                }
+            }
             state.providerPreview = PreviewInteractionModel.editor(context.viewportHeight(), context.preferredCapeMode());
         } else if (id.equals("providers.back")) {
             cancelOptiFineAccountLink();
@@ -612,6 +623,31 @@ final class ProviderFlow {
     double providerRowsScrollbarGrabOffset() { return providerRowsScrollbarGrabOffset; }
 
     boolean draggingProviderRowsScrollbar() { return draggingProviderRowsScrollbar; }
+
+    private record Reread(ProviderRefreshUseCases.ImagePreparation image,
+            com.naocraftlab.skins.client.GameSessionTokenSource.SessionIdentity identity, AppearanceProviders before, long generation) {}
+    private Reread imageReread;
+
+    Optional<BuiltinProvider> previewSource(AppearanceProviders.Component component) {
+        var selected = normalizedSelection(component);
+        return selected != null ? Optional.of(selected) : component == AppearanceProviders.Component.SKIN
+                ? context.providers().skin().resolve().map(com.naocraftlab.skins.core.provider.ProviderChannel.Resolved::provider)
+                : context.providers().cape().resolve().map(com.naocraftlab.skins.core.provider.ProviderChannel.Resolved::provider);
+    }
+
+    Optional<ProviderRefreshUseCases.ImagePreparation> imagePreparation(AppearanceProviders.Component component, BuiltinProvider provider) {
+        if (context.disposed() || !context.providersOpen()) return Optional.empty();
+        var active = context.providerRefresh().imagePreparation(component, provider, context.providers());
+        if (active.isPresent()) return active;
+        var reread = imageReread;
+        if (reread == null || reread.generation() != context.snapshot().generation()
+                || !reread.identity().equals(context.clientSessionView().sessionIdentity())) return Optional.empty();
+        var before = component == AppearanceProviders.Component.SKIN ? reread.before().skin() : reread.before().cape();
+        var current = component == AppearanceProviders.Component.SKIN ? context.providers().skin() : context.providers().cape();
+        return before.configurationRevision() == current.configurationRevision() && current.order().contains(provider)
+                && !current.observation(provider).known()
+                ? Optional.of(reread.image()) : Optional.empty();
+    }
 
     boolean refreshPending() {
         if (context.initialProviderRefreshPending()) return true;

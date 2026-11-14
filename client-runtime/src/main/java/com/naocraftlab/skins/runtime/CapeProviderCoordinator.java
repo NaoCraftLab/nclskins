@@ -1477,6 +1477,7 @@ public final class CapeProviderCoordinator implements AutoCloseable {
                                 }
                                 ready[0] = null;
                                 if (registered.isPresent()) {
+                                    state.owner.installFrame(registered.orElseThrow());
                                     heldCpu.sourcePixelsReleased(state.asset.frameBytes());
                                 }
                                 if (registered.isPresent()) {
@@ -1489,7 +1490,7 @@ public final class CapeProviderCoordinator implements AutoCloseable {
                                     if (key.provider() == BuiltinProvider.OFFLINE
                                             && key.identity().equals(selfIdentity)) {
                                         selfCandidates.put(BuiltinProvider.OFFLINE,
-                                                candidate(registered.orElseThrow(), state.asset.hasElytra()));
+                                                candidate(registered.orElseThrow(), state.asset.hasElytra(), state.owner));
                                         publish();
                                     } else if (key.provider() == BuiltinProvider.OPTIFINE
                                             || key.provider() == BuiltinProvider.SKINMC
@@ -1578,6 +1579,7 @@ public final class CapeProviderCoordinator implements AutoCloseable {
         frameDispatch.remove(key);
         if (removed != null) {
             removed.retired = true;
+            removed.owner.retire();
             CapePreparationQueue.wakeWaiters();
             try { removed.closeBacking(); }
             catch (IOException ignored) { }
@@ -1588,6 +1590,8 @@ public final class CapeProviderCoordinator implements AutoCloseable {
 
     private static final class FrameState {
         private final PreparedCapeAsset asset;
+        private final com.naocraftlab.skins.client.CapeAssetOwner owner =
+                new com.naocraftlab.skins.client.CapeAssetOwner();
         private PreparedCapeAsset.BackingLease backing;
         private volatile boolean reopenBacking;
         private final CapeTimeline timeline;
@@ -1836,7 +1840,8 @@ public final class CapeProviderCoordinator implements AutoCloseable {
                 if (entry.getValue().location() != null && current(entry.getKey())) {
                     capes.put(entry.getKey(), candidate(entry.getValue().location(),
                             entry.getValue().asset() != null ? entry.getValue().asset().hasElytra()
-                                    : entry.getValue().png().hasElytra()));
+                                    : entry.getValue().png().hasElytra(),
+                            capeAssetOwner(entry.getKey(), BuiltinProvider.OPTIFINE)));
                 }
             }
         }
@@ -1845,7 +1850,8 @@ public final class CapeProviderCoordinator implements AutoCloseable {
                 if (entry.getValue().location() != null && current(entry.getKey())) {
                     skinMcCapes.put(entry.getKey(), candidate(entry.getValue().location(),
                             entry.getValue().asset() != null ? entry.getValue().asset().hasElytra()
-                                    : entry.getValue().png().hasElytra()));
+                                    : entry.getValue().png().hasElytra(),
+                            capeAssetOwner(entry.getKey(), BuiltinProvider.SKINMC)));
                 }
             }
         }
@@ -1856,7 +1862,8 @@ public final class CapeProviderCoordinator implements AutoCloseable {
                     String location = value.location();
                     minecraftCapes.put(entry.getKey(), new CapeProjection.Candidate(location,
                             value.asset().hasElytra() ? location : null,
-                            value.asset().hasElytra(), value.capeGlint()));
+                            value.asset().hasElytra(), value.capeGlint(), false, false, null, null,
+                            capeAssetOwner(entry.getKey(), BuiltinProvider.MINECRAFTCAPES)));
                 }
             }
         }
@@ -1893,8 +1900,20 @@ public final class CapeProviderCoordinator implements AutoCloseable {
         CapePreparationQueue.pinObservedFor(this, keys);
     }
 
+    private com.naocraftlab.skins.client.CapeAssetOwner capeAssetOwner(
+            CapeProjection.Identity identity, BuiltinProvider provider) {
+        FrameState frame = frames.get(new FrameKey(identity, provider));
+        return frame == null || frame.retired ? null : frame.owner;
+    }
+
+    private static CapeProjection.Candidate candidate(String location, boolean hasElytra,
+            com.naocraftlab.skins.client.CapeAssetOwner owner) {
+        return new CapeProjection.Candidate(location, hasElytra ? location : null, hasElytra,
+                false, false, false, null, null, owner);
+    }
+
     private static CapeProjection.Candidate candidate(String location, boolean hasElytra) {
-        return new CapeProjection.Candidate(location, hasElytra ? location : null, hasElytra);
+        return candidate(location, hasElytra, null);
     }
 
     private record Observed(PngValidator.CapePng png, PreparedCapeAsset asset,

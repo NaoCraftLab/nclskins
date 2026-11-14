@@ -172,6 +172,53 @@ public final class GalleryNativePassFixture implements AutoCloseable {
 
     public void selectC() { runtime.dispatchWidget("gallery.card." + C); }
 
+    public record StaticSurface(String role, ViewSpec view, ViewSpec.Preview preview, byte[] png) {}
+
+    public ViewSpec capeSurface() throws Exception {
+        localCapes();
+        var more=runtime.view(854,480,0,0).widgets().stream().filter(w -> w.id().endsWith(".more") && w.id().startsWith("gallery.preset.") && w.visible() && w.enabled()).findFirst().orElseThrow();
+        runtime.dispatchWidget(more.id());
+        var edit=runtime.view(854,480,0,0).widgets().stream().filter(w -> w.id().endsWith(".edit") && w.id().startsWith("gallery.preset.") && w.visible() && w.enabled()).findFirst().orElseThrow();
+        runtime.dispatchWidget(edit.id());runtime.dispatchWidget("editor.tab.cape");drainWorkers();
+        return runtime.view(854,480,0,0);
+    }
+
+    public List<StaticSurface> staticSurfaces() throws Exception {
+        var result = new ArrayList<StaticSurface>();
+        var gallery = runtime.view(854,480,0,0);
+        var card = gallery.previews().stream().filter(p -> p.id().startsWith("gallery.preset.")).findFirst().orElseThrow();
+        result.add(new StaticSurface("gallery",gallery,card,ownedBytes(card)));
+        var descriptor = new SkinCatalogSource.SkinDescriptor("owned", "Owned", Optional.empty(), Optional.empty(), List.of(SkinModel.CLASSIC));
+        var collection = new SkinCatalogSource.CollectionDescriptor("fixture", "Fixture", Optional.empty(), Optional.empty(), List.of(descriptor));
+        var model = AddSourceModel.open(AccountUiPreferences.defaults(ACCOUNT),List.of(collection),SkinVariant.CLASSIC,UiMessage::key).withSelectedTab(AddSourceTab.CATALOG);
+        var catalog = new AddSourcePresenter().present(model,false,854,480);
+        result.add(new StaticSurface("skin-catalog",catalog,catalog.previews().get(0),fixtureSkin.clone()));
+        for(var category:ExternalImportModel.Category.values()) {
+            var source = category == ExternalImportModel.Category.LAUNCHER ? com.naocraftlab.skins.core.importing.ExternalImportSource.MINECRAFT_LAUNCHER : com.naocraftlab.skins.core.importing.ExternalImportSource.SKIN_SHUFFLE;
+            var candidate = new ImportOperations.ExternalImportCandidate("owned", "Owned",SkinVariant.CLASSIC,PersonalSkinSource.FILE,fixtureSkin.clone(),java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(fixtureSkin)),null,0,false);
+            var review = ExternalImportModel.open(category).withReview(new ImportOperations.ExternalImportReview(source,List.of(candidate),0,0));
+            var view = new ExternalImportPresenter().present(review,false,Optional.empty(),854,480);
+            result.add(new StaticSurface("import-"+category,view,view.previews().get(0),fixtureSkin.clone()));
+        }
+        return List.copyOf(result);
+    }
+
+    public ViewSpec catalogFrame() {
+        var descriptors = java.util.stream.IntStream.range(0,3).mapToObj(i -> new SkinCatalogSource.SkinDescriptor("owned"+i,"Owned "+i,Optional.empty(),Optional.empty(),List.of(SkinModel.CLASSIC))).toList();
+        var collection = new SkinCatalogSource.CollectionDescriptor("fixture","Fixture",Optional.empty(),Optional.empty(),descriptors);
+        var model = AddSourceModel.open(AccountUiPreferences.defaults(ACCOUNT),List.of(collection),SkinVariant.CLASSIC,UiMessage::key).withSelectedTab(AddSourceTab.CATALOG);
+        if (Boolean.getBoolean("nclskins.rootBoundary")) {
+            try {
+                var flowField=ClientRuntime.class.getDeclaredField("catalogImportFlow");flowField.setAccessible(true);
+                var flow=flowField.get(runtime);var stateField=flow.getClass().getDeclaredField("state");stateField.setAccessible(true);
+                var state=stateField.get(flow);var modelField=state.getClass().getDeclaredField("addSource");modelField.setAccessible(true);modelField.set(state,model);
+                return runtime.view(854,480,0,0);
+            } catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
+        }
+        return new AddSourcePresenter().present(model,false,854,480);
+    }
+
+
     public void localCapes() throws Exception {
         var references = new HashMap<UUID, LocalCapeReference>();
         for (var id : List.of(B, C)) {
@@ -187,6 +234,26 @@ public final class GalleryNativePassFixture implements AutoCloseable {
                 old.presets().stream().map(p -> p.withOfflineCape(references.get(p.id()))).toList(),old.updatedAt(),old.personalCapes()));
         var accept = ClientRuntime.class.getDeclaredMethod("acceptInitialData",ClientOperations.InitialData.class,boolean.class);
         accept.setAccessible(true); accept.invoke(runtime,operations.initializeForRuntime(),false);
+        runtime.dispatchWidget("gallery.reset"); drainWorkers();
+    }
+
+    public void selectProviderCape() throws Exception {
+        operations.usePreset(B);
+        var accept = ClientRuntime.class.getDeclaredMethod("acceptInitialData", ClientOperations.InitialData.class, boolean.class);
+        accept.setAccessible(true);
+        accept.invoke(runtime, operations.initializeForRuntime(), false);
+    }
+
+    public void distinctPersonalCapes() throws Exception {
+        for (int i = 0; i < 2; i++) {
+            var image = new java.awt.image.BufferedImage(64, 32, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            int[] pixels = new int[2048]; Arrays.fill(pixels, i == 0 ? 0xFF336699 : 0xFF996633);
+            image.setRGB(0, 0, 64, 32, pixels, 0, 64);
+            var bytes = new java.io.ByteArrayOutputStream(); javax.imageio.ImageIO.write(image, "PNG", bytes);
+            storage.importCape(ACCOUNT, "Native transition " + i, bytes.toByteArray(), ignored -> {});
+        }
+        var accept = ClientRuntime.class.getDeclaredMethod("acceptInitialData", ClientOperations.InitialData.class, boolean.class);
+        accept.setAccessible(true); accept.invoke(runtime, operations.initializeForRuntime(), false);
         runtime.dispatchWidget("gallery.reset"); drainWorkers();
     }
 

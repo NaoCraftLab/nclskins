@@ -360,10 +360,17 @@ public final class CapeProjection {
 
     public record Candidate(String capeLocation, String elytraLocation, boolean hasElytra,
             boolean capeGlint, boolean nativeCape, boolean nativeElytra,
-            EffectiveSkinSource source, CpmAccessoryObservation observation) {
+            EffectiveSkinSource source, CpmAccessoryObservation observation,
+            com.naocraftlab.skins.client.CapeAssetOwner capeAssetOwner) {
+        public Candidate(String capeLocation, String elytraLocation, boolean hasElytra,
+                boolean capeGlint, boolean nativeCape, boolean nativeElytra,
+                EffectiveSkinSource source, CpmAccessoryObservation observation) {
+            this(capeLocation, elytraLocation, hasElytra, capeGlint, nativeCape, nativeElytra,
+                    source, observation, null);
+        }
         public Candidate(String capeLocation, String elytraLocation, boolean hasElytra,
                 boolean capeGlint, boolean nativeCape, boolean nativeElytra) {
-            this(capeLocation, elytraLocation, hasElytra, capeGlint, nativeCape, nativeElytra, null, null);
+            this(capeLocation, elytraLocation, hasElytra, capeGlint, nativeCape, nativeElytra, null, null, null);
         }
 
         public Candidate(String capeLocation, String elytraLocation, boolean hasElytra,
@@ -382,10 +389,16 @@ public final class CapeProjection {
     }
 
     public record Result(String capeLocation, String elytraLocation, boolean hasElytra,
-            BuiltinProvider provider, boolean capeGlint, boolean nativeCape, boolean nativeElytra) {
+            BuiltinProvider provider, boolean capeGlint, boolean nativeCape, boolean nativeElytra,
+            com.naocraftlab.skins.client.CapeAssetOwner capeAssetOwner) {
+        public Result(String capeLocation, String elytraLocation, boolean hasElytra,
+                BuiltinProvider provider, boolean capeGlint, boolean nativeCape, boolean nativeElytra) {
+            this(capeLocation, elytraLocation, hasElytra, provider, capeGlint, nativeCape, nativeElytra, null);
+        }
+
         public Result(String capeLocation, String elytraLocation, boolean hasElytra,
                 BuiltinProvider provider, boolean capeGlint) {
-            this(capeLocation, elytraLocation, hasElytra, provider, capeGlint, false, false);
+            this(capeLocation, elytraLocation, hasElytra, provider, capeGlint, false, false, null);
         }
 
         public Result(String capeLocation, String elytraLocation, boolean hasElytra,

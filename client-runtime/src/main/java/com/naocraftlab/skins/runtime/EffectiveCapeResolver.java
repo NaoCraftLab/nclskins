@@ -29,7 +29,7 @@ public final class EffectiveCapeResolver {
             if (candidate != null && candidate.present()) {
                 return new Result(candidate.capeLocation(), candidate.elytraLocation(),
                         candidate.hasElytra(), provider, candidate.capeGlint(),
-                        candidate.nativeCape(), candidate.nativeElytra());
+                        candidate.nativeCape(), candidate.nativeElytra(), candidate.capeAssetOwner());
             }
         }
         return new Result(null, null, false, null);

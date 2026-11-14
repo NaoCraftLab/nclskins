@@ -672,6 +672,9 @@ class CapeProviderCoordinatorTest {
         fixture.coordinator.start();
         drainHeld(worker);
         String first = CapeProjection.resolveSelf(self, "Self").orElseThrow().capeLocation();
+        var semanticOwner = CapeProjection.resolveSelf(self, "Self").orElseThrow().capeAssetOwner();
+        assertNotNull(semanticOwner);
+        assertTrue(semanticOwner.isActive());
         assertTrue(sink.live(first));
         assertTrue(CapeProjection.resolveSelf(self, "Self").orElseThrow().capeGlint());
 
@@ -681,6 +684,7 @@ class CapeProviderCoordinatorTest {
             assertFalse(worker.jobs.isEmpty());
             drainHeld(worker);
             assertEquals((int) (millis / 100) + 1, sink.rawLocations.size());
+            assertEquals(semanticOwner, CapeProjection.resolveSelf(self, "Self").orElseThrow().capeAssetOwner());
         }
         assertEquals(3, sink.rawLocations.size(), "three distinct native frames must be installed");
         assertFalse(sink.live(first), "the native registry retires frame zero after frame two");
@@ -693,6 +697,9 @@ class CapeProviderCoordinatorTest {
         assertTrue(CapeProjection.resolveSelf(self, "Self").orElseThrow().capeGlint());
         assertTrue(CapeProjection.resolve(self, "Self", null, null, true).capeGlint());
         assertTrue(sink.live(third), "both world and menu must see an installed frame");
+        assertTrue(semanticOwner.ownsFrame(third));
+        assertFalse(semanticOwner.ownsFrame(first));
+        assertTrue(semanticOwner.isActive(), "timeline frame replacement must not retire its asset owner");
 
         for (long millis : new long[]{300, 400}) {
             now.set(TimeUnit.MILLISECONDS.toNanos(millis));
@@ -708,7 +715,9 @@ class CapeProviderCoordinatorTest {
         assertTrue(CapeProjection.resolveSelf(self, "Self").orElseThrow().capeGlint());
         assertTrue(CapeProjection.resolve(self, "Self", null, null, true).capeGlint());
         assertTrue(sink.live(fifth));
+        assertTrue(semanticOwner.ownsFrame(fifth));
         fixture.coordinator.close();
+        assertFalse(semanticOwner.isActive(), "closing the producer revokes its source owner");
         sink.registry.close();
     }
 

@@ -66,6 +66,10 @@ public final class ProviderRefreshService implements ProviderRefreshUseCases {
         Comparison comparison = new Comparison(scope, key);
         comparisons.put(key, comparison);
         try {
+            for (BuiltinProvider source : scope.providers()) {
+                if (ProviderRefreshBehavior.of(source, scope.request().component()).observation()
+                        == ProviderRefreshBehavior.Observation.SESSION) beginImagePreparation(comparison, source);
+            }
             worker.execute(() -> {
                 ProviderRefreshResult result;
                 try {
@@ -95,6 +99,13 @@ public final class ProviderRefreshService implements ProviderRefreshUseCases {
         return result;
     }
 
+    private void beginImagePreparation(Comparison comparison, BuiltinProvider source) {
+        var scope = comparison.scope;
+        if (!ProviderRefreshRequest.one(scope.request().component(), source).blockedByRateLimit(
+                scope.before(), session.rateLimitRemaining(), cooldowns(scope)))
+            comparison.images.put(source, new ImagePreparation(new Object(), System.nanoTime()));
+    }
+
     public synchronized boolean refreshing(ProviderRefreshRequest request, AppearanceProviders before) {
         if (closed) return false;
         try {
@@ -106,11 +117,21 @@ public final class ProviderRefreshService implements ProviderRefreshUseCases {
         } catch (RuntimeException unavailable) { return false; }
     }
 
+    @Override
+    public synchronized Optional<ImagePreparation> imagePreparation(AppearanceProviders.Component component,
+            BuiltinProvider provider, AppearanceProviders before) {
+        return comparisons.values().stream().filter(value -> value.scope.request().component() == component
+                        && value.scope.providers().contains(provider) && current(value.scope)
+                        && value.scope.configurationMatches(before))
+                .map(value -> value.images.get(provider)).filter(Objects::nonNull).findFirst();
+    }
+
     public synchronized void initialPublished(ProviderRefreshResult result) {
         Comparison comparison = comparisons.values().stream().filter(value -> value.scope.equals(result.scope()))
                 .findFirst().orElse(null);
         if (comparison == null || comparison.published) return;
         comparison.published = true;
+        comparison.images.clear();
         if (result.superseded() || !current(comparison.scope)
                 || comparison.scope.request().blockedByRateLimit(current.get(), session.rateLimitRemaining(),
                         cooldowns(comparison.scope))) { terminate(comparison); return; }
@@ -123,6 +144,7 @@ public final class ProviderRefreshService implements ProviderRefreshUseCases {
         for (BuiltinProvider source : sources) {
             if (comparisons.get(comparison.key) != comparison) break;
             try {
+                beginImagePreparation(comparison, source);
                 externalBindings.get(source).require(ProviderRefreshBehavior.Observation.EXTERNAL).refresh(comparison.scope, observation -> {
                     try { client.accept(() -> completed(comparison, source, observation)); }
                     catch (RuntimeException rejected) { synchronized (ProviderRefreshService.this) { terminate(comparison); } }
@@ -137,6 +159,7 @@ public final class ProviderRefreshService implements ProviderRefreshUseCases {
             ProviderObservation<ProviderCape> observation) {
         if (comparisons.get(comparison.key) != comparison || comparison.completed.contains(source)) return;
         comparison.completed.add(source);
+        comparison.images.remove(source);
         comparison.outcomes.put(source, observation != null && observation.known()
                 ? new ProviderRefreshResult.Outcome(ProviderRefreshResult.Status.CONFIRMED, observation)
                 : ProviderRefreshResult.Outcome.unconfirmed(ProviderRefreshResult.Status.UNKNOWN));
@@ -220,6 +243,7 @@ public final class ProviderRefreshService implements ProviderRefreshUseCases {
     private static final class Comparison {
         final Scope scope;
         final Key key;
+        final Map<BuiltinProvider, ImagePreparation> images = new java.util.EnumMap<>(BuiltinProvider.class);
         final CompletableFuture<ProviderRefreshResult> initial = new CompletableFuture<>();
         final Map<BuiltinProvider, ProviderRefreshResult.Outcome> outcomes = new java.util.EnumMap<>(BuiltinProvider.class);
         final java.util.Set<BuiltinProvider> completed = java.util.EnumSet.noneOf(BuiltinProvider.class);

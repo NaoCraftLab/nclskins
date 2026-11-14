@@ -3,10 +3,6 @@ package com.naocraftlab.skins.compat.client.identifier.extraction;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.compat.client.identifier.foil.CapeTranslucentFoilMaterial;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Set;
-import java.util.WeakHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.model.Model;
@@ -18,8 +14,8 @@ import net.minecraft.util.Unit;
 
 public final class NclBakedPlayerRenderer
         extends PictureInPictureRenderer<NclBakedPlayerRenderState> {
-    private final Set<NclBakedPlayerTarget> targets =
-            Collections.newSetFromMap(new WeakHashMap<>());
+    private final NclBakedPlayerTarget.ContextLease context = new NclBakedPlayerTarget.ContextLease();
+    private boolean closed;
 
     @Override
     public Class<NclBakedPlayerRenderState> getRenderStateClass() {
@@ -32,24 +28,25 @@ public final class NclBakedPlayerRenderer
             GuiRenderState guiRenderState,
             FeatureRenderDispatcher featureRenderDispatcher,
             int guiScale) {
+        var owner = context.join(guiRenderState);
         var completion = state.completion();
         if (completion != null && !completion.current()) return;
         NclBakedPlayerTarget target = state.target();
         try {
-        TargetRenderer renderer = target.acquire(
-                this,
-                () -> {
-                    targets.add(target);
-                    return new TargetRenderer();
-                },
-                TargetRenderer.class);
+        TargetRenderer renderer = owner.acquire(
+                target, () -> new TargetRenderer(), TargetRenderer.class);
         target.retain();
         renderer.primaryRendered = false;
+        if (completion != null && completion.reusesConfirmedOutput()) {
+            if (target.owns(owner, renderer) && renderer.hasPreparedOutput()) renderer.blitTexture(state, guiRenderState);
+            return;
+        }
+        renderer.outputReady = false;
         renderer.prepare(state, guiRenderState, featureRenderDispatcher, guiScale);
-        if (completion != null && renderer.primaryRendered) completion.accept(
+        if (completion != null && renderer.primaryRendered && renderer.hasPreparedOutput()) completion.accept(
                 new com.naocraftlab.skins.client.PreviewModelFrames.Body(
                         com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.ORDINARY,
-                        () -> target.owns(this, renderer)));
+                        () -> target.owns(owner, renderer) && renderer.hasPreparedOutput()));
         } catch (RuntimeException | Error failure) {
             if (completion != null) completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
                     com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED, () -> true));
@@ -72,11 +69,22 @@ public final class NclBakedPlayerRenderer
 
     @Override
     public void close() {
-        for (NclBakedPlayerTarget target : new ArrayList<>(targets)) {
-            target.release(this);
+        if (closed) return;
+        closed = true;
+        Throwable failure = null;
+        try {
+            context.close();
+        } catch (RuntimeException | Error error) {
+            failure = error;
         }
-        targets.clear();
-        super.close();
+        try {
+            super.close();
+        } catch (RuntimeException | Error error) {
+            if (failure == null) failure = error;
+            else if (failure != error) failure.addSuppressed(error);
+        }
+        if (failure instanceof RuntimeException error) throw error;
+        if (failure instanceof Error error) throw error;
     }
 
     @Override
@@ -87,9 +95,22 @@ public final class NclBakedPlayerRenderer
     private static final class TargetRenderer
             extends PictureInPictureRenderer<NclBakedPlayerRenderState> {
         private boolean primaryRendered;
+        private boolean outputReady;
+        private boolean hasPreparedOutput() {
+            return outputReady;
+        }
         @Override
         public Class<NclBakedPlayerRenderState> getRenderStateClass() {
             return NclBakedPlayerRenderState.class;
+        }
+
+        @Override
+        protected boolean textureIsReadyToBlit(NclBakedPlayerRenderState state) {
+            var completion = state.completion();
+            if (completion != null && completion.reusesConfirmedOutput())
+                return hasPreparedOutput() && completion.current();
+            return (completion == null || !completion.needsOwnInputPreparation())
+                    && super.textureIsReadyToBlit(state);
         }
 
         @Override
@@ -127,6 +148,7 @@ public final class NclBakedPlayerRenderer
                                 0x00F000F0,
                                 OverlayTexture.NO_OVERLAY,
                                 0);
+                        if (state.standaloneEquipment()) primaryRendered = true;
                     } finally {
                         pose.popPose();
                     }
@@ -145,6 +167,18 @@ public final class NclBakedPlayerRenderer
             } finally {
                 pose.popPose();
             }
+        }
+
+        @Override
+        protected void blitTexture(NclBakedPlayerRenderState state, GuiRenderState guiRenderState) {
+            var completion = state.completion();
+            if (completion != null && completion.reusesConfirmedOutput()) {
+                if (!hasPreparedOutput() || !completion.current()) return;
+            } else if (!primaryRendered || completion != null && (!completion.current()
+                    || state.attachmentTexture() != null
+                            && !completion.currentInput(state.attachmentTexture().toString()))) return;
+            super.blitTexture(state, guiRenderState);
+            outputReady = true;
         }
 
         @Override

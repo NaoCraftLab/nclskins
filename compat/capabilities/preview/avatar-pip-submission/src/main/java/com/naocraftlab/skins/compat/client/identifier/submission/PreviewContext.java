@@ -21,7 +21,9 @@ public final class PreviewContext {
             PlayerSkin skin,
             ItemStack chestEquipment, java.util.function.BooleanSupplier current,
             java.util.function.Consumer<com.naocraftlab.skins.client.PreviewModelFrames.Body> displayed) {
-        this.displayed = Objects.requireNonNull(displayed);
+        this.displayed = displayed instanceof com.naocraftlab.skins.client.PreviewModelFrames.Completion completion
+                ? com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.afterConsumption(completion)
+                : Objects.requireNonNull(displayed);
         this.current = Objects.requireNonNull(current);
         this.player = Objects.requireNonNull(player, "player");
         this.appearance = Objects.requireNonNull(appearance, "appearance");

@@ -13,7 +13,9 @@ import com.naocraftlab.skins.core.png.CapeIntegrityException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
@@ -26,6 +28,39 @@ import java.util.function.Supplier;
 
 
 public final class PreviewAssetCache<K> implements AutoCloseable {
+    public enum ImageStatus { UNKNOWN, PREPARING, READY, FAILED }
+    public record ImageState(ImageStatus status, Object attempt, long startedNanos) {}
+    public synchronized ImageState imageState(K key, Object expectedAssetIdentity) {
+        Entry entry = entries.get(Objects.requireNonNull(key, "key"));
+        if (closed || entry == null || !Objects.equals(expectedAssetIdentity, entry.assetIdentity))
+            return new ImageState(ImageStatus.UNKNOWN, null, 0L);
+        if (entry.invalidPrepared) return new ImageState(ImageStatus.FAILED, null, 0L);
+        if (entry.handle != null) {
+            var nativeState = playerSkinState(entry.handle);
+            if (nativeState.isPresent()) {
+                if (nativeState.orElseThrow() == NativePlayerSkinLifecycle.State.FAILED)
+                    return new ImageState(ImageStatus.FAILED, null, 0L);
+                if (nativeState.orElseThrow() == NativePlayerSkinLifecycle.State.PENDING)
+                    return new ImageState(ImageStatus.PREPARING, entry.imageAttempt, entry.imageStartedNanos);
+            }
+            return new ImageState(ImageStatus.READY, entry.imageAttempt, entry.imageStartedNanos);
+        }
+        if (entry.inFlight || entry.preparedOpening || entry.frameInFlight || entry.posterInFlight)
+            return new ImageState(ImageStatus.PREPARING, entry.imageAttempt, entry.imageStartedNanos);
+        if (entry.failures > 0 || entry.openFailures > 0 || entry.frameFailures > 0 || entry.posterFailures > 0)
+            return new ImageState(ImageStatus.FAILED, null, 0L);
+        return new ImageState(ImageStatus.UNKNOWN, null, 0L);
+    }
+    private void beginImageAttempt(Entry entry) {
+        if (entry.imageAttempt == null) {
+            entry.imageAttempt = new Object();
+            entry.imageStartedNanos = monotonicNanos.getAsLong();
+        }
+    }
+    private static void finishFailedImageAttempt(Entry entry) {
+        if (!entry.inFlight && !entry.preparedOpening && !entry.frameInFlight && !entry.posterInFlight)
+            entry.imageAttempt = null;
+    }
     private static final long FIRST_RETRY_NANOS = TimeUnit.MILLISECONDS.toNanos(250L);
     private static final long SECOND_RETRY_NANOS = TimeUnit.SECONDS.toNanos(1L);
     private static final long STEADY_RETRY_NANOS = TimeUnit.SECONDS.toNanos(5L);
@@ -34,7 +69,9 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
     private final TextureKind kind;
     private final DiagnosticSink diagnostics;
     private final LongSupplier monotonicNanos;
+    private final Supplier<? extends Collection<TextureHandle>> liveRetainedTextures;
     private final Map<K, Entry> entries = new HashMap<>();
+    private final Set<TextureHandle> retainedReferences = new HashSet<>();
     private boolean closed;
 
     public PreviewAssetCache(
@@ -42,15 +79,27 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         this(textures, kind, diagnostics, System::nanoTime);
     }
 
+    public PreviewAssetCache(TextureRegistry textures, TextureKind kind, DiagnosticSink diagnostics,
+            Supplier<? extends Collection<TextureHandle>> liveRetainedTextures) {
+        this(textures, kind, diagnostics, System::nanoTime, liveRetainedTextures);
+    }
+
     PreviewAssetCache(
             TextureRegistry textures,
             TextureKind kind,
             DiagnosticSink diagnostics,
             LongSupplier monotonicNanos) {
+        this(textures, kind, diagnostics, monotonicNanos, null);
+    }
+
+    PreviewAssetCache(TextureRegistry textures, TextureKind kind, DiagnosticSink diagnostics,
+            LongSupplier monotonicNanos,
+            Supplier<? extends Collection<TextureHandle>> liveRetainedTextures) {
         this.textures = Objects.requireNonNull(textures, "textures");
         this.kind = Objects.requireNonNull(kind, "kind");
         this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
         this.monotonicNanos = Objects.requireNonNull(monotonicNanos, "monotonicNanos");
+        this.liveRetainedTextures = liveRetainedTextures;
     }
 
 
@@ -79,6 +128,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
                 || (entry.failures > 0 && now - entry.retryAtNanos < 0L)) {
             return;
         }
+        beginImageAttempt(entry);
         entry.inFlight = true;
         long attempt = ++entry.attempt;
         final CompletableFuture<Optional<byte[]>> load;
@@ -136,6 +186,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         Entry entry = entries.computeIfAbsent(key, ignored -> new Entry());
         if (entry.assetIdentity != null && !entry.assetIdentity.equals(assetIdentity)) {
             replacePending(entry);
+            if (closed) return;
         }
         entry.assetIdentity = assetIdentity;
         entry.desiredGlint = capeGlint;
@@ -153,6 +204,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         if (!entry.preparedResolved) {
             if (entry.preparedOpening || entry.openFailures > 3) return;
             if (entry.openFailures > 0 && monotonicNanos.getAsLong() - entry.openRetryAtNanos < 0L) return;
+            beginImageAttempt(entry);
             entry.preparedOpening = true;
             long attempt = ++entry.attempt;
             try {
@@ -203,6 +255,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         if (closed || entry == null || entry.invalidPrepared || entry.handle != null
                 || entry.posterInFlight
                 || entry.posterFailures > 0 && monotonicNanos.getAsLong() - entry.posterRetryAtNanos < 0L) return;
+        beginImageAttempt(entry);
         entry.posterInFlight = true;
         entry.posterIntegrityFailure = Objects.requireNonNull(integrityFailure);
         long attempt = ++entry.posterAttempt;
@@ -253,6 +306,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
     private void failPoster(Entry entry) {
         entry.posterFailures++;
+        finishFailedImageAttempt(entry);
         long delay = switch (entry.posterFailures) {
             case 1 -> FIRST_RETRY_NANOS;
             case 2 -> SECOND_RETRY_NANOS;
@@ -264,6 +318,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
     private void requestPreparedFrame(Entry entry, Runnable registrationFailure) {
         if (entry.frameInFlight || entry.prepared == null || entry.frameFailures > 3) return;
         if (entry.frameFailures > 0 && monotonicNanos.getAsLong() - entry.frameRetryAtNanos < 0L) return;
+        beginImageAttempt(entry);
         entry.frameInFlight = true;
         long attempt = ++entry.frameAttempt;
         boolean requestedPlaying = entry.playing;
@@ -286,8 +341,10 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
                     }
                     if (entry.playing != requestedPlaying) {
                         frame.ifPresent(CapePreviewSource.Frame::close);
+                        finishFailedImageAttempt(entry);
                         return;
                     }
+                    if (frame.isEmpty()) finishFailedImageAttempt(entry);
                     frame.ifPresent(next -> installPreparedFrame(entry, next, registrationFailure));
                 }
             });
@@ -349,6 +406,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
     }
 
     private void replacePending(Entry entry) {
+        entry.imageAttempt = null;
         entry.attempt++;
         entry.frameAttempt++;
         if (entry.prepared != null) closePrepared(entry.prepared);
@@ -367,6 +425,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         entry.frameFailures = 0;
         TextureHandle current = entry.handle;
         TextureHandle first = entry.firstFrameHandle;
+        entry.firstFrameHandle = null;
         if (first != null && !first.equals(current)) releaseHandle(first);
         if (current != null) {
             releaseFallback(entry);
@@ -375,7 +434,6 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
             entry.fallbackElytra = entry.installedElytra;
         }
         entry.handle = null;
-        entry.firstFrameHandle = null;
         entry.firstFrameHash = null;
         entry.frameHash = null;
         entry.installedIndex = -1;
@@ -467,10 +525,15 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
 
     public synchronized void retain(Set<K> desired) {
+        retain(desired, Set.of());
+    }
+
+    public synchronized void retain(Set<K> desired, Collection<TextureHandle> retained) {
         Objects.requireNonNull(desired, "desired");
-        if (closed) {
-            return;
-        }
+        Objects.requireNonNull(retained, "retained");
+        if (closed) return;
+        reconcileRetainedReferences(retained);
+        if (closed) return;
         for (K key : new ArrayList<>(entries.keySet())) {
             if (!desired.contains(key)) {
                 Entry removed = entries.remove(key);
@@ -479,14 +542,31 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         }
     }
 
+    private void reconcileRetainedReferences(Collection<TextureHandle> fallback) {
+        Collection<TextureHandle> current = fallback;
+        if (liveRetainedTextures != null) {
+            current = Objects.requireNonNull(liveRetainedTextures.get(), "live retained textures");
+            if (closed) return;
+        }
+        for (TextureHandle handle : new HashSet<>(retainedReferences)) {
+            if (!current.contains(handle)) {
+                retainedReferences.remove(handle);
+                releaseDirect(handle);
+                if (closed) return;
+            }
+        }
+    }
+
     @Override
     public synchronized void close() {
-        if (closed) {
-            return;
-        }
+        if (closed) return;
         closed = true;
-        entries.values().forEach(this::release);
+        var ownedEntries = new ArrayList<>(entries.values());
         entries.clear();
+        var ownedRetained = new ArrayList<>(retainedReferences);
+        retainedReferences.clear();
+        ownedEntries.forEach(this::release);
+        ownedRetained.forEach(this::releaseDirect);
     }
 
     private synchronized void complete(
@@ -536,6 +616,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
     private void scheduleOpenRetry(Entry entry) {
         entry.openFailures++;
+        finishFailedImageAttempt(entry);
         long delay = switch (entry.openFailures) {
             case 1 -> FIRST_RETRY_NANOS;
             case 2 -> SECOND_RETRY_NANOS;
@@ -546,6 +627,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
     private void scheduleFrameRetry(Entry entry) {
         entry.frameFailures++;
+        finishFailedImageAttempt(entry);
         long delay = switch (entry.frameFailures) {
             case 1 -> FIRST_RETRY_NANOS;
             case 2 -> SECOND_RETRY_NANOS;
@@ -561,6 +643,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
     private static void fail(Entry entry, long now) {
         entry.inFlight = false;
         entry.failures++;
+        finishFailedImageAttempt(entry);
         long delay = switch (entry.failures) {
             case 1 -> FIRST_RETRY_NANOS;
             case 2 -> SECOND_RETRY_NANOS;
@@ -571,22 +654,43 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
     private void release(Entry entry) {
         if (entry == null) return;
-        if (entry.prepared != null) {
-            closePrepared(entry.prepared);
-            entry.prepared = null;
-        }
+        CapePreviewSource prepared = entry.prepared;
         TextureHandle current = entry.handle;
         TextureHandle first = entry.firstFrameHandle;
         TextureHandle fallback = entry.fallbackHandle;
+        entry.prepared = null;
         entry.handle = null;
         entry.firstFrameHandle = null;
         entry.fallbackHandle = null;
+        if (prepared != null) closePrepared(prepared);
         if (current != null) releaseHandle(current);
         if (first != null && !first.equals(current)) releaseHandle(first);
         if (fallback != null && !fallback.equals(current) && !fallback.equals(first)) releaseHandle(fallback);
     }
 
     private void releaseHandle(TextureHandle handle) {
+        if (!closed && !ownedByEntry(handle) && liveRetainedTextures != null
+                && !retainedReferences.contains(handle)) {
+            Collection<TextureHandle> current = Objects.requireNonNull(
+                    liveRetainedTextures.get(), "live retained textures");
+            if (closed) {
+                releaseDirect(handle);
+                return;
+            }
+            if (current.contains(handle)) {
+                retainedReferences.add(handle);
+                return;
+            }
+        }
+        releaseDirect(handle);
+    }
+
+    private boolean ownedByEntry(TextureHandle handle) {
+        return entries.values().stream().anyMatch(entry -> handle.equals(entry.handle)
+                || handle.equals(entry.firstFrameHandle) || handle.equals(entry.fallbackHandle));
+    }
+
+    private void releaseDirect(TextureHandle handle) {
         try { textures.release(handle); }
         catch (RuntimeException failure) { diagnose(DiagnosticEvent.CLIENT_TEXTURE_RELEASE_FAILED, failure); }
     }
@@ -631,6 +735,8 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
     }
 
     private static final class Entry {
+        private Object imageAttempt;
+        private long imageStartedNanos;
         private TextureHandle handle;
         private TextureHandle fallbackHandle;
         private boolean fallbackGlint;

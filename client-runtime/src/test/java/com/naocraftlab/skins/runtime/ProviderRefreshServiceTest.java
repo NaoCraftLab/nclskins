@@ -20,6 +20,118 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 final class ProviderRefreshServiceTest {
+    @Test void initialImagePreparationBelongsOnlyToTheAdmittedSessionSource() {
+        Fixture fixture = new Fixture();
+        ArrayDeque<Runnable> worker = new ArrayDeque<>();
+        fixture.worker = worker::add;
+        fixture.defer = true;
+        fixture.rebuildService();
+        var component = AppearanceProviders.Component.CAPE;
+        var initial = fixture.service.refresh(ProviderRefreshRequest.all(component), fixture.providers);
+        assertFalse(initial.isDone());
+        assertTrue(fixture.remoteReads.isEmpty());
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.MINECRAFT, fixture.providers).isPresent());
+        for (var source : List.of(BuiltinProvider.OFFLINE, BuiltinProvider.CPM, BuiltinProvider.SNEAKY,
+                BuiltinProvider.OPTIFINE, BuiltinProvider.SKINMC, BuiltinProvider.MINECRAFTCAPES)) {
+            assertTrue(fixture.service.imagePreparation(component, source, fixture.providers).isEmpty(),
+                    source + " has no admitted image refresh in the session stage");
+        }
+        worker.remove().run();
+        fixture.service.initialPublished(initial.join());
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.MINECRAFT, fixture.providers).isEmpty());
+        for (var source : List.of(BuiltinProvider.OPTIFINE, BuiltinProvider.SKINMC, BuiltinProvider.MINECRAFTCAPES))
+            assertTrue(fixture.service.imagePreparation(component, source, fixture.providers).isPresent());
+        fixture.service.close();
+    }
+
+    @Test void perImagePreparationEndsAtItsOwnObservationBeforeComparisonAndSibling() {
+        Fixture fixture = new Fixture();
+        ArrayDeque<Runnable> worker = new ArrayDeque<>();
+        fixture.worker = worker::add;
+        fixture.defer = true;
+        fixture.rebuildService();
+        var component = AppearanceProviders.Component.CAPE;
+        var initial = fixture.service.refresh(ProviderRefreshRequest.all(component), fixture.providers);
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.SKINMC, fixture.providers).isEmpty());
+        assertTrue(fixture.service.imagePreparation(AppearanceProviders.Component.SKIN, BuiltinProvider.SKINMC, fixture.providers).isEmpty());
+        worker.remove().run();
+        fixture.service.initialPublished(initial.join());
+        var own = fixture.service.imagePreparation(component, BuiltinProvider.SKINMC, fixture.providers).orElseThrow();
+        assertEquals(own, fixture.service.imagePreparation(component, BuiltinProvider.SKINMC, fixture.providers).orElseThrow());
+        assertNotSame(own.attempt(), fixture.service.imagePreparation(component, BuiltinProvider.OPTIFINE, fixture.providers).orElseThrow().attempt());
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.OFFLINE, fixture.providers).isEmpty());
+        fixture.pending.get(BuiltinProvider.SKINMC).accept(ProviderObservation.observed(new ProviderCape("new", "b".repeat(64))));
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.SKINMC, fixture.providers).isEmpty());
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.OPTIFINE, fixture.providers).isPresent());
+        assertTrue(fixture.service.refreshing(ProviderRefreshRequest.all(component), fixture.providers));
+        fixture.service.close();
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.OPTIFINE, fixture.providers).isEmpty());
+    }
+
+    @Test void externalImagePreparationBeginsAtEachBindingAdmission() {
+        Fixture fixture = new Fixture();
+        ArrayDeque<Runnable> worker = new ArrayDeque<>();
+        fixture.worker = worker::add;
+        fixture.defer = true;
+        fixture.rebuildService();
+        var component = AppearanceProviders.Component.CAPE;
+        var sources = List.of(BuiltinProvider.OPTIFINE, BuiltinProvider.SKINMC, BuiltinProvider.MINECRAFTCAPES);
+        fixture.admitting = source -> {
+            int index = sources.indexOf(source);
+            assertTrue(fixture.service.imagePreparation(component, source, fixture.providers).isPresent());
+            for (int i = index + 1; i < sources.size(); i++)
+                assertTrue(fixture.service.imagePreparation(component, sources.get(i), fixture.providers).isEmpty());
+        };
+        var initial = fixture.service.refresh(ProviderRefreshRequest.all(component), fixture.providers);
+        worker.remove().run();
+        assertTrue(fixture.remoteReads.isEmpty());
+        sources.forEach(source -> assertTrue(fixture.service.imagePreparation(component, source, fixture.providers).isEmpty()));
+        fixture.service.initialPublished(initial.join());
+        assertEquals(sources, fixture.remoteReads);
+        fixture.service.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"known-none", "unknown", "null"})
+    void ownTerminalObservationDoesNotWaitForSiblingOrComparison(String terminal) {
+        Fixture fixture = new Fixture();
+        fixture.defer = true;
+        var component = AppearanceProviders.Component.CAPE;
+        fixture.service.initialPublished(fixture.service.refresh(ProviderRefreshRequest.all(component), fixture.providers).join());
+        var sibling = fixture.service.imagePreparation(component, BuiltinProvider.SKINMC, fixture.providers).orElseThrow();
+        fixture.pending.get(BuiltinProvider.OPTIFINE).accept(switch (terminal) {
+            case "known-none" -> ProviderObservation.observed(null);
+            case "unknown" -> ProviderObservation.unknown();
+            default -> null;
+        });
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.OPTIFINE, fixture.providers).isEmpty());
+        assertEquals(sibling, fixture.service.imagePreparation(component, BuiltinProvider.SKINMC, fixture.providers).orElseThrow());
+        fixture.service.close();
+    }
+
+    @Test void mixedRefreshDoesNotPresentCooldownOnlySourcesAsActiveImages() {
+        Fixture fixture = new Fixture();
+        ArrayDeque<Runnable> worker = new ArrayDeque<>();
+        fixture.worker = worker::add;
+        fixture.defer = true;
+        fixture.sessionCooldown = Optional.of(Duration.ofSeconds(2));
+        fixture.cooldowns.put(BuiltinProvider.SKINMC, Duration.ofSeconds(2));
+        fixture.rebuildService();
+        var component = AppearanceProviders.Component.CAPE;
+        var initial = fixture.service.refresh(ProviderRefreshRequest.all(component), fixture.providers);
+        assertFalse(initial.isDone(), "local branches keep the existing mixed refresh admitted");
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.MINECRAFT, fixture.providers).isEmpty(),
+                "cooldown is not active session image work");
+        worker.remove().run();
+        fixture.service.initialPublished(initial.join());
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.SKINMC, fixture.providers).isEmpty(),
+                "cooldown is not active external image work");
+        assertTrue(fixture.service.imagePreparation(component, BuiltinProvider.OPTIFINE, fixture.providers).isPresent());
+        assertEquals(List.of(BuiltinProvider.OPTIFINE, BuiltinProvider.SKINMC, BuiltinProvider.MINECRAFTCAPES), fixture.remoteReads,
+                "image projection does not change source calls or retry policy");
+        fixture.service.close();
+    }
+
     @Test void activeScopeReflectsInitialStageCallbacksAndComparisonWithoutBlockingOtherScopes() {
         Fixture fixture = new Fixture();
         ArrayDeque<Runnable> worker = new ArrayDeque<>();
@@ -109,6 +221,7 @@ final class ProviderRefreshServiceTest {
                 BuiltinProvider.SKINMC), fixture.providers).join();
         fixture.service.initialPublished(limited);
         assertEquals(ProviderRefreshResult.Status.RATE_LIMITED, limited.outcomes().get(BuiltinProvider.SKINMC).status());
+        assertTrue(fixture.service.imagePreparation(AppearanceProviders.Component.CAPE, BuiltinProvider.SKINMC, fixture.providers).isEmpty());
         assertEquals(0, fixture.effects);
         fixture.providers = AppearanceProviders.initial().disable(AppearanceProviders.Component.CAPE, BuiltinProvider.OFFLINE)
                 .disable(AppearanceProviders.Component.CAPE, BuiltinProvider.MINECRAFT)
@@ -193,6 +306,7 @@ final class ProviderRefreshServiceTest {
         var failed = fixture.service.refresh(ProviderRefreshRequest.all(AppearanceProviders.Component.SKIN), fixture.providers);
         assertTrue(failed.isDone());
         assertEquals(ProviderRefreshResult.Status.FAILED, failed.join().outcomes().get(BuiltinProvider.MINECRAFT).status());
+        assertTrue(fixture.service.imagePreparation(AppearanceProviders.Component.SKIN, BuiltinProvider.MINECRAFT, fixture.providers).isEmpty());
         ArrayDeque<Runnable> jobs = new ArrayDeque<>();
         fixture.worker = jobs::add;
         fixture.rebuildService();
@@ -261,11 +375,13 @@ final class ProviderRefreshServiceTest {
                 .enable(AppearanceProviders.Component.CAPE, BuiltinProvider.CPM);
         GameSessionTokenSource.SessionIdentity identity = new GameSessionTokenSource.SessionIdentity(TestFixtures.ACCOUNT_ID, "Player");
         long generation;
+        Optional<Duration> sessionCooldown = Optional.empty();
         int effects;
         int signals;
         boolean failEffect;
         boolean rejectClient;
         boolean defer;
+        Consumer<BuiltinProvider> admitting = ignored -> {};
         Executor worker = Runnable::run;
         ProviderObservation<ProviderCape> next;
         final Map<BuiltinProvider, Duration> cooldowns = new EnumMap<>(BuiltinProvider.class);
@@ -289,6 +405,7 @@ final class ProviderRefreshServiceTest {
                         case "refreshCapeProvider" -> {
                             var source = (BuiltinProvider) args[1];
                             remoteReads.add(source);
+                            admitting.accept(source);
                             var completion = (Consumer<ProviderObservation<ProviderCape>>) args[2];
                             if (defer) pending.put(source, completion);
                             else completion.accept(next);
@@ -297,8 +414,8 @@ final class ProviderRefreshServiceTest {
                         default -> throw new AssertionError(method.getName());
                     });
             ClientSessionView session = new ClientSessionView() {
-                public boolean rateLimited() { return false; }
-                public Optional<Duration> rateLimitRemaining() { return Optional.empty(); }
+                public boolean rateLimited() { return sessionCooldown.isPresent(); }
+                public Optional<Duration> rateLimitRemaining() { return sessionCooldown; }
                 public GameSessionTokenSource.SessionIdentity sessionIdentity() { return identity; }
             };
             service = new ProviderRefreshService(new ProviderRefreshEffects() {

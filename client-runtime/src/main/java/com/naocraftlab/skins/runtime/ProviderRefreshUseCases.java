@@ -10,6 +10,9 @@ import java.util.concurrent.CompletableFuture;
 public interface ProviderRefreshUseCases extends AutoCloseable {
     CompletableFuture<ProviderRefreshResult> refresh(ProviderRefreshRequest request, AppearanceProviders before);
     boolean refreshing(ProviderRefreshRequest request, AppearanceProviders before);
+    record ImagePreparation(Object attempt, long startedNanos) {}
+    default java.util.Optional<ImagePreparation> imagePreparation(AppearanceProviders.Component component,
+            BuiltinProvider provider, AppearanceProviders before) { return java.util.Optional.empty(); }
     void initialPublished(ProviderRefreshResult result);
     void publicationRejected(ProviderRefreshResult result);
     void invalidate();

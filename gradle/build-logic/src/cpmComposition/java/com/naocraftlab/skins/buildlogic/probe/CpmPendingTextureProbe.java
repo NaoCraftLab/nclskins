@@ -38,7 +38,15 @@ public final class CpmPendingTextureProbe {
         var renders = node.methods.stream().filter(method -> method.name.equals("render")
                 && method.desc.startsWith("(Lnet/minecraft/client/gui/GuiGraphics;")).toList();
         check(renders.size() == 1, "exact typed render entrypoint");
-        MethodNode render = renders.get(0);
+        MethodNode entry = renders.get(0);
+        var prepared = node.methods.stream().filter(method -> method.name.equals("renderPrepared")
+                && method.desc.equals(entry.desc)).toList();
+        check(prepared.size() == 1, "exact prepared render body");
+        check(java.util.Arrays.stream(entry.instructions.toArray()).anyMatch(instruction ->
+                instruction instanceof MethodInsnNode call && call.owner.equals(owner)
+                        && call.name.equals("renderPrepared") && call.desc.equals(entry.desc)),
+                "public wrapper retains the exact prepared render body");
+        MethodNode render = prepared.get(0);
         boolean liveTerminal = false;
         for (var instruction : render.instructions.toArray()) {
             if (instruction instanceof MethodInsnNode call && call.owner.equals(owner) && call.name.equals("previewPlayer")) {
@@ -73,7 +81,7 @@ public final class CpmPendingTextureProbe {
         node.methods.forEach(method -> ownMethods.put(method.name + method.desc, method));
         Set<String> retainedMethods = new HashSet<>();
         var pendingMethods = new java.util.ArrayDeque<String>();
-        pendingMethods.add(render.name + render.desc);
+        pendingMethods.add(entry.name + entry.desc);
         Set<List<String>> retainedFields = new HashSet<>();
         Set<String> lifecycleCalls = new HashSet<>();
         while (!pendingMethods.isEmpty()) {

@@ -33,10 +33,18 @@ class CapeEntityMaterialVerifierTest {
             List<Integer> loads = []
             Integer scopedActor = null
             Integer renderedActor = null
+            boolean presentationDelegates = false
             new ClassReader(Files.readAllBytes(compiled)).accept(new ClassVisitor(Opcodes.ASM9) {
                 @Override
                 MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
-                    if (name != 'render' || !descriptor.contains('PreviewRenderer$PreviewRequest;')) return null
+                    if (!descriptor.contains('PreviewRenderer$PreviewRequest;')) return null
+                    if (name == 'render') return new MethodVisitor(Opcodes.ASM9) {
+                        @Override
+                        void visitMethodInsn(int opcode, String owner, String method, String desc, boolean itf) {
+                            if (owner.endsWith('/' + family[2]) && method == 'renderPrepared' && desc == descriptor) presentationDelegates = true
+                        }
+                    }
+                    if (name != 'renderPrepared') return null
                     return new MethodVisitor(Opcodes.ASM9) {
                         @Override
                         void visitVarInsn(int opcode, int variable) {
@@ -50,6 +58,7 @@ class CapeEntityMaterialVerifierTest {
                     }
                 }
             }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES)
+            assertTrue(presentationDelegates, family[0].toString())
             assertNotNull(scopedActor, family[0].toString())
             assertNotNull(renderedActor, family[0].toString())
             assertEquals(renderedActor, scopedActor, family[0].toString())

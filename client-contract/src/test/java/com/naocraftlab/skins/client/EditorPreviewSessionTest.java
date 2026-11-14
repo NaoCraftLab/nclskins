@@ -13,6 +13,548 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EditorPreviewSessionTest {
+    @Test void sameSourceImagePrerequisiteCannotRecreateRetiredOwnerDuringMaterialCurrentness() {
+        var gallery = new EditorPreviewSession.Gallery();
+        boolean[] close = {false};
+        var a = gallery.prepare("same",false,false,() -> true);
+        gallery.prepareImage("image",0,true,false);
+        var material = new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> {
+            if (close[0]) gallery.close();
+            return true;
+        });
+        a.imagePreparation(() -> true).accept(material);
+        a.ordinaryDisplay(() -> true).accept(material);
+        gallery.image("same",new PreviewRenderer.PreviewRequest(new PreviewRenderer.PreviewAppearance(
+                new TextureRegistry.TextureHandle("fixture:retired",64,64),SkinModel.CLASSIC,java.util.Optional.empty(),
+                PreviewRenderer.CapeMode.OFF,OuterLayerVisibility.allVisible()),0,0,160,180,0,0,1,CURRENT_APPEARANCE),() -> true);
+        gallery.confirm("same");
+        close[0]=true;
+        assertEquals(null,gallery.prepareImage("image",0,false,false));
+        assertFalse(a.imagePreparing());
+        assertFalse(gallery.retains(a));
+    }
+
+    @Test void sameSourcePreparationRetainsIndependentWholeDisplayedOwnerUntilOwnVisibleSuccessor() {
+        long[] now = {0};
+        var gallery = new EditorPreviewSession.Gallery(() -> now[0]);
+        var a = gallery.prepare("same",false,false,() -> true);
+        gallery.prepareImage("image",0,true,false);
+        var materialA = new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true);
+        a.imagePreparation(() -> true).accept(materialA);
+        a.ordinaryDisplay(() -> true).accept(materialA);
+        var request = new PreviewRenderer.PreviewRequest(new PreviewRenderer.PreviewAppearance(
+                new TextureRegistry.TextureHandle("fixture:same",64,64),SkinModel.SLIM,java.util.Optional.empty(),
+                PreviewRenderer.CapeMode.OFF,OuterLayerVisibility.noneVisible()),0,0,160,180,0,0,1,CURRENT_APPEARANCE);
+        gallery.image("same",request,() -> true);
+        gallery.confirm("same");
+        var b = gallery.prepareImage("image",0,false,false);
+        assertTrue(a != b);
+        assertTrue(a.imageVisible());
+        assertFalse(b.imageVisible());
+        for (long tick : new long[]{0,299_000_000L,300_000_000L,5_000_000_000L}) {
+            now[0]=tick;
+            assertEquals("same",gallery.retainedSource());
+            assertTrue(gallery.retainedSession()==a && gallery.session("same")==b);
+            assertTrue(gallery.retainedImage("same")==request);
+            assertFalse(gallery.body().current().getAsBoolean());
+            assertFalse(b.imageSpinner());
+            assertTrue(gallery.prepareImage("image",0,false,false)==b);
+        }
+        var pending = b.imagePreparation(() -> true);
+        pending.accept(materialA);
+        assertFalse(b.imageVisible());
+        assertTrue(gallery.prepareImage("image",0,true,false)==b);
+        pending.accept(materialA);
+        assertFalse(b.imageVisible());
+        b.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+        assertTrue(b.imageVisible());
+        assertEquals(null,gallery.retainedSource());
+        assertFalse(gallery.body().current().getAsBoolean());
+        b.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+        gallery.confirm("same");
+        assertFalse(gallery.retains(a));
+        assertTrue(gallery.retains(b));
+        gallery.close();
+        assertFalse(b.imageVisible());
+    }
+
+    @Test void retainedTransformUsesCurrentSelectionWithoutCandidateRequestOrAuthority() {
+        var gallery = new EditorPreviewSession.Gallery();
+        boolean[] lifetime = {true};
+        var a = gallery.prepare("A",false,false,() -> true);
+        gallery.lifetime("A",() -> lifetime[0]);
+        gallery.prepareImage("imageA",0,true,false);
+        var material = new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> lifetime[0]);
+        a.imagePreparation(() -> true).accept(material);
+        a.ordinaryDisplay(() -> true).accept(material);
+        var request = new PreviewRenderer.PreviewRequest(new PreviewRenderer.PreviewAppearance(
+                new TextureRegistry.TextureHandle("fixture:pose",64,64),SkinModel.SLIM,java.util.Optional.empty(),
+                PreviewRenderer.CapeMode.OFF,OuterLayerVisibility.noneVisible()),2,3,160,180,0,0,1,CURRENT_APPEARANCE,12,13,140,150);
+        gallery.image("A",request,() -> lifetime[0]);
+        gallery.confirm("A");
+        var b = gallery.prepare("B",false,false,() -> true);
+        gallery.prepareImage("imageB",0,false,false);
+        gallery.transformRetained("obsolete",40,15,2);
+        assertTrue(gallery.retainedImage("A") == request);
+        gallery.transformRetained("B",40,15,2);
+        var transformed = gallery.retainedImage("A");
+        assertEquals(new PreviewRenderer.PreviewRequest(request.appearance(),2,3,160,180,40,15,2,CURRENT_APPEARANCE,12,13,140,150),transformed);
+        assertTrue(transformed.appearance() == request.appearance());
+        assertFalse(b.imageVisible());
+        assertFalse(gallery.body().current().getAsBoolean());
+        gallery.prepare("C",false,false,() -> true);
+        gallery.prepareImage("imageC",0,false,false);
+        gallery.transformRetained("B",80,30,3);
+        assertTrue(gallery.retainedImage("A") == transformed);
+        lifetime[0] = false;
+        gallery.transformRetained("C",80,30,3);
+        assertEquals(null,gallery.retainedImage("A"));
+        lifetime[0] = true;
+        assertTrue(gallery.retainedImage("A") == transformed);
+        gallery.close();
+        gallery.transformRetained("C",80,30,3);
+        assertEquals(null,gallery.retainedImage("A"));
+    }
+
+    @Test void successorImageSessionUsesSameClockWithoutRetiringPredecessorMaterial() {
+        long[] now = {0};
+        var a = new EditorPreviewSession(() -> now[0]);
+        a.beginImage("A");
+        a.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+        var b = a.nextImageSession();
+        b.beginImage("B");
+        now[0]=299_000_000L;
+        assertFalse(b.imageSpinner());
+        assertTrue(a.imageVisible());
+        now[0]=300_000_000L;
+        assertTrue(b.imageSpinner());
+        a.invalidateDisplayedBody();
+        assertFalse(a.imageVisible());
+        assertTrue(b.imagePreparing());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void retiredMaterialCompletionCannotTerminalizeOrOverwriteSameImageSuccessor(boolean obsoleteLast) {
+        var session = new EditorPreviewSession();
+        session.beginImage("same-image", 0);
+        var a = session.imagePreparation(() -> true);
+        var b = session.imagePreparation(() -> true);
+        var target = new ScreenOwnedRenderTarget();
+        Object ownerA = new Object(), ownerB = new Object();
+        AutoCloseable resourceA = target.acquire(ownerA, () -> (AutoCloseable) () -> {}, AutoCloseable.class);
+        var bodyA = new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> target.owns(ownerA, resourceA));
+        AutoCloseable resourceB = target.acquire(ownerB, () -> (AutoCloseable) () -> {}, AutoCloseable.class);
+        var bodyB = new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> target.owns(ownerB, resourceB));
+        assertFalse(bodyA.current().getAsBoolean());
+        assertTrue(bodyB.current().getAsBoolean());
+        if (obsoleteLast) {
+            b.accept(bodyB);
+            assertTrue(session.imageVisible());
+            a.accept(bodyA);
+            assertTrue(session.imageVisible());
+        } else {
+            a.accept(bodyA);
+            assertTrue(session.imagePreparing());
+            assertFalse(session.imageVisible());
+            b.accept(bodyB);
+            assertTrue(session.imageVisible());
+        }
+        target.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void retainedWholeRecipeUsesDisplayLifetimeNotRetiredCandidateAuthorityAndReturnsToItsOwnOwner(boolean indicator) {
+        long[] now = {0};
+        boolean[] candidateA = {true}, lifetime = {true};
+        var gallery = new EditorPreviewSession.Gallery(() -> now[0]);
+        var a = gallery.prepare("A", false, false, () -> candidateA[0]);
+        a.beginImage("A", 0);
+        var material = new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> lifetime[0]);
+        a.imagePreparation(() -> true).accept(material);
+        a.ordinaryDisplay(() -> true).accept(material);
+        var recipe = new PreviewRenderer.PreviewRequest(new PreviewRenderer.PreviewAppearance(
+                new TextureRegistry.TextureHandle("fixture:A", 64, 64), SkinModel.CLASSIC, java.util.Optional.empty(),
+                PreviewRenderer.CapeMode.OFF, OuterLayerVisibility.allVisible()), 0, 0, 160, 180, 0, 0, 1, EDITOR_DRAFT);
+        gallery.lifetime("A", () -> lifetime[0]);
+        gallery.image("A", recipe, () -> lifetime[0]);
+        gallery.confirm("A");
+        candidateA[0] = false;
+        var b = gallery.prepare("B", false, false, () -> true);
+        b.imageIndicator(indicator);
+        b.beginImage("B", 0);
+        for (long tick : new long[]{0, 299_000_000L}) {
+            now[0] = tick;
+            assertEquals("A", gallery.retainedSource());
+            assertTrue(gallery.retainedImage("A") == recipe);
+            assertFalse(gallery.body().current().getAsBoolean(), "retained A cannot authorize B");
+        }
+        for (long tick : new long[]{300_000_000L, 5_000_000_000L, 120_000_000_000L}) {
+            now[0] = tick;
+            assertEquals(indicator ? null : "A", gallery.retainedSource());
+            assertEquals(indicator, b.imageSpinner());
+            assertFalse(gallery.body().current().getAsBoolean(), "retained A never acknowledges B");
+        }
+        assertTrue(gallery.retainedTextures().contains(recipe.appearance().skin()), "A remains owned internally after visibility deadline");
+        var retiredB = b.imagePreparation(() -> true);
+        var c = gallery.prepare("C", false, false, () -> true);
+        c.beginImage("C", now[0]);
+        retiredB.accept(material);
+        assertFalse(c.imageVisible());
+        assertEquals("A", gallery.retainedSource());
+        candidateA[0] = true;
+        assertTrue(a == gallery.prepare("A", false, false, () -> candidateA[0]), "return before successor ACK reuses the exact still-owned A session");
+        assertTrue(gallery.body().current().getAsBoolean());
+        var d = gallery.prepare("D", false, false, () -> true);
+        d.beginImage("D", now[0]);
+        lifetime[0] = false;
+        assertEquals(null, gallery.retainedSource());
+        assertTrue(gallery.retainedTextures().isEmpty(), "lifecycle retirement drops material pins");
+        gallery.close();
+        assertFalse(gallery.retains(a));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void earlyOwnSuccessorDoesNotWaitForDelayOrBorrowPredecessorAuthority(boolean indicator) {
+        long[] now = {0};
+        var gallery = new EditorPreviewSession.Gallery(() -> now[0]);
+        var a = gallery.prepare("A", false, false, () -> true);
+        a.beginImage("A", 0);
+        a.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        a.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        gallery.confirm("A");
+        var b = gallery.prepare("B", false, false, () -> true);
+        b.imageIndicator(indicator);
+        b.beginImage("B", 0);
+        now[0] = 25_000_000L;
+        b.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(b.imageVisible());
+        assertFalse(b.imageSpinner());
+        assertEquals(null, gallery.retainedSource());
+        assertFalse(gallery.body().current().getAsBoolean());
+        b.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        gallery.confirm("B");
+        assertTrue(gallery.body().current().getAsBoolean());
+        assertFalse(gallery.retains(a));
+        gallery.close();
+    }
+
+    @Test void noIndicatorFirstOpenStaysEmptyAndRetiredLatestPreparationCannotReviveIt() {
+        long[] now = {0};
+        var gallery = new EditorPreviewSession.Gallery(() -> now[0]);
+        var b = gallery.prepare("B", false, false, () -> true);
+        b.imageIndicator(false);
+        b.beginImage("B", 0);
+        var stale = b.imagePreparation(() -> true);
+        now[0] = 120_000_000_000L;
+        assertFalse(b.imageSpinner());
+        assertFalse(b.imageVisible());
+        assertEquals(null, gallery.retainedSource());
+        var c = gallery.prepare("C", false, false, () -> true);
+        c.imageIndicator(false);
+        c.beginImage("C", now[0]);
+        stale.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertFalse(c.imageVisible());
+        var completion = c.imagePreparation(() -> true);
+        gallery.close();
+        completion.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertFalse(c.imageVisible());
+        assertFalse(gallery.body().current().getAsBoolean());
+    }
+
+    @Test void replacementAuthorityPreservesNewHiddenAttemptUntilItsSeparateVisiblePass() {
+        long[] now = {0};
+        var session = new EditorPreviewSession(() -> now[0]);
+        Object world = new Object(), player = new Object();
+        session.beginBody("A", false, true);
+        session.beginImage(new Object());
+        session.displayAuthority("material-A", world, player);
+        session.displayBody(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        var oldVisible = session.displayBody(() -> true);
+        oldVisible.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.body().current().getAsBoolean());
+        now[0] = 1_000_000_000L;
+        session.beginBody("B", false, true);
+        Object attempt = new Object();
+        session.beginImage(attempt, now[0]);
+        now[0] += 299_000_000L;
+        session.displayAuthority("material-B", world, player);
+        assertTrue(session.imageTracked(), "new B preparation must survive replacement of A authority");
+        assertTrue(session.imagePreparing());
+        assertFalse(session.imageSpinner());
+        now[0] += 1_000_000L;
+        session.beginImage(attempt, now[0]);
+        assertTrue(session.imageSpinner(), "authority admission cannot reset the producer's 300ms interval");
+        var hidden = session.displayBody(() -> true);
+        assertTrue(hidden instanceof PreviewModelFrames.Completion completion && completion.requiresConsumption());
+        oldVisible.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertFalse(session.body().current().getAsBoolean());
+        hidden.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.imageVisible());
+        assertFalse(session.imageSpinner(), "own material readiness has no minimum spinner time");
+        assertFalse(session.body().current().getAsBoolean(), "hidden B is not a visible ordinary witness");
+        session.displayBody(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.body().current().getAsBoolean());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"registration", "world", "player"})
+    void sameImageAuthorityReplacementRequiresNewHiddenMaterialBeforeVisiblePass(String boundary) {
+        long[] now = {0};
+        var session = new EditorPreviewSession(() -> now[0]);
+        Object world = new Object(), player = new Object(), material = new Object(), attempt = new Object();
+        session.beginBody("same", false, true);
+        session.beginImage(attempt);
+        session.displayAuthority(material, world, player);
+        session.displayBody(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        var old = session.displayBody(() -> true);
+        old.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.imageVisible());
+        now[0] = 400_000_000L;
+        session.displayAuthority(boundary.equals("registration") ? new Object() : material,
+                boundary.equals("world") ? new Object() : world, boundary.equals("player") ? new Object() : player);
+        assertTrue(session.imageTracked(), "native replacement must not fall into the untracked visible path");
+        assertTrue(session.imagePreparing());
+        assertFalse(session.imageVisible());
+        assertFalse(session.imageSpinner(), "a ready material's replacement begins a new native preparation interval");
+        now[0] = 699_000_000L;
+        assertFalse(session.imageSpinner());
+        now[0] = 700_000_000L;
+        assertTrue(session.imageSpinner());
+        old.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertFalse(session.body().current().getAsBoolean());
+        session.displayBody(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.imageVisible());
+        assertFalse(session.body().current().getAsBoolean());
+        session.displayBody(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.body().current().getAsBoolean());
+    }
+
+    @Test void authorityReplacementFencesPendingCallbacksWithoutRetryingTerminalImageOrCpm() {
+        long[] now = {0};
+        var session = new EditorPreviewSession(() -> now[0]);
+        session.beginBody("same", true, true);
+        Object attempt = new Object();
+        session.beginImage(attempt);
+        session.displayAuthority("old", null, null);
+        var late = session.imagePreparation(() -> true);
+        now[0] = 59_900_000_000L;
+        session.displayAuthority("new", null, null);
+        late.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.READY, () -> true));
+        assertFalse(session.imageVisible());
+        assertTrue(session.imageSpinner());
+        now[0] = 60_000_000_000L;
+        assertEquals(PreviewRenderer.BodyStatus.TIMED_OUT, session.bodyStatus());
+        session.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.FAILED, () -> true));
+        session.displayAuthority("replacement", null, null);
+        session.beginImage(attempt);
+        assertTrue(session.imageTracked());
+        assertFalse(session.imagePreparing(), "authority replacement cannot revive a terminal image attempt");
+        assertFalse(session.imageSpinner());
+        assertEquals(PreviewRenderer.BodyStatus.TIMED_OUT, session.bodyStatus());
+    }
+
+    @Test void partialInputConsumptionCannotReleaseImageAndItsLateFenceIsRejected() {
+        long[] now = {0};
+        var session = new EditorPreviewSession(() -> now[0]);
+        session.beginImage("source");
+        session.imagePrerequisite(false, 0L);
+        var partial = session.imagePreparation(() -> true);
+        now[0] = 400_000_000L;
+        partial.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertFalse(session.imageVisible());
+        assertTrue(session.imageSpinner());
+        session.imagePrerequisite(true, now[0]);
+        partial.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertFalse(session.imageVisible());
+        assertTrue(session.imageSpinner());
+        session.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.imageVisible());
+    }
+
+    @Test void terminalCpmStageKeepsImagePreparationForItsExistingFallbackConsumer() {
+        for (var terminal : java.util.List.of(PreviewRenderer.BodyStatus.FAILED, PreviewRenderer.BodyStatus.BLOCKED,
+                PreviewRenderer.BodyStatus.TIMED_OUT)) {
+            long[] now = {0};
+            var session = new EditorPreviewSession(() -> now[0]);
+            session.beginBody("source", true, true);
+            session.beginImage("source");
+            now[0] = 400_000_000L;
+            if (terminal == PreviewRenderer.BodyStatus.TIMED_OUT) now[0] = 60_000_000_000L;
+            else session.body(new PreviewModelFrames.Body(terminal, () -> true));
+            assertEquals(terminal, session.bodyStatus());
+            assertTrue(session.imageTracked());
+            session.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+            assertTrue(session.imageVisible());
+            assertFalse(session.body().current().getAsBoolean(), "fallback preparation is not a visible fallback display");
+            session.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+            assertTrue(session.body().current().getAsBoolean());
+            assertEquals(terminal, session.bodyStatus());
+        }
+    }
+
+    @Test void sourcePreparationAcceptsProducerStartWithoutResettingAtNativeStage() {
+        long[] now = {400_000_000L};
+        var session = new EditorPreviewSession(() -> now[0]);
+        session.beginImage("source", 0L);
+        assertTrue(session.imageSpinner());
+        session.beginImage("source", now[0]);
+        assertTrue(session.imageSpinner());
+        session.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.FAILED, () -> true));
+        session.beginImage("source", now[0]);
+        assertFalse(session.imagePreparing());
+        session.beginImage("new-source", now[0]);
+        assertTrue(session.imagePreparing());
+        assertFalse(session.imageSpinner());
+    }
+
+    @Test void pendingConsumerStagePreservesContinuousImageAttempt() {
+        long[] now = {0};
+        var session = new EditorPreviewSession(() -> now[0]);
+        session.beginImage("source");
+        var preparation = session.imagePreparation(() -> true);
+        now[0] = 299_000_000L;
+        preparation.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.PENDING, () -> true));
+        assertTrue(session.imagePreparing());
+        assertFalse(session.imageSpinner());
+        now[0] = 300_000_000L;
+        assertTrue(session.imageSpinner());
+        preparation.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.READY, () -> true));
+        assertTrue(session.imageVisible());
+        assertFalse(session.imageSpinner());
+    }
+
+    @Test void nativeBodyCompletionSeparatesHiddenImageAndVisibleAuthorityAcrossTextureStages() {
+        long[] now = {0};
+        var session = new EditorPreviewSession(() -> now[0]);
+        session.beginBody("fixture:joined",false,true);
+        session.beginImage("fixture:joined");
+        now[0] = 299_000_000L;
+        Object world = new Object(), player = new Object();
+        session.displayAuthority("fixture:material",world,player);
+        assertFalse(session.imageSpinner());
+        now[0] = 300_000_000L;
+        assertTrue(session.imageSpinner(), "first material admission preserves source preparation start");
+        var hidden = session.displayBody(() -> true);
+        assertTrue(hidden instanceof PreviewModelFrames.Completion);
+        assertTrue(((PreviewModelFrames.Completion)hidden).requiresConsumption());
+        hidden.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+        assertTrue(session.imageVisible());
+        assertFalse(session.imageSpinner());
+        assertFalse(session.body().current().getAsBoolean());
+        var visible = session.displayBody(() -> true);
+        assertTrue(((PreviewModelFrames.Completion)visible).requiresConsumption());
+        visible.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+        assertTrue(session.body().current().getAsBoolean());
+        session.displayAuthority("fixture:replacement",world,player);
+        visible.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY,() -> true));
+        assertFalse(session.body().current().getAsBoolean());
+        assertFalse(session.imageVisible());
+    }
+
+    @Test void imagePreparationHidesImmediatelyDelaysSpinnerAndNeverGrantsVisibleBody() {
+        long[] now = {0};
+        var session = new EditorPreviewSession(() -> now[0]);
+        session.beginBody("fixture:image", false, true);
+        session.beginImage("fixture:image");
+        assertFalse(session.imageVisible());
+        assertFalse(session.imageSpinner());
+        now[0] = 299_000_000L;
+        session.beginImage("fixture:image");
+        assertFalse(session.imageSpinner());
+        now[0] = 300_000_000L;
+        assertTrue(session.imageSpinner());
+        var prepared = session.imagePreparation(() -> true);
+        assertTrue(prepared.requiresConsumption());
+        prepared.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.imageVisible());
+        assertFalse(session.imageSpinner());
+        assertFalse(session.body().current().getAsBoolean());
+        session.ordinaryDisplay(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.body().current().getAsBoolean());
+    }
+
+    @Test void imageGenerationRejectsLateAndRetiredMaterialWithoutMinimumOrComparisonReset() {
+        long[] now = {0};
+        var session = new EditorPreviewSession(() -> now[0]);
+        session.beginImage("A");
+        var old = session.imagePreparation(() -> true);
+        now[0] = 400_000_000L;
+        session.beginImage("B");
+        old.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertFalse(session.imageVisible());
+        assertFalse(session.imageSpinner());
+        now[0] = 700_000_000L;
+        assertTrue(session.imageSpinner());
+        var material = new java.util.concurrent.atomic.AtomicBoolean(true);
+        session.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, material::get));
+        assertTrue(session.imageVisible());
+        session.beginImage("B");
+        assertTrue(session.imageVisible());
+        assertFalse(session.imageSpinner());
+        material.set(false);
+        assertFalse(session.imageVisible());
+        assertFalse(session.imageSpinner());
+        session.beginImage("B");
+        assertTrue(session.imagePreparing(), "an explicit demand must reprepare an actually released native material");
+        assertFalse(session.imageVisible());
+        session.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.imageVisible());
+    }
+
+    @Test void imageTerminalAndCloseCannotRevivePendingOrVisibleAuthority() {
+        long[] now = {1_000_000_000L};
+        var session = new EditorPreviewSession(() -> now[0]);
+        session.beginImage("A");
+        var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var completion = session.imagePreparation(current::get);
+        completion.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.FAILED, () -> true));
+        now[0] += 600_000_000L;
+        assertFalse(session.imageSpinner());
+        assertFalse(session.imageVisible());
+        session.beginImage("B");
+        var late = session.imagePreparation(current::get);
+        session.invalidateDisplayedBody();
+        late.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertFalse(session.imageVisible());
+        assertFalse(session.imageSpinner());
+    }
+
+    @Test void imageMaterialRetainsAdmissionAndRejectsReentrantReplacement() {
+        var session = new EditorPreviewSession();
+        var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+        session.beginImage("A");
+        session.imagePreparation(current::get).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+        assertTrue(session.imageVisible());
+        current.set(false);
+        assertFalse(session.imageVisible());
+        session.beginImage("B");
+        var b = session.imagePreparation(() -> true);
+        b.accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> {
+            session.beginImage("C");
+            session.imagePreparation(() -> true).accept(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true));
+            return true;
+        }));
+        assertTrue(session.imageVisible());
+        assertFalse(session.body().current().getAsBoolean());
+    }
+
+    @Test void imageSpinnerPhaseUsesOneClockRatherThanAttemptStart() {
+        long[] now = {300_000_000L};
+        var a = new EditorPreviewSession(() -> now[0]);
+        var b = new EditorPreviewSession(() -> now[0]);
+        a.beginImage("A");
+        now[0] += 100_000_000L;
+        b.beginImage("B");
+        for (int frame = 0; frame < 16; frame++) {
+            now[0] = frame * 100_000_000L;
+            assertEquals(frame % 8, a.imageFrame());
+            assertEquals(a.imageFrame(), b.imageFrame());
+        }
+    }
+
     @Test void galleryActualPassRemainsProvisionalUntilExactCommonAcknowledgement() {
         try (var gallery = new EditorPreviewSession.Gallery()) {
             var a = gallery.prepare("A",false,true,() -> true);

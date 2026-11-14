@@ -24,12 +24,13 @@ public final class ImmediatePreviewContract {
         ClassNode single = new ClassNode(); single.version = owner.version; single.access = owner.access; single.name = owner.name; single.superName = owner.superName;
         single.methods.add(method); ClassWriter writer = new ClassWriter(0); single.accept(writer); return writer.toByteArray();
     }
-    private static boolean selected(String owner, MethodNode method) {
+    private static boolean selected(String owner, MethodNode method, String mode) {
         return owner.endsWith("Lighting") ? method.desc.equals("()V") && Set.of("setupForEntityInInventory", "setupFor3DItems").contains(method.name)
                 : owner.endsWith("GuiGraphics") ? method.name.equals("flush") && method.desc.equals("()V")
                 : owner.equals(ImmediatePreviewBindings.INVENTORY) ? method.name.equals("renderEntityInInventory")
-                        && (method.desc.equals(ImmediatePreviewBindings.inventoryDescriptor("mesh")) || method.desc.equals(ImmediatePreviewBindings.inventoryDescriptor("rendered-buffer")))
-                : method.name.equals("configureEntity");
+                        && method.desc.equals(ImmediatePreviewBindings.inventoryDescriptor(mode))
+                : method.name.equals("configureEntity") && method.desc.equals("(L" + owner
+                        + "$PreviewPlayer;Lcom/naocraftlab/skins/client/PreviewRenderer$PreviewRequest;)V");
     }
     private static void rejected(ClassNode node, String mode) {
         try { ImmediatePreviewBindings.apply(node, mode); throw new IllegalStateException("IMMEDIATE_PREVIEW_BAD_BINDING_ACCEPTED"); }
@@ -64,15 +65,18 @@ public final class ImmediatePreviewContract {
         for (String owner : ImmediatePreviewBindings.owners(mode)) {
             ClassNode raw = read(owner, inputs), node = read(owner, inputs);
             Map<String, byte[]> kept = new HashMap<>();
-            for (MethodNode method : raw.methods) if (!selected(owner, method)) kept.put(method.name + method.desc, body(raw, method));
+            for (MethodNode method : raw.methods) if (!selected(owner, method, mode)) kept.put(method.name + method.desc, body(raw, method));
             total += ImmediatePreviewBindings.apply(node, mode);
-            for (MethodNode method : node.methods) if (!selected(owner, method))
+            check(raw.methods.stream().map(m -> m.name + m.desc).sorted().toList()
+                    .equals(node.methods.stream().map(m -> m.name + m.desc).sorted().toList()), "IMMEDIATE_PREVIEW_METHOD_ROSTER_CHANGED");
+            for (MethodNode method : node.methods) if (!selected(owner, method, mode))
                 check(Arrays.equals(kept.get(method.name + method.desc), body(node, method)), "IMMEDIATE_PREVIEW_UNRELATED_BODY_CHANGED");
-            for (MethodNode method : raw.methods) if (selected(owner, method)) {
-                ClassNode wrong = read(owner, inputs), duplicate = read(owner, inputs);
+            for (MethodNode method : raw.methods) if (selected(owner, method, mode)) {
+                ClassNode wrong = read(owner, inputs), duplicate = read(owner, inputs), missing = read(owner, inputs);
                 wrong.methods.stream().filter(m -> m.name.equals(method.name) && m.desc.equals(method.desc)).findFirst().orElseThrow().desc = "()Ljava/lang/Void;";
                 duplicate.methods.add(duplicate.methods.stream().filter(m -> m.name.equals(method.name) && m.desc.equals(method.desc)).findFirst().orElseThrow());
-                rejected(wrong, mode); rejected(duplicate, mode);
+                missing.methods.removeIf(m -> m.name.equals(method.name) && m.desc.equals(method.desc));
+                rejected(wrong, mode); rejected(duplicate, mode); rejected(missing, mode);
             }
         }
         check(total == 6, "IMMEDIATE_PREVIEW_EXACT_TOTAL");
@@ -83,8 +87,7 @@ public final class ImmediatePreviewContract {
                 + "Lorg/joml/Quaternionf;Lorg/joml/Quaternionf;Lnet/minecraft/world/entity/LivingEntity;)V";
         ClassNode renderer = read(ImmediatePreviewBindings.preview(mode), inputs), nativeInventory = read(inventory, inputs);
         check(nativeInventory.methods.stream().filter(m -> m.name.equals("renderEntityInInventory") && m.desc.equals(desc)).count() == 1, "LEGACY_INVENTORY_OVERLOAD");
-        check(renderer.methods.stream().filter(m -> m.name.equals("render")).flatMap(m -> Arrays.stream(m.instructions.toArray()))
-                .filter(i -> i instanceof MethodInsnNode call && call.owner.equals(inventory) && call.name.equals("renderEntityInInventory") && call.desc.equals(desc)).count() == 1, "LEGACY_PUBLIC_INVENTORY_BINDING");
+        PreparedPreviewContract.verifyMutations(renderer, "GuiGraphics", inventory, "renderEntityInInventory", desc, Opcodes.INVOKESTATIC, false);
         var fields = Map.of("net/minecraft/world/entity/Entity", Map.of("firstTick", "Z"),
                 "net/minecraft/client/gui/GuiGraphics", Map.of("pose", "Lcom/mojang/blaze3d/vertex/PoseStack;", "bufferSource", "Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;"));
         for (var entry : fields.entrySet()) for (var field : entry.getValue().entrySet())

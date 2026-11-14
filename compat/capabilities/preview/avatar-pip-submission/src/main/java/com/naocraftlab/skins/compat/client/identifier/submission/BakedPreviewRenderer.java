@@ -54,11 +54,16 @@ public final class BakedPreviewRenderer
                 TargetRenderer.class);
         target.retain();
         renderer.primaryRendered = false;
+        if (completion != null && completion.reusesConfirmedOutput()) {
+            if (target.owns(this, renderer) && renderer.hasPreparedOutput()) renderer.blitTexture(state, guiRenderState);
+            return;
+        }
+        renderer.outputReady = false;
         renderer.prepare(state, guiRenderState, guiScale);
-        if (completion != null && renderer.primaryRendered) completion.accept(
+        if (completion != null && renderer.primaryRendered && renderer.hasPreparedOutput()) completion.accept(
                 new com.naocraftlab.skins.client.PreviewModelFrames.Body(
                         com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.ORDINARY,
-                        () -> target.owns(this, renderer)));
+                        () -> target.owns(this, renderer) && renderer.hasPreparedOutput()));
         } catch (RuntimeException | Error failure) {
             if (completion != null) completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
                     com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED, () -> true));
@@ -94,6 +99,10 @@ public final class BakedPreviewRenderer
     private static final class TargetRenderer
             extends PictureInPictureRenderer<BakedPreviewRenderState> {
         private boolean primaryRendered;
+        private boolean outputReady;
+        private boolean hasPreparedOutput() {
+            return outputReady;
+        }
         private static final CenteredPipPreviewTransform.Operations<PoseStack> OPERATIONS =
                 new CenteredPipPreviewTransform.Operations<>() {
                     @Override
@@ -114,6 +123,15 @@ public final class BakedPreviewRenderer
         @Override
         public Class<BakedPreviewRenderState> getRenderStateClass() {
             return BakedPreviewRenderState.class;
+        }
+
+        @Override
+        protected boolean textureIsReadyToBlit(BakedPreviewRenderState state) {
+            var completion = state.completion();
+            if (completion != null && completion.reusesConfirmedOutput())
+                return hasPreparedOutput() && completion.current();
+            return (completion == null || !completion.needsOwnInputPreparation())
+                    && super.textureIsReadyToBlit(state);
         }
 
         @Override
@@ -151,6 +169,7 @@ public final class BakedPreviewRenderer
                                         attachment.renderType(state.attachmentTexture())),
                                 0x00F000F0,
                                 OverlayTexture.NO_OVERLAY);
+                        if (state.standaloneEquipment()) primaryRendered = true;
                     } finally {
                         pose.popPose();
                     }
@@ -168,6 +187,18 @@ public final class BakedPreviewRenderer
             } finally {
                 pose.popPose();
             }
+        }
+
+        @Override
+        protected void blitTexture(BakedPreviewRenderState state, GuiRenderState guiRenderState) {
+            var completion = state.completion();
+            if (completion != null && completion.reusesConfirmedOutput()) {
+                if (!hasPreparedOutput() || !completion.current()) return;
+            } else if (!primaryRendered || completion != null && (!completion.current()
+                    || state.attachmentTexture() != null
+                            && !completion.currentInput(state.attachmentTexture().toString()))) return;
+            super.blitTexture(state, guiRenderState);
+            outputReady = true;
         }
 
         private static void configure(BakedPreviewRenderState state) {

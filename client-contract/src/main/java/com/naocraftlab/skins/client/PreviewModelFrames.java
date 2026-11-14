@@ -23,6 +23,10 @@ public final class PreviewModelFrames {
     }
     public interface Completion extends java.util.function.Consumer<Body> {
         boolean current();
+        default boolean currentInput(String location) { return current(); }
+        default boolean needsOwnInputPreparation() { return false; }
+        default boolean reusesConfirmedOutput() { return false; }
+        default boolean requiresConsumption() { return false; }
     }
     public interface Lease extends AutoCloseable {
         default Body body() { return new Body(PreviewRenderer.BodyStatus.ORDINARY, () -> true); }

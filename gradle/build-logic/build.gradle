@@ -59,6 +59,16 @@ tasks.withType(Test).configureEach {
             file('../../.github/workflows/publish-update-catalog.yml'))
             .withPropertyName('rootReleaseFiles')
             .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(
+            file('src/waveyLoaderComposition/terminal/java/com/naocraftlab/skins/buildlogic/terminal/ExtractionTerminalBindings.java'),
+            file('src/waveyLoaderComposition/terminal/java/com/naocraftlab/skins/buildlogic/terminal/SubmissionPreviewBindings.java'),
+            file('src/waveyLoaderComposition/contract/java/com/naocraftlab/skins/buildlogic/contract/SubmissionPreviewContract.java'),
+            file('src/testFixtures/java/com/naocraftlab/skins/buildlogic/SubmissionFenceFixture.java'))
+            .withPropertyName('submissionFenceContractSources')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file('src/waveyLoaderComposition/contract/java/com/naocraftlab/skins/buildlogic/contract/PreparedPreviewContract.java')
+            .withPropertyName('preparedPreviewContractSource')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(project.providers.provider {
         Map catalog = new groovy.json.JsonSlurper().parse(file('../../gradle/targets.json')) as Map
         (catalog.targets as List<Map>).collect { Map target ->

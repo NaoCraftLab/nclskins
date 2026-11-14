@@ -26,10 +26,374 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class PreviewAssetCacheTest {
+    @Test void displayedSharedFirstFrameSurvivesThumbnailIdentityReplacementUntilAck() {
+        checkSharedFirstFrameRetirement(false);
+    }
+
+    @Test void reentrantCloseDuringFirstFrameRetirementRejectsNewSourceOpening() {
+        checkSharedFirstFrameRetirement(true);
+    }
+
+    private void checkSharedFirstFrameRetirement(boolean closeDuringRetirement) {
+        var registry = new SharingRegistry();
+        var displayed = new java.util.concurrent.atomic.AtomicReference<Set<TextureRegistry.TextureHandle>>(Set.of());
+        var cacheRef = new java.util.concurrent.atomic.AtomicReference<PreviewAssetCache<String>>();
+        var closeOnLookup = new java.util.concurrent.atomic.AtomicBoolean();
+        try (var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE,
+                DIAGNOSTICS, () -> {
+                    if (closeOnLookup.compareAndSet(true, false)) cacheRef.get().close();
+                    return displayed.get();
+                })) {
+            cacheRef.set(cache);
+            cache.requestCape("main", "A", () -> CompletableFuture.completedFuture(Optional.empty()),
+                    () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})), true, () -> {});
+            var first = cache.handle("main").orElseThrow();
+            var captured = registry.capture(first);
+            String hash = first.location().substring(first.location().indexOf('/') + 1);
+            CapePreviewSource animated = new CapePreviewSource() {
+                public boolean thumbnail() { return true; }
+                public CompletableFuture<Optional<Frame>> nextFrame(int index) {
+                    return CompletableFuture.completedFuture(Optional.of(new Frame(index < 0 ? 0 : 1,
+                            index < 0 ? hash : "later-frame", 64, 64, new byte[64 * 64 * 4], () -> {})));
+                }
+                public void installed(int index) {}
+                public void close() {}
+            };
+            cache.requestCape("row", "A", () -> CompletableFuture.completedFuture(Optional.of(animated)),
+                    CompletableFuture::new, true, () -> {});
+            assertEquals(first, cache.handle("row").orElseThrow());
+            assertEquals(2, registry.references(first));
+            cache.requestCape("row", "A", CompletableFuture::new, CompletableFuture::new, true, () -> {});
+            assertFalse(first.equals(cache.handle("row").orElseThrow()));
+            displayed.set(Set.of(first));
+            cache.requestCape("main", "B", () -> CompletableFuture.completedFuture(Optional.empty()),
+                    () -> CompletableFuture.completedFuture(Optional.of(new byte[]{2})), true, () -> {});
+            assertEquals(1, registry.references(first), "row first-frame ownership must avoid an extra alias reference");
+            assertTrue(captured.isValid());
+            closeOnLookup.set(closeDuringRetirement);
+            cache.requestCape("row", "B", () -> {
+                assertFalse(closeDuringRetirement, "retirement callback closed the cache before the new source opener");
+                return new CompletableFuture<>();
+            }, CompletableFuture::new, true, () -> {});
+            if (closeDuringRetirement) {
+                assertTrue(cache.handle("row").isEmpty());
+                assertFalse(captured.isValid());
+                assertEquals(0, registry.total());
+                return;
+            }
+            assertTrue(captured.isValid(), "retiring the sole row first-frame reference must preserve displayed A until B ACK");
+            assertEquals(1, registry.references(first));
+            assertFalse(cache.capeState("main", "A").validity().isValid());
+            displayed.set(Set.of(cache.handle("main").orElseThrow()));
+            cache.retain(Set.of("main", "row"), displayed.get());
+            assertFalse(captured.isValid(), "visible B ACK must release the transferred first-frame reference");
+            assertEquals(0, registry.references(first));
+        }
+        assertEquals(0, registry.total());
+    }
+
+    @Test void sameSurfaceRetainsSoleOldCapeAcrossRegisteredSuccessor() {
+        var registry = new SharingRegistry();
+        var displayed = new java.util.concurrent.atomic.AtomicReference<Set<TextureRegistry.TextureHandle>>(Set.of());
+        try (var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE,
+                DIAGNOSTICS, displayed::get)) {
+            cache.requestCape("main", "A", () -> CompletableFuture.completedFuture(Optional.empty()),
+                    () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})), true, () -> {});
+            var a = cache.handle("main").orElseThrow();
+            var lease = registry.capture(a);
+            cache.retain(Set.of("main"), Set.of());
+            displayed.set(Set.of(a));
+            var bBytes = new CompletableFuture<Optional<byte[]>>();
+            cache.requestCape("main", "B", () -> CompletableFuture.completedFuture(Optional.empty()),
+                    () -> bBytes, true, () -> {});
+            assertEquals(PreviewAssetCache.CapeStatus.PENDING, cache.capeState("main", "B").status());
+            bBytes.complete(Optional.of(new byte[]{2}));
+            var b = cache.handle("main").orElseThrow();
+            assertEquals(PreviewAssetCache.CapeStatus.READY, cache.capeState("main", "B").status());
+            assertTrue(lease.isValid(), "displayed sole-owner A must survive B registration before visible ACK");
+            assertTrue(registry.capture(a).isValid());
+            assertFalse(cache.capeState("main", "A").validity().isValid(),
+                    "mutable B candidate must not revive A's cache-entry authority");
+            cache.requestCape("main", "C", () -> CompletableFuture.completedFuture(Optional.empty()),
+                    () -> CompletableFuture.completedFuture(Optional.of(new byte[]{3})), true, () -> {});
+            var c = cache.handle("main").orElseThrow();
+            assertFalse(cache.capeState("main", "B").validity().isValid(), "superseded B authority is retired");
+            assertTrue(lease.isValid(), "rapid C supersession must keep actual displayed A alive");
+            displayed.set(Set.of(c));
+            cache.retain(Set.of("main"), displayed.get());
+            assertFalse(lease.isValid(), "own visible C ACK releases held A exactly once");
+            cache.requestCape("revived", "A", () -> CompletableFuture.completedFuture(Optional.empty()),
+                    () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})), true, () -> {});
+            assertFalse(lease.isValid(), "a later same-handle registration cannot revive A's captured generation");
+        }
+        assertEquals(0, registry.total());
+    }
+
+    @Test void sharedTextureAliasesAreEvictedDespiteDisplayedHandle() {
+        var registry = new SharingRegistry();
+        var displayed = new java.util.concurrent.atomic.AtomicReference<Set<TextureRegistry.TextureHandle>>(Set.of());
+        try (var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE,
+                DIAGNOSTICS, displayed::get)) {
+            for (int i = 0; i < 24; i++) {
+                String key = "cape-" + i;
+                cache.request(key, () -> CompletableFuture.completedFuture(Optional.of(new byte[]{7})), () -> {});
+                var current = cache.handle(key).orElseThrow();
+                displayed.set(Set.of(current));
+                cache.retain(Set.of(key), displayed.get());
+                if (i > 0) assertTrue(cache.handle("cape-" + (i - 1)).isEmpty(), "old exact key must be evicted");
+                assertEquals(1, registry.references(current), "one current exact cache key owns one registration");
+                assertTrue(registry.total() <= 1, "shared alias references must remain bounded");
+            }
+        }
+        assertEquals(0, registry.total());
+    }
+
+    @Test
+    void reentrantCloseDuringLiveOwnerLookupCannotReaddAReleasedReference() {
+        var registry = new SharingRegistry();
+        var owner = new java.util.concurrent.atomic.AtomicReference<Set<TextureRegistry.TextureHandle>>(Set.of());
+        var cacheRef = new java.util.concurrent.atomic.AtomicReference<PreviewAssetCache<String>>();
+        var closeOnLookup = new java.util.concurrent.atomic.AtomicBoolean();
+        var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, () -> {
+            if (closeOnLookup.compareAndSet(true, false)) cacheRef.get().close();
+            return owner.get();
+        });
+        cacheRef.set(cache);
+        cache.requestCape("main", "A", () -> CompletableFuture.completedFuture(Optional.empty()),
+                () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})), true, () -> {});
+        var a = cache.handle("main").orElseThrow();
+        owner.set(Set.of(a));
+        cache.requestCape("main", "B", () -> CompletableFuture.completedFuture(Optional.empty()),
+                () -> CompletableFuture.completedFuture(Optional.of(new byte[]{2})), true, () -> {});
+        closeOnLookup.set(true);
+        cache.requestCape("main", "C", () -> CompletableFuture.completedFuture(Optional.empty()),
+                () -> CompletableFuture.completedFuture(Optional.of(new byte[]{3})), true, () -> {});
+        assertTrue(cache.handle("main").isEmpty());
+        assertEquals(0, registry.total());
+        assertFalse(registry.capture(a).isValid());
+    }
+
+    private static final class SharingRegistry implements TextureRegistry {
+        private final Map<TextureHandle, Integer> refs = new HashMap<>();
+        private final Map<TextureHandle, Integer> generations = new HashMap<>();
+        public TextureHandle register(TextureKind kind, String hash, Path path) { throw new UnsupportedOperationException(); }
+        public TextureHandle register(TextureKind kind, String hash, byte[] bytes) {
+            var handle = new TextureHandle(kind + "/" + hash, 64, 64);
+            if (!refs.containsKey(handle)) generations.merge(handle, 1, Integer::sum);
+            refs.merge(handle, 1, Integer::sum);
+            return handle;
+        }
+        public TextureHandle registerRgba(TextureKind kind, String hash, int width, int height,
+                byte[] rgba8, CpuLease lease) {
+            lease.close();
+            return register(kind, hash, rgba8);
+        }
+        public com.naocraftlab.skins.client.TextureUseValidity capture(TextureHandle handle) {
+            int generation = generations.getOrDefault(handle, 0);
+            return () -> refs.containsKey(handle) && generations.getOrDefault(handle, 0) == generation;
+        }
+        public void release(TextureHandle handle) {
+            int count = refs.getOrDefault(handle, 0);
+            if (count <= 0) throw new AssertionError("unowned release");
+            if (count == 1) refs.remove(handle); else refs.put(handle, count - 1);
+        }
+        int references(TextureHandle handle) { return refs.getOrDefault(handle, 0); }
+        int total() { return refs.values().stream().mapToInt(Integer::intValue).sum(); }
+        public void close() { assertEquals(0, total()); }
+    }
+
+    @Test
+    void displayedNativeMaterialSurvivesDesiredKeyReplacementUntilItsOwnerReleasesIt() {
+        var registry = new FakeRegistry();
+        var displayed = new java.util.concurrent.atomic.AtomicReference<Set<TextureRegistry.TextureHandle>>(Set.of());
+        try (var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE,
+                DIAGNOSTICS, displayed::get)) {
+            cache.request("A", () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})), () -> {});
+            var a = cache.handle("A").orElseThrow();
+            var held = new CompletableFuture<Optional<byte[]>>();
+            cache.request("B", () -> held, () -> {});
+            displayed.set(Set.of(a));
+            cache.retain(Set.of("B"), Set.of());
+            assertTrue(registry.capture(a).isValid(), "displayed A material must remain owned while desired B is pending");
+            assertTrue(cache.handle("A").isEmpty(), "retained material does not pin a historical cache key");
+            assertTrue(cache.handle("B").isEmpty());
+            held.complete(Optional.of(new byte[]{2}));
+            var b = cache.handle("B").orElseThrow();
+            assertFalse(a.equals(b));
+            assertTrue(registry.capture(a).isValid(), "300ms visibility does not release internally retained A");
+            displayed.set(Set.of(b));
+            cache.retain(Set.of("B"), displayed.get());
+            assertFalse(registry.capture(a).isValid(), "own B ACK releases predecessor");
+            assertEquals(Optional.of(b), cache.handle("B"));
+        }
+    }
+
+    @Test
+    void ownCacheMaterialRemainsReadyAcrossPendingComparisonAndMetadataPublication() {
+        var work = new java.util.ArrayDeque<Runnable>();
+        var client = new com.naocraftlab.skins.client.ClientExecutor() {
+            public boolean isClientThread() { return true; }
+            public void execute(Runnable action) { action.run(); }
+        };
+        var loader = new PreviewAssetLoader(client, work::add, DIAGNOSTICS);
+        var registry = new FakeRegistry();
+        var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS);
+        var metadata = new CompletableFuture<Optional<PreviewAssets.CapeResult>>();
+        try {
+            var comparison = loader.requestCapePreview("cape", new PreviewAssets.CapeSource() {
+                public Optional<PreviewAssets.CapeResult> get() { throw new AssertionError("synchronous comparison"); }
+                public CompletableFuture<Optional<PreviewAssets.CapeResult>> getAsync(java.util.concurrent.Executor worker) {
+                    return metadata;
+                }
+            });
+            work.remove().run();
+            cache.request("cape", () -> loader.requestPreview("cape", () -> Optional.of(new byte[]{7})), () -> {});
+            assertEquals(PreviewAssetCache.ImageStatus.PREPARING, cache.imageState("cape", null).status());
+            work.remove().run();
+            var material = cache.handle("cape").orElseThrow();
+            var ready = cache.imageState("cape", null);
+            assertEquals(PreviewAssetCache.ImageStatus.READY, ready.status());
+            assertFalse(comparison.isDone());
+            assertEquals(1, registry.registrations);
+            metadata.complete(Optional.of(new PreviewAssets.CapeResult(new byte[]{7}, Optional.of("visual"),
+                    new PreviewAssets.CapeComparison(Optional.of("comparison")))));
+            assertTrue(comparison.isDone());
+            assertEquals(Optional.of("comparison"), loader.cachedCapeComparison("cape").orElseThrow().key());
+            assertEquals(ready, cache.imageState("cape", null));
+            assertEquals(material, cache.handle("cape").orElseThrow());
+            assertEquals(1, registry.registrations);
+            assertTrue(work.isEmpty());
+        } finally {
+            cache.close();
+            loader.close();
+        }
+    }
+
+    @Test
+    void imagePreparationTracksRealWorkAcrossBytesAndNativeUpload() {
+        FakeMonotonicClock clock = new FakeMonotonicClock();
+        var cache = new PreviewAssetCache<String>(new FakeRegistry(),
+                TextureRegistry.TextureKind.PLAYER_SKIN, DIAGNOSTICS, clock::now);
+        var bytes = new CompletableFuture<Optional<byte[]>>();
+        assertEquals(PreviewAssetCache.ImageStatus.UNKNOWN, cache.imageState("skin", null).status());
+        cache.request("skin", () -> bytes, () -> {});
+        var pending = cache.imageState("skin", null);
+        assertEquals(PreviewAssetCache.ImageStatus.PREPARING, pending.status());
+        assertNotNull(pending.attempt());
+        clock.advanceMillis(20);
+        bytes.complete(Optional.of(new byte[]{1}));
+        var registration = NativePlayerSkinLifecycle.pending("texture/1");
+        var upload = cache.imageState("skin", null);
+        assertEquals(PreviewAssetCache.ImageStatus.PREPARING, upload.status());
+        assertSame(pending.attempt(), upload.attempt());
+        assertEquals(pending.startedNanos(), upload.startedNanos());
+        registration.ready();
+        assertEquals(PreviewAssetCache.ImageStatus.READY, cache.imageState("skin", null).status());
+        assertSame(pending.attempt(), cache.imageState("skin", null).attempt(), "native consumer continues the cache-owned attempt");
+        assertEquals(pending.startedNanos(), cache.imageState("skin", null).startedNanos());
+        registration.retire();
+        cache.close();
+    }
+    @Test
+    void imageOutcomeSeparatesFailureBackoffRetryAndRetirement() {
+        var clock = new FakeMonotonicClock();
+        var cache = new PreviewAssetCache<String>(new FakeRegistry(),
+                TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, clock::now);
+        var first = new CompletableFuture<Optional<byte[]>>();
+        cache.request("image", () -> first, () -> {});
+        var old = cache.imageState("image", null);
+        first.complete(Optional.empty());
+        assertEquals(PreviewAssetCache.ImageStatus.FAILED, cache.imageState("image", null).status());
+        clock.advanceMillis(249);
+        cache.request("image", () -> { throw new AssertionError("backoff"); }, () -> {});
+        assertEquals(PreviewAssetCache.ImageStatus.FAILED, cache.imageState("image", null).status());
+        clock.advanceMillis(1);
+        var retry = new CompletableFuture<Optional<byte[]>>();
+        cache.request("image", () -> retry, () -> {});
+        var active = cache.imageState("image", null);
+        assertEquals(PreviewAssetCache.ImageStatus.PREPARING, active.status());
+        assertFalse(old.attempt() == active.attempt());
+        cache.retain(Set.of());
+        retry.complete(Optional.of(new byte[]{1}));
+        assertEquals(PreviewAssetCache.ImageStatus.UNKNOWN, cache.imageState("image", null).status());
+        cache.close();
+    }
+
+    @Test
+    void capeImageOutcomeIgnoresFallbackAndKeepsOpeningToFrameAttempt() {
+        var clock = new FakeMonotonicClock();
+        var cache = new PreviewAssetCache<String>(new FakeRegistry(),
+                TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, clock::now);
+        cache.requestCape("card", "old", () -> CompletableFuture.completedFuture(Optional.empty()),
+                () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})), true, () -> {});
+        var opening = new CompletableFuture<Optional<CapePreviewSource>>();
+        var frame = new CompletableFuture<Optional<CapePreviewSource.Frame>>();
+        CapePreviewSource source = new CapePreviewSource() {
+            public CompletableFuture<Optional<Frame>> nextFrame(int index) { return frame; }
+            public void installed(int index) {}
+            public void close() {}
+        };
+        cache.requestCape("card", "new", () -> opening, CompletableFuture::new, true, () -> {});
+        assertTrue(cache.handle("card").isPresent());
+        assertEquals(PreviewAssetCache.ImageStatus.UNKNOWN, cache.imageState("card", "old").status());
+        var pending = cache.imageState("card", "new");
+        assertEquals(PreviewAssetCache.ImageStatus.PREPARING, pending.status());
+        clock.advanceMillis(20);
+        opening.complete(Optional.of(source));
+        var next = cache.imageState("card", "new");
+        assertEquals(PreviewAssetCache.ImageStatus.PREPARING, next.status());
+        assertSame(pending.attempt(), next.attempt());
+        assertEquals(pending.startedNanos(), next.startedNanos());
+        cache.retain(Set.of());
+        frame.complete(Optional.empty());
+        assertEquals(PreviewAssetCache.ImageStatus.UNKNOWN, cache.imageState("card", "new").status());
+        cache.close();
+    }
+
+    @Test
+    void emptyFrameDoesNotCarryAttemptIntoLaterProducerWork() {
+        var cache = new PreviewAssetCache<String>(new FakeRegistry(),
+                TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS);
+        var first = new CompletableFuture<Optional<CapePreviewSource.Frame>>();
+        var second = new CompletableFuture<Optional<CapePreviewSource.Frame>>();
+        var calls = new AtomicInteger();
+        CapePreviewSource source = new CapePreviewSource() {
+            public CompletableFuture<Optional<Frame>> nextFrame(int index) {
+                return calls.getAndIncrement() == 0 ? first : second;
+            }
+            public void installed(int index) {}
+            public void close() {}
+        };
+        var opener = (java.util.function.Supplier<CompletableFuture<Optional<CapePreviewSource>>>)
+                () -> CompletableFuture.completedFuture(Optional.of(source));
+        cache.requestCape("card", "asset", opener, CompletableFuture::new, true, () -> {});
+        var old = cache.imageState("card", "asset");
+        first.complete(Optional.empty());
+        assertEquals(PreviewAssetCache.ImageStatus.UNKNOWN, cache.imageState("card", "asset").status());
+        cache.requestCape("card", "asset", opener, CompletableFuture::new, true, () -> {});
+        var next = cache.imageState("card", "asset");
+        assertEquals(PreviewAssetCache.ImageStatus.PREPARING, next.status());
+        assertFalse(old.attempt() == next.attempt());
+        cache.close();
+    }
+
+    @Test
+    void failedNativeUploadIsTerminalBeforeOwnerProcessesRetry() {
+        var cache = new PreviewAssetCache<String>(new FakeRegistry(),
+                TextureRegistry.TextureKind.PLAYER_SKIN, DIAGNOSTICS);
+        cache.request("skin", () -> CompletableFuture.completedFuture(Optional.of(new byte[]{1})), () -> {});
+        var registration = NativePlayerSkinLifecycle.pending("texture/1");
+        registration.failed();
+        assertEquals(PreviewAssetCache.ImageStatus.FAILED, cache.imageState("skin", null).status());
+        registration.retire();
+        cache.close();
+    }
     private static final DiagnosticSink DIAGNOSTICS = DiagnosticSinks.discarding();
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -1518,6 +1882,7 @@ final class PreviewAssetCacheTest {
 
     private static final class FakeRegistry implements TextureRegistry {
         private final java.util.ArrayList<String> released = new java.util.ArrayList<>();
+        private final Map<String, Integer> references = new HashMap<>();
         private final Map<String, CpuLease> rawLeases = new HashMap<>();
         private final Map<String, String> registeredHashes = new HashMap<>();
         private final Map<String, Integer> registeredAlpha = new HashMap<>();
@@ -1539,7 +1904,9 @@ final class PreviewAssetCacheTest {
             if (failRegistration) {
                 throw new IOException("registration failed");
             }
-            return new TextureHandle("texture/" + registrations, 64, 64);
+            var handle = new TextureHandle("texture/" + registrations, 64, 64);
+            references.put(handle.location(), 1);
+            return handle;
         }
 
         @Override
@@ -1551,6 +1918,7 @@ final class PreviewAssetCacheTest {
                 throw new IOException("registration failed");
             }
             String location = "texture/" + registrations;
+            references.put(location, 1);
             rawLeases.put(location, cpuLease);
             registeredHashes.put(location, sha256);
             registeredAlpha.put(location, rgba8[3] & 255);
@@ -1558,8 +1926,14 @@ final class PreviewAssetCacheTest {
         }
 
         @Override
+        public com.naocraftlab.skins.client.TextureUseValidity capture(TextureHandle handle) {
+            return () -> references.containsKey(handle.location());
+        }
+
+        @Override
         public void release(TextureHandle handle) {
             released.add(handle.location());
+            references.remove(handle.location());
             CpuLease raw = rawLeases.remove(handle.location());
             if (raw != null) raw.close();
             if (handle.location().equals(failRelease)) {

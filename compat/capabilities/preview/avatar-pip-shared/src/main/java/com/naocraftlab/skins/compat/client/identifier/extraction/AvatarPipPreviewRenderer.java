@@ -23,18 +23,163 @@ final class AvatarPipPreviewRenderer
     private static final boolean PLAYER_MODEL_SKIN = SKIN_SUBMITTER.usesPlayerModel();
 
     private final VanillaPreviewModels models = VanillaPreviewModels.INSTANCE;
-    private final NclBakedPlayerTarget target = new NclBakedPlayerTarget();
+    private NclBakedPlayerTarget target = new NclBakedPlayerTarget();
 
     AvatarPipPreviewRenderer() {
     }
 
+    private Object imageSource;
+    @Override public void prepareImage(Object source, long startedNanos, boolean inputsReady) {
+        prepareImage(source, startedNanos);
+        imageSession.imagePrerequisite(inputsReady, startedNanos);
+    }
+
+    @Override public void prepareImage(Object source, long startedNanos) {
+        java.util.Objects.requireNonNull(source);
+        if (!java.util.Objects.equals(imageSource, source) && displayedImageSession != null) {
+            if (imageSession != displayedImageSession) { imageSession.invalidateDisplayedBody(); target.close(); }
+            imageSession = imageSession.nextImageSession();
+            target = new NclBakedPlayerTarget();
+        }
+        imageSource = java.util.Objects.requireNonNull(source);
+        imageSession.beginImage(source, startedNanos);
+    }
+
+    private com.naocraftlab.skins.client.EditorPreviewSession imageSession =
+            new com.naocraftlab.skins.client.EditorPreviewSession();
+
+    private static Object appearanceIdentity(PreviewAppearance appearance) {
+        Object capeOwner = appearance.capeAssetOwner() == null
+                ? appearance.cape().orElse(null) : appearance.capeAssetOwner();
+        return new MenuAppearanceIdentity(appearance.skin(), appearance.model(),
+                appearance.cape().isPresent(), capeOwner, appearance.capeMode(),
+                appearance.outerLayerVisibility(), appearance.capeHasElytra(),
+                appearance.capeGlint(), appearance.nativeAccessories());
+    }
+
+    private record MenuAppearanceIdentity(
+            com.naocraftlab.skins.client.TextureRegistry.TextureHandle skin,
+            SkinModel model, boolean capePresent, Object capeIdentity, CapeMode capeMode,
+            OuterLayerVisibility outerLayerVisibility, boolean capeHasElytra,
+            boolean capeGlint, boolean nativeAccessories) {}
+
+    private static com.naocraftlab.skins.client.PreviewModelFrames.Completion inputBound(
+            com.naocraftlab.skins.client.PreviewModelFrames.Completion completion,
+            PreviewAppearance appearance) {
+        var owner = appearance.capeAssetOwner();
+        if (owner == null) return completion;
+        return new com.naocraftlab.skins.client.PreviewModelFrames.Completion() {
+            public boolean requiresConsumption() { return completion.requiresConsumption(); }
+            public boolean needsOwnInputPreparation() { return true; }
+            public boolean current() {
+                return completion.current() && appearance.cape()
+                        .map(handle -> owner.ownsFrame(handle.location())).orElse(false);
+            }
+            public boolean currentInput(String location) {
+                return current() && owner.ownsFrame(location);
+            }
+            public void accept(com.naocraftlab.skins.client.PreviewModelFrames.Body body) {
+                if (current()) completion.accept(body);
+            }
+        };
+    }
+
+    private Object implicitImageSource;
+    private PreviewRequest displayedImage;
+    private com.naocraftlab.skins.client.EditorPreviewSession displayedImageSession;
+    private NclBakedPlayerTarget displayedImageTarget;
+    private java.util.function.BooleanSupplier displayedImageLifetime;
+    private boolean imageClosed;
+
     @Override
     public void render(GuiGraphicsExtractor graphics, PreviewRequest request) {
-        render(graphics, request, null);
+        if (imageClosed) return;
+        String skin = request.appearance().skin().location();
+        var registration = com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin);
+        if (imageSource == null) {
+            var identity = java.util.List.of(appearanceIdentity(request.appearance()), registration);
+            if (!java.util.Objects.equals(implicitImageSource, identity)) {
+                if (displayedImageSession != null) {
+                    if (imageSession != displayedImageSession) { imageSession.invalidateDisplayedBody(); target.close(); }
+                    imageSession = imageSession.nextImageSession();
+                    target = new NclBakedPlayerTarget();
+                }
+                implicitImageSource = identity;
+            }
+            imageSession.beginImage(identity);
+        }
+        if (!imageSession.imageVisible() && !imageSession.imageSpinner() && imageSession.imagePreparing()
+                && displayedImage != null && displayedImageSession.imageVisible() && displayedImageLifetime.getAsBoolean()) {
+            var desiredTarget = target;
+            try {
+                target = displayedImageTarget;
+                render(graphics, displayedImage, new com.naocraftlab.skins.client.PreviewModelFrames.Completion() {
+                    public boolean current() { return displayedImageLifetime.getAsBoolean(); }
+                    public boolean reusesConfirmedOutput() { return true; }
+                    public void accept(com.naocraftlab.skins.client.PreviewModelFrames.Body body) {}
+                });
+            }
+            finally { target = desiredTarget; }
+        }
+        if (!com.naocraftlab.skins.client.NativePlayerSkinLifecycle.isReady(skin)) {
+            if (registration.filter(value -> value.state() != com.naocraftlab.skins.client.NativePlayerSkinLifecycle.State.PENDING).isPresent())
+                imageSession.imagePreparation(() -> true).accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
+            renderLoading(graphics, imageSession, request);
+            return;
+        }
+        renderLoading(graphics, imageSession, request);
+        if (imageSession.imageVisible()) {
+            var session = imageSession;
+            var frameTarget = target;
+            var capeOwner = request.appearance().capeAssetOwner();
+            var client = net.minecraft.client.Minecraft.getInstance();
+            var world = client.level;
+            var player = client.player;
+            render(graphics, request, new com.naocraftlab.skins.client.PreviewModelFrames.Completion() {
+                public boolean requiresConsumption() { return true; }
+                public boolean needsOwnInputPreparation() { return capeOwner != null; }
+                public boolean current() { return !imageClosed && imageSession == session && target == frameTarget
+                        && (capeOwner == null || request.appearance().cape()
+                                .map(handle -> capeOwner.ownsFrame(handle.location())).orElse(false))
+                        && client.level == world && client.player == player
+                        && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin).equals(registration); }
+                public boolean currentInput(String location) {
+                    return current() && (capeOwner == null || capeOwner.ownsFrame(location));
+                }
+                public void accept(com.naocraftlab.skins.client.PreviewModelFrames.Body body) {
+                    if (!current() || body.status() != BodyStatus.ORDINARY || !body.current().getAsBoolean()) return;
+                    var previous = displayedImageTarget;
+                    var previousSession = displayedImageSession;
+                    displayedImage = request;
+                    displayedImageTarget = frameTarget;
+                    displayedImageSession = session;
+                    displayedImageLifetime = () -> !imageClosed && client.level == world && client.player == player
+                            && body.current().getAsBoolean()
+                            && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin).equals(registration);
+                    if (previousSession != null && previousSession != session) previousSession.invalidateDisplayedBody();
+                    if (previous != null && previous != frameTarget) previous.close();
+                }
+            });
+        }
+        else if (imageSession.imagePreparing()) render(graphics, request.hidden(), inputBound(
+                imageSession.imagePreparation(
+                        () -> com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin).equals(registration)
+                                && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.isReady(skin)),
+                request.appearance()));
+    }
+
+    static void renderLoading(GuiGraphicsExtractor graphics, com.naocraftlab.skins.client.EditorPreviewSession session, PreviewRequest request) {
+        if (!session.imageSpinner()) return;
+        var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) session.imageFrame() * 100_000_000L,
+                request.left(), request.top(), request.width(), request.height(), 32);
+        graphics.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, Identifier.parse(frame.resource()),
+                frame.left(), frame.top(), (float) frame.u(), (float) frame.v(), frame.size(), frame.size(),
+                frame.width(), frame.height(), frame.textureWidth(), frame.textureHeight(), -1);
     }
 
     void render(GuiGraphicsExtractor graphics, PreviewRequest request,
             com.naocraftlab.skins.client.PreviewModelFrames.Completion completion) {
+        completion = com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.afterConsumption(completion);
         PreviewAppearance appearance = request.appearance();
         Model.Simple simpleModel = appearance.model() == SkinModel.SLIM
                 ? models.slimModel
@@ -99,9 +244,26 @@ final class AvatarPipPreviewRenderer
     }
 
     @Override
-    public void render(
-            GuiGraphicsExtractor graphics,
-            BackEquipmentPreviewRenderer.Request request) {
+    public void render(GuiGraphicsExtractor graphics, BackEquipmentPreviewRenderer.Request request) {
+        if (imageSource == null) imageSession.beginImage(java.util.List.of(request.texture(), request.mode(), request.capeHasElytra()));
+        if (!imageSession.imageVisible() && !imageSession.imagePreparing()) return;
+        if (imageSession.imageSpinner()) {
+            var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) imageSession.imageFrame() * 100_000_000L,
+                    request.left(), request.top(), request.width(), request.height(), 32);
+            graphics.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, Identifier.parse(frame.resource()),
+                    frame.left(), frame.top(), (float) frame.u(), (float) frame.v(), frame.size(), frame.size(),
+                    frame.width(), frame.height(), frame.textureWidth(), frame.textureHeight(), -1);
+        }
+        if (imageSession.imageVisible()) { renderEquipment(graphics, request, null); return; }
+        var hidden = new BackEquipmentPreviewRenderer.Request(request.texture(), request.mode(), -request.width() - 1,
+                request.top(), request.width(), request.height(), request.capeHasElytra());
+        var completion = imageSession.imagePreparation(() -> true);
+        renderEquipment(graphics, hidden, completion);
+    }
+
+    private void renderEquipment(GuiGraphicsExtractor graphics, BackEquipmentPreviewRenderer.Request request,
+            com.naocraftlab.skins.client.PreviewModelFrames.Completion completion) {
+        completion = com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.afterConsumption(completion);
         VanillaPreviewModels.AttachmentModels attachment = attachment(request.mode());
         Object submittedModel = PLAYER_MODEL_SKIN ? attachment.player() : attachment.simple();
         float scale = VanillaBackEquipmentTransform.fitScale(
@@ -134,7 +296,7 @@ final class AvatarPipPreviewRenderer
                 false,
                 true,
                 0.0F,
-                null,
+                completion,
                 null);
         try (NclBakedPlayerSubmission submission = NclBakedPlayerSubmission.open(graphics, state)) {
             submit(
@@ -203,7 +365,13 @@ final class AvatarPipPreviewRenderer
 
     @Override
     public void close() {
-        target.close();
+        if (imageClosed) return;
+        imageClosed = true;
+        imageSession.invalidateDisplayedBody();
+        if (displayedImageSession != null && displayedImageSession != imageSession) displayedImageSession.invalidateDisplayedBody();
+        try { target.close(); }
+        finally { if (displayedImageTarget != null && displayedImageTarget != target) displayedImageTarget.close(); }
+        displayedImage = null;
     }
 
 }

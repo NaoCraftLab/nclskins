@@ -19,24 +19,31 @@ class LivePreviewPitchTest {
     @Test
     void liveInventoryPassConsumesBothCenteredTranslationComponents() throws Exception {
         List<String> calls = new ArrayList<>();
+        List<String> wrapperCalls = new ArrayList<>();
+        String renderDescriptor = "(Lnet/minecraft/client/gui/GuiGraphics;"
+                + "Lcom/naocraftlab/skins/client/PreviewRenderer$PreviewRequest;)V";
         try (var stream = VanillaAppearancePreviewRenderer.class.getResourceAsStream(
                 "VanillaAppearancePreviewRenderer.class")) {
             new ClassReader(stream).accept(new ClassVisitor(Opcodes.ASM9) {
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String descriptor,
                                                   String signature, String[] exceptions) {
-                    if (!name.equals("render") || !descriptor.startsWith(
-                            "(Lnet/minecraft/client/gui/GuiGraphics;")) return null;
+                    if (!descriptor.equals(renderDescriptor)
+                            || !name.equals("render") && !name.equals("renderPrepared")) return null;
+                    List<String> selected = name.equals("render") ? wrapperCalls : calls;
                     return new MethodVisitor(Opcodes.ASM9) {
                         @Override
                         public void visitMethodInsn(int opcode, String owner, String method,
                                                     String desc, boolean isInterface) {
-                            calls.add(owner + "." + method + desc);
+                            selected.add(owner + "." + method + desc);
                         }
                     };
                 }
             }, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         }
+        String renderer = VanillaAppearancePreviewRenderer.class.getName().replace('.', '/');
+        assertTrue(wrapperCalls.contains(renderer + ".renderPrepared" + renderDescriptor),
+                "Public live renderer must invoke the exact prepared inventory pass");
         String geometry = "com/naocraftlab/skins/client/CenteredPlayerPreviewGeometry";
         String translation = geometry + "$EntityTranslation";
         int centered = calls.indexOf(geometry + ".centeredEntityTranslation(FF)L" + translation + ";");
