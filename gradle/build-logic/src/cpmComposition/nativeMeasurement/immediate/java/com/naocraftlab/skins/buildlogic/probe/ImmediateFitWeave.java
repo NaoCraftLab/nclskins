@@ -7,7 +7,6 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 
-/** Applies the selected loader's real production fit hooks to first-effective 26.1 inputs. */
 public final class ImmediateFitWeave {
     public static void main(String[] args) throws Exception {
         org.spongepowered.asm.launch.MixinBootstrap.init();

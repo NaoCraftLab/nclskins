@@ -6,7 +6,6 @@ import java.util.HexFormat;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
 
-/** Negative control: genuine mesh still drains, but its capture vertex hook is omitted. */
 public final class ImmediateCaptureMutation {
     public static void droppedVertex(float x,float y,float z) {}
     public static void main(String[] args) throws Exception {

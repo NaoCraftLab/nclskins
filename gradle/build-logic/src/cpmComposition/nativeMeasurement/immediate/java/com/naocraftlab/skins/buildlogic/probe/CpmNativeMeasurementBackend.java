@@ -19,7 +19,6 @@ import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.client.renderer.texture.*;
 import net.minecraft.resources.Identifier;
 
-/** Immediate-buffer 26.1 CPU terminal for the existing owned measurement callback. */
 public final class CpmNativeMeasurementBackend {
     static final Map<String,Object> previous = new LinkedHashMap<>();
     static Minecraft minecraft;

@@ -11,7 +11,6 @@ import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.client.renderer.texture.*;
 import net.minecraft.resources.Identifier;
 
-/** Shared source/CPM/texture orchestration; ABI-specific leaves only submit and drain. */
 public final class CpmNativeMeasurementCore {
     @FunctionalInterface public interface Render { void draw(Player<?> player, AvatarRenderState state) throws Exception; }
     public static boolean measure(CpmExtractionBodyProbe.Avatar raw,boolean live,TextureManager textures,

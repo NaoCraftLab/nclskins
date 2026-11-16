@@ -6,7 +6,6 @@ import java.util.*;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
 
-/** Exact readonly metadata terminals needed by the 26.1 native renderer. */
 public final class ImmediateNativeInputs implements Opcodes {
     private static final String SELF="com/naocraftlab/skins/buildlogic/probe/ImmediateNativeInputs";
     public static net.minecraft.client.renderer.texture.TextureAtlas atlas(net.minecraft.client.resources.model.sprite.AtlasManager manager,net.minecraft.resources.Identifier id) {

@@ -232,7 +232,7 @@ final class CpmNativeMeasurementRegistrationTest {
         def valid=[status:'PASS',profile:'immediate-26.1',loader:'fabric',producer:'genuine-native-mesh',
                    consumer:'canonical-body-material-ack',roster:['body','owner-live','owner-decline','capture-omission','image-readiness']]
         proof.text=groovy.json.JsonOutput.toJson(valid)
-        assertThrows(IllegalStateException) { task.verify() } // proof without selected profile
+        assertThrows(IllegalStateException) { task.verify() }
         task.nativeBodyProfile.set('immediate-26.1')
         task.nativeBodyLoader.set('fabric')
         for (def mutation : [valid+[profile:'staged'],valid+[loader:'neoforge'],valid+[roster:['body']],valid+[status:'FAIL'],valid+[producer:'fake']]) {

@@ -6,7 +6,6 @@ import java.util.*;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
 
-/** The same narrow production counter instrumentation used by ProductionFitWeave. */
 public final class ImmediateFitCountingWeave {
     public static void main(String[] args) throws Exception {
         for(String[] target:List.of(

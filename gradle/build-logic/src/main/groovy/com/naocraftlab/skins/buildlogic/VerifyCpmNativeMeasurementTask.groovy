@@ -272,8 +272,6 @@ abstract class VerifyCpmNativeMeasurementTask extends DefaultTask {
     private void verifyImmediate() {
         String expectedLoader=nativeProfile.get()=='immediate-26.1-neoforge'?'neoforge':'fabric'
         if (loaderFamily.get() != expectedLoader) throw new IllegalStateException('Immediate profile loader does not match selected ABI')
-        // Resolve the admitted output-only workspace link before passing the owned directory to storage.
-        // Storage rejects symlinked ancestors; the Gradle output remains the same physical directory.
         File work=resetOwnedOutput()
         File probe=probeDirectory.get().asFile
         File classes=new File(work,'classes');classes.mkdirs()

@@ -9,7 +9,6 @@ import org.spongepowered.asm.launch.MixinBootstrap;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.transformer.IMixinTransformer;
 
-/** Normal selected CPM/Ears weave for the immediate native renderer bindings. */
 public final class ImmediateUpstreamWeave {
     public static void main(String[] args) throws Exception {
         Path out=Path.of(args[0]);Files.createDirectories(out);

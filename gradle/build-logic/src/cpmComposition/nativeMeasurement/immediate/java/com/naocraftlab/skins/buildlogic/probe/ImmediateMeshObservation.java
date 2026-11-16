@@ -6,7 +6,6 @@ import java.util.HexFormat;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
 
-/** Adds one read-only witness to the genuine immediate mesh consumer. */
 public final class ImmediateMeshObservation {
     public static void main(String[] args) throws Exception {
         String owner="net/minecraft/client/renderer/rendertype/RenderType";

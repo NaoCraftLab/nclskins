@@ -31,7 +31,7 @@ public final class PreviewConsumerFrame implements AutoCloseable {
         Throwable failure = null;
         for (var resource : retired) {
             try { resource.close(); }
-            catch (Throwable error) {
+            catch (Exception | Error error) {
                 if (failure == null) failure = error;
                 else if (failure != error) failure.addSuppressed(error);
             }
