@@ -1,5 +1,23 @@
 ## 1.4.0-beta.2
 
+### Added
+
+- **Model previews**
+    - Tall models are automatically scaled down to the usual player height, while regular and small models are not enlarged. Capes and elytra do not affect body scale
+- **Preview loading indicators**
+    - A loading indicator appears when model or texture preparation takes longer. It is shown beside providers or on tabs without covering the model itself
+
+### Changed
+
+- **The `My looks` screen**
+    - Identical capes from different providers are grouped into a single card. Its tooltip lists their sources in priority order
+    - Empty sections no longer take up space. When only one non-empty section remains, it keeps its heading and can still be collapsed
+
+### Fixed
+
+- The cape or elytra preview choice is now remembered across `My looks`, the editor, and `Providers`
+- Fixed the width of look card menu backgrounds
+
 ## 1.4.0-beta.1
 
 ⚠️ The library and interface settings use an updated data format. Existing data is supported, but older mod versions may not be able to read it after it is saved in this version. If you plan to return to an older version, back up your data before updating!
