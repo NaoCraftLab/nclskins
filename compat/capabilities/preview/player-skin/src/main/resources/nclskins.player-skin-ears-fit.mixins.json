@@ -1,0 +1,9 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.ears.mixin",
+  "plugin": "com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.ears.EarsMeasurementPlugin",
+  "compatibilityLevel": "JAVA_17",
+  "client": ["EarsMeasurementMixin"],
+  "injectors": {"defaultRequire": 1}
+}

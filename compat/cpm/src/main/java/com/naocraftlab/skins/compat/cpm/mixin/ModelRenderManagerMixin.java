@@ -24,6 +24,9 @@ abstract class ModelRenderManagerMixin {
     @WrapMethod(method = "bindModel(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/Object;Lcom/tom/cpm/shared/definition/ModelDefinition;Lcom/tom/cpm/shared/config/Player;Lcom/tom/cpm/shared/animation/AnimationState;)V")
     private void nclskins$bind(Object model, String arg, Object data, ModelDefinition definition,
             Player<?> player, AnimationState animation, Operation<Void> original) {
+        var selected = com.naocraftlab.skins.compat.cpm.CpmNeutralBody.select(player, definition);
+        if (selected != definition && selected == null) { ((ModelRenderManager) (Object) this).unbindModel(model); return; }
+        definition = selected;
         if (!(definition instanceof OwnedCpmDefinition owned)) {
             original.call(model, arg, data, definition, player, animation);
             return;

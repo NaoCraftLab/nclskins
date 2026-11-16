@@ -14,6 +14,25 @@ public final class PreviewContext {
     private final ItemStack chestEquipment;
     private final java.util.function.BooleanSupplier current;
     private final java.util.function.Consumer<com.naocraftlab.skins.client.PreviewModelFrames.Body> displayed;
+    private java.util.function.Function<net.minecraft.client.renderer.entity.state.AvatarRenderState,
+            com.naocraftlab.skins.client.PreviewModelFrames.Lease> capture;
+    private java.util.function.Consumer<Boolean> captured;
+    private float depthExtent;
+
+    void depthExtent(float value) { depthExtent = value; }
+    float depthExtent() { return depthExtent; }
+
+    void measurement(java.util.function.Function<net.minecraft.client.renderer.entity.state.AvatarRenderState,
+            com.naocraftlab.skins.client.PreviewModelFrames.Lease> capture, java.util.function.Consumer<Boolean> captured) {
+        this.capture = Objects.requireNonNull(capture);
+        this.captured = Objects.requireNonNull(captured);
+    }
+
+    com.naocraftlab.skins.client.PreviewModelFrames.Lease capture(net.minecraft.client.renderer.entity.state.AvatarRenderState state) {
+        return capture == null ? null : capture.apply(state);
+    }
+
+    void captured(boolean success) { if (captured != null) captured.accept(success && current()); }
 
     PreviewContext(
             AbstractClientPlayer player,
@@ -34,6 +53,7 @@ public final class PreviewContext {
     public boolean current() { return current.getAsBoolean(); }
 
     public void displayed(com.naocraftlab.skins.client.PreviewModelFrames.Body body) {
+        if (captured != null) return;
         if (current()) displayed.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(body.status(),
                 () -> current() && body.current().getAsBoolean()));
     }

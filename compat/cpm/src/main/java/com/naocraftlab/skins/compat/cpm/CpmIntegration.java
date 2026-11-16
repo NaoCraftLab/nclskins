@@ -24,6 +24,7 @@ public final class CpmIntegration {
 
     private CpmIntegration() {}
 
+    @SuppressWarnings("unchecked")
     public static void initialize(SkinCatalogSource source) {
         resources = source;
         CapeProjection.skinModels(change -> {
@@ -36,6 +37,13 @@ public final class CpmIntegration {
         });
         PreviewModelFrames.install(CpmFrame::open);
         PreviewModelFrames.prepareWith(CpmIntegration::preparePreview);
+        PreviewModelFrames.neutralWith((profile, appearance) -> {
+            var body = preparePreview(profile, appearance);
+            if (body.status() != com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.READY
+                    || !body.current().getAsBoolean()) return null;
+            Player<?> player = MinecraftClientAccess.get().getDefinitionLoader().loadPlayer(profile, ModelDefinitionLoader.PLAYER_UNIQUE);
+            return player.getModelDefinition0() instanceof OwnedCpmDefinition owned ? new CpmNeutralBody(player, owned) : null;
+        });
     }
 
     private static volatile Runnable configurationChanged = () -> {};

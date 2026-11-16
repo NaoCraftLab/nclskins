@@ -7,7 +7,6 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import org.spongepowered.asm.mixin.Unique;
 import com.mojang.blaze3d.platform.NativeImage;
-import com.naocraftlab.skins.runtime.CapeProjection;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.client.renderer.texture.SkinTextureDownloader;
 import net.minecraft.core.ClientAsset;
@@ -39,10 +38,6 @@ abstract class SkinTextureDownloaderProviderMixin implements SkinTextureRegistra
             registration.bind(image, image::close);
         }
         try {
-            if (image != null) {
-                int[] argb = ((SneakyUnmodifiedSkinPixels) (Object) image).nclskins$takeUnmodifiedSkinPixels();
-                if (argb != null) CapeProjection.skinTextureReady(texture.texturePath().toString(), argb, texture);
-            }
             CompletableFuture<ClientAsset.Texture> result = original.call(texture, image);
             return registration == null ? result : result.whenComplete((ignored, failure) -> registration.complete());
         } catch (RuntimeException | Error failure) {

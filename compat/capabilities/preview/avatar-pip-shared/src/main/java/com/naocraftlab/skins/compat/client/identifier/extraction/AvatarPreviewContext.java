@@ -17,6 +17,14 @@ public final class AvatarPreviewContext {
     private final java.util.function.BooleanSupplier current;
     private final java.util.function.Consumer<PreviewModelFrames.Body> displayed;
     private Attempt attempt;
+    private java.util.function.Supplier<PreviewModelFrames.Lease> capture;
+    private java.util.function.Consumer<Boolean> captured;
+
+    public void measurement(java.util.function.Supplier<PreviewModelFrames.Lease> capture,
+            java.util.function.Consumer<Boolean> captured) {
+        this.capture = Objects.requireNonNull(capture);
+        this.captured = Objects.requireNonNull(captured);
+    }
     private com.naocraftlab.skins.client.ScreenOwnedRenderTarget target;
 
     public com.naocraftlab.skins.client.ScreenOwnedRenderTarget target() { return target; }
@@ -79,6 +87,7 @@ public final class AvatarPreviewContext {
         private final Object owner;
         private final AvatarPreviewScope scope;
         private final EditorPreviewLayerGuard layerGuard;
+        private final PreviewModelFrames.Lease measurement;
         private boolean submitting;
         private boolean submitted;
         private boolean failed;
@@ -87,10 +96,18 @@ public final class AvatarPreviewContext {
         private Attempt(Object owner, AvatarPreviewScope scope, PreviewRenderFailureSink layerSink) {
             this.owner = Objects.requireNonNull(owner);
             this.scope = scope;
-            layerGuard = layerSink == null ? null : EditorPreviewLayerGuard.open(failure -> {
-                failed = true;
-                layerSink.onFailure(failure);
-            });
+            measurement = capture == null ? null : capture.get();
+            try {
+                layerGuard = layerSink == null ? null : EditorPreviewLayerGuard.open(failure -> {
+                    failed = true;
+                    layerSink.onFailure(failure);
+                });
+            } catch (RuntimeException | Error failure) {
+                if (measurement != null) {
+                    try { measurement.close(); } catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+                }
+                throw failure;
+            }
         }
 
         public void submitted() { submitted = true; submitting = false; }
@@ -99,6 +116,10 @@ public final class AvatarPreviewContext {
         public PreviewModelFrames.Body body() { return scope.body(); }
 
         public void displayed(boolean completed, PreviewModelFrames.Body body) {
+            if (captured != null) {
+                captured.accept(completed && !failed && submitted && current());
+                return;
+            }
             if (!completed || failed) {
                 AvatarPreviewContext.this.displayed(new PreviewModelFrames.Body(PreviewRenderer.BodyStatus.FAILED, () -> true));
             } else if (submitted) {
@@ -110,7 +131,7 @@ public final class AvatarPreviewContext {
         public void close() {
             if (closed) return;
             closed = true;
-            try (scope) {
+            try (scope; measurement) {
                 if (layerGuard != null) layerGuard.close();
             } finally {
                 attempt = null;

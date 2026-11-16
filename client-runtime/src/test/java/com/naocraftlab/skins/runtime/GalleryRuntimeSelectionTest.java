@@ -37,6 +37,7 @@ final class GalleryRuntimeSelectionTest {
     NclSkinsStorage storage;
     DefaultClientOperations operations;
     ClientRuntime runtime;
+    PreviewModelFitStore previewModelFitStore;
     Optional<CurrentPlayerAppearanceSource> currentAppearance = Optional.empty();
     Optional<OuterLayerVisibilityController> layerController = Optional.empty();
     boolean initiallyActive = true;
@@ -87,7 +88,7 @@ final class GalleryRuntimeSelectionTest {
             public void execute(Runnable action) { if (!workerLane || inline) action.run(); else clients.add(action); }
         };
         graph.attachProviders(resolved -> PlayerAppearanceSink.ApplyResult.UPDATED, client);
-        runtime = new ClientRuntime(new DefaultRuntimeServices(), port, client,
+        runtime = new ClientRuntime(new DefaultRuntimeServices(previewModelFitStore), port, client,
                 () -> CompletableFuture.completedFuture(Optional.empty()),
                 action -> {
                     if (rejectWorker) throw new RejectedExecutionException("fixture rejection");

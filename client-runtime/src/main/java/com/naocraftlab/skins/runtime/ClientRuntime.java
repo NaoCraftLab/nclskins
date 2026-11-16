@@ -1,5 +1,8 @@
 package com.naocraftlab.skins.runtime;
 
+import com.naocraftlab.skins.runtime.PreviewAssets.NumericFitResult;
+import com.naocraftlab.skins.runtime.PreviewAssets.NumericFitStatus;
+
 import com.naocraftlab.skins.client.ClientExecutor;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.FilePicker;
@@ -1004,6 +1007,271 @@ public final class ClientRuntime implements AutoCloseable {
         return providerFlow.liveOptiFineLinkView();
     }
 
+    private NumericFitOperation numericFitOperation;
+
+    public void observePreviewModelFitDemand(ViewSpec.Preview preview, PreviewRenderer<?> renderer) {
+        if (!clientExecutor.isClientThread()) throw new IllegalStateException("numeric demand requires client executor");
+        observeImportIdentity();
+        if (importIdentity == null || !numericPreviewCurrent(preview)) return;
+        if (numericFitOperation != null && numericFitOperation.foreground
+                && numericFitOperation.demand.equals(numericFitDemand(preview))) return;
+        var previous = numericFitOperation;
+        var operation = new NumericFitOperation(preview, previewBodySource(preview), null, true);
+        operation.awaitingTexture = true;
+        numericFitOperation = operation;
+        if (previous != null) previous.retire();
+        if (!renderer.modelFitApplicable())
+            finishNumericFit(operation, new NumericFitResult(NumericFitStatus.UNAVAILABLE, null));
+    }
+
+    public CompletableFuture<NumericFitResult> preparePreviewModelFit(ViewSpec.Preview preview,
+            PreviewRenderer<?> renderer, PreviewRenderer.PreviewAppearance appearance) {
+        if (!clientExecutor.isClientThread()) throw new IllegalStateException("numeric preparation requires client executor");
+        observeImportIdentity();
+        if (importIdentity == null || !numericPreviewCurrent(preview))
+            return CompletableFuture.completedFuture(new NumericFitResult(NumericFitStatus.UNAVAILABLE, null));
+        String source = previewBodySource(preview);
+        if (numericFitOperation != null && numericFitOperation.foreground
+                && numericFitOperation.demand.equals(numericFitDemand(preview))
+                && (numericFitOperation.demandClosed
+                    || !numericFitOperation.scopeCurrent()
+                    || !numericFitOperation.awaitingTexture && numericFitOperation.source.equals(source))) {
+            var operation = numericFitOperation;
+            var settled = operation.result.getNow(null);
+            if (operation.active.get() && operation.scopeCurrent() && settled != null && settled.value() != null) {
+                if (!source.equals(operation.boundSource) || !operation.boundAttempted
+                        || operation.boundPreparation != null && !operation.boundPreparation.ownerCurrent()) {
+                    long binding = ++operation.bindingGeneration;
+                    operation.boundSource = source;
+                    operation.boundPreparation = null;
+                    operation.boundAttempted = true;
+                    operation.bindingPending = true;
+                    var rebound = renderer.prepareModelFit(source, appearance);
+                    if (operation.bindingGeneration == binding && numericFitOperation == operation && operation.active.get() && operation.scopeCurrent()
+                            && operation.demand.equals(numericFitDemand(preview)) && numericPreviewCurrent(preview)
+                            && source.equals(previewBodySource(preview))) {
+                        operation.boundSource = source;
+                        operation.boundPreparation = rebound.orElse(null);
+                        operation.bindingPending = false;
+                        var value = settled.value();
+                        rebound.ifPresent(prepared -> prepared.complete(new PreviewRenderer.ModelFitMeasurement(
+                                value.referenceHeight(), value.referenceCenterX(), value.referenceCenterY(), value.referenceCenterZ(), value.fit())));
+                        if (rebound.isEmpty()) renderer.suppressModelFit(source);
+                    } else rebound.filter(prepared -> prepared != operation.boundPreparation).ifPresent(PreviewRenderer.ModelFitPreparation::close);
+                } else if (!operation.bindingPending && (operation.boundPreparation == null || !operation.boundPreparation.current())) renderer.suppressModelFit(source);
+            } else if (!operation.active.get() || !operation.scopeCurrent() || !operation.source.equals(source)
+                    || settled != null && settled.value() == null)
+                renderer.suppressModelFit(source);
+            return operation.result;
+        }
+        var preparation = renderer.prepareModelFit(source, appearance);
+        if (!numericPreviewCurrent(preview) || !source.equals(previewBodySource(preview))) {
+            preparation.ifPresent(PreviewRenderer.ModelFitPreparation::close);
+            return CompletableFuture.completedFuture(new NumericFitResult(NumericFitStatus.RETIRED, null));
+        }
+        if (preparation.isPresent()) {
+            var value = preparation.orElseThrow();
+            return preparePreviewModelFit(preview, () -> value.measure().thenApply(measured -> measured == null ? null
+                    : new PreviewModelFitStore.Value(measured.referenceHeight(), measured.referenceCenterX(), measured.referenceCenterY(), measured.referenceCenterZ(), measured.fit())), value, true);
+        }
+        var previous = numericFitOperation;
+        var operation = new NumericFitOperation(preview, source, null, true);
+        numericFitOperation = operation;
+        if (previous != null) previous.retire();
+        finishNumericFit(operation, new NumericFitResult(NumericFitStatus.UNAVAILABLE, null));
+        if (numericFitOperation == operation && operation.demand.equals(numericFitDemand(preview)))
+            renderer.suppressModelFit(source);
+        return operation.result;
+    }
+
+    public CompletableFuture<NumericFitResult> preparePreviewModelFit(ViewSpec.Preview preview,
+            PreviewRenderer.ModelFitPreparation preparation) {
+        Objects.requireNonNull(preparation, "preparation");
+        return preparePreviewModelFit(preview, () -> preparation.measure()
+                .thenApply(value -> value == null ? null : new PreviewModelFitStore.Value(value.referenceHeight(), value.referenceCenterX(), value.referenceCenterY(), value.referenceCenterZ(), value.fit())), preparation, false);
+    }
+
+    public CompletableFuture<NumericFitResult> preparePreviewModelFit(ViewSpec.Preview preview,
+            Supplier<CompletableFuture<PreviewModelFitStore.Value>> measurement) {
+        return preparePreviewModelFit(preview, measurement, null, false);
+    }
+
+    private CompletableFuture<NumericFitResult> preparePreviewModelFit(ViewSpec.Preview preview,
+            Supplier<CompletableFuture<PreviewModelFitStore.Value>> measurement,
+            PreviewRenderer.ModelFitPreparation preparation, boolean foreground) {
+        if (!clientExecutor.isClientThread()) throw new IllegalStateException("numeric preparation requires client executor");
+        Objects.requireNonNull(preview, "preview");
+        Objects.requireNonNull(measurement, "measurement");
+        observeImportIdentity();
+        if (importIdentity == null || !numericPreviewCurrent(preview)) {
+            return CompletableFuture.completedFuture(new NumericFitResult(NumericFitStatus.UNAVAILABLE, null));
+        }
+        String source = previewBodySource(preview);
+        if (numericFitOperation != null && !numericFitOperation.awaitingTexture && numericFitOperation.source.equals(source)
+                && numericFitOperation.current()) return numericFitOperation.result;
+        var previous = numericFitOperation;
+        var operation = new NumericFitOperation(preview, source, preparation, foreground);
+        numericFitOperation = operation;
+        if (previous != null) previous.retire();
+        if (!operation.current()) { retireNumericFit(operation); return operation.result; }
+        loadSkinPreview(preview).whenComplete((bytes, failure) -> onClient(() -> {
+            if (!numericFitCurrent(operation)) { retireNumericFit(operation); return; }
+            if (failure != null || bytes == null || bytes.isEmpty()) {
+                finishNumericFit(operation, new NumericFitResult(NumericFitStatus.UNAVAILABLE, null));
+                return;
+            }
+            previewAssets.prepareModelFit(operation.identity.profileId(), preview.variant(), bytes.orElseThrow(),
+                    operation::current, () -> {
+                        if (!numericFitCurrent(operation)) return CompletableFuture.completedFuture(null);
+                        return measurement.get();
+                    }).whenComplete((result, preparationFailure) -> onClient(() -> finishNumericFit(operation,
+                            preparationFailure == null ? result : new NumericFitResult(NumericFitStatus.UNAVAILABLE, null))));
+        }));
+        return operation.result;
+    }
+
+
+    private boolean numericPreviewCurrent(ViewSpec.Preview preview) {
+        if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.NEW || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED
+                || destinationLoading() || state.account == null || importIdentity == null
+                || !state.account.accountId().equals(importIdentity.profileId())) return false;
+        if (galleryMainOpen()) return galleryFlow.previewStillCurrent(preview);
+        if (state.providersOpen || !state.providers.galleryAvailable()) {
+            return preview.id().equals("editor.preview") && !providerFlow.providerAdding() && providerFlow.previewStillCurrent(preview);
+        }
+        return preview.id().equals("editor.preview") && editorFlow.editorPreviewStillCurrent(preview);
+    }
+
+    private boolean numericFitCurrent(NumericFitOperation operation) {
+        observeImportIdentity();
+        return operation == numericFitOperation && operation.current()
+                && operation.source.equals(previewBodySource(operation.preview)) && numericPreviewCurrent(operation.preview);
+    }
+
+    private void finishNumericFit(NumericFitOperation operation, NumericFitResult result) {
+        if (!numericFitCurrent(operation)) { retireNumericFit(operation); return; }
+        if (operation.result.isDone()) return;
+        if (operation.preparation != null && result.value() != null) {
+            var value = result.value();
+            operation.preparation.complete(new PreviewRenderer.ModelFitMeasurement(value.referenceHeight(),
+                    value.referenceCenterX(), value.referenceCenterY(), value.referenceCenterZ(), value.fit()));
+            if (!numericFitCurrent(operation)) { retireNumericFit(operation); return; }
+        }
+        operation.demandClosed = true;
+        operation.result.complete(result);
+    }
+
+    private void retireNumericFit(NumericFitOperation operation) {
+        boolean retain = operation.foreground;
+        if (!operation.scopeCurrent() || numericPreviewCurrent(operation.preview)
+                && (operation.preparation == null || operation.preparation.ownerCurrent())) operation.demandClosed = true;
+        if (numericFitOperation == operation && !retain) numericFitOperation = null;
+        operation.retire();
+    }
+
+    private void reconcileNumericFit() {
+        var operation = numericFitOperation;
+        if (operation != null && operation.foreground && operation.active.get() && operation.scopeCurrent()
+                && operation.result.isDone() && operation.result.getNow(null).value() != null
+                && operation.demand.equals(numericFitDemand(operation.preview))) return;
+        if (operation != null && !numericFitCurrent(operation)) retireNumericFit(operation);
+    }
+
+    private void retirePreviewScope() {
+        retirePreviewScope(() -> {});
+    }
+
+    private void retirePreviewScope(Runnable retireSources) {
+        var operation = numericFitOperation;
+        if (operation == null || !operation.foreground) numericFitOperation = null;
+        if (operation != null) {
+            operation.demandClosed = true;
+            operation.active.set(false);
+        }
+        var retiredBody = detachPreviewBody();
+        retireBoth(() -> retireBoth(retireSources,
+                () -> retireBoth(galleryFlow::clearBody, () -> { if (retiredBody != null) retiredBody.run(); })),
+                () -> { if (operation != null) operation.retire(); });
+    }
+
+    private static void retireBoth(Runnable first, Runnable second) {
+        Throwable failure = null;
+        try { first.run(); }
+        catch (RuntimeException | Error problem) { failure = problem; }
+        try { second.run(); }
+        catch (RuntimeException | Error problem) {
+            if (failure == null) failure = problem;
+            else if (failure != problem) failure.addSuppressed(problem);
+        }
+        if (failure instanceof RuntimeException problem) throw problem;
+        if (failure instanceof Error problem) throw problem;
+    }
+
+    private NumericFitDemand numericFitDemand(ViewSpec.Preview preview) {
+        boolean gallery = galleryMainOpen();
+        return new NumericFitDemand(state.galleryScreenGeneration, galleryFlow.openingGeneration(),
+                gallery ? galleryFlow.skinSelectionGeneration() : 0,
+                gallery ? "gallery" : state.providersOpen || !state.providers.galleryAvailable() ? "providers" : "editor",
+                gallery ? 0 : importEditLifetime, preview.imageRevision(), preview.skin(), preview.variant());
+    }
+
+    private record NumericFitDemand(long screen, long opening, long selection, String surface,
+            long editorLifetime, String revision, SkinReference skin, SkinVariant variant) {}
+
+    private final class NumericFitOperation {
+        final ViewSpec.Preview preview;
+        final String source;
+        final NumericFitDemand demand;
+        final GameSessionTokenSource.SessionIdentity identity = importIdentity;
+        final long account = importAccountEpoch, world = importWorldEpoch, resource = importResourceEpoch;
+        final java.util.concurrent.atomic.AtomicBoolean active = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final CompletableFuture<NumericFitResult> result = new CompletableFuture<>();
+        final PreviewRenderer.ModelFitPreparation preparation;
+        String boundSource;
+        PreviewRenderer.ModelFitPreparation boundPreparation;
+        boolean boundAttempted;
+        long bindingGeneration;
+        boolean bindingPending;
+        final boolean foreground;
+        boolean awaitingTexture;
+        boolean demandClosed;
+        boolean preparationClosed;
+
+        NumericFitOperation(ViewSpec.Preview preview, String source, PreviewRenderer.ModelFitPreparation preparation, boolean foreground) {
+            this.preview = preview; this.source = source; this.preparation = preparation; this.foreground = foreground;
+            boundSource = source; boundPreparation = preparation;
+            boundAttempted = preparation != null;
+            demand = numericFitDemand(preview);
+        }
+
+        boolean scopeCurrent() {
+            boolean current = !disposed && account == importAccountEpoch && world == importWorldEpoch
+                    && resource == importResourceEpoch && identity.equals(importIdentity);
+            try { current &= identity.equals(operations.sessionIdentity()); }
+            catch (RuntimeException unavailable) { current = false; }
+            return current;
+        }
+
+        boolean current() {
+            if (!active.get()) return false;
+            boolean current = scopeCurrent() && (preparation == null || preparation.current());
+            if (!current) active.set(false);
+            return current;
+        }
+
+        void retire() {
+            active.set(false);
+            var bound = boundPreparation;
+            boundPreparation = null;
+            var original = preparationClosed ? null : preparation;
+            preparationClosed = true;
+            retireBoth(() -> retireBoth(
+                    () -> { if (bound != null && bound != preparation) bound.close(); },
+                    () -> { if (original != null) original.close(); }),
+                    () -> result.complete(new NumericFitResult(NumericFitStatus.RETIRED, null)));
+        }
+    }
+
     public ClientSnapshot snapshot() {
         return snapshot;
     }
@@ -1252,34 +1520,36 @@ public final class ClientRuntime implements AutoCloseable {
         cancelSkinMcAccountLink();
         cancelSneakyEditorLink();
         providerFlow.clearAccountLinkFeedback();
-        clearPreviewBody();
-        clearPreviewAccessories();
-        editorFlow.acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
-        providerFlow.acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
-        state.generation++;
-        galleryFlow.discardDraft();
-        state.galleryScreenGeneration++;
-        clearProviderRefresh();
         state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
-        state.editorReturnsToProviders = false;
-        state.galleryReturnsToProviders = false;
-        providerFlow.clearPreviewSources();
-        state.providersOpen = false;
-        providerFlow.leaveChooser();
-        state.busy = false;
-        state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
-        galleryFlow.dismissDeletion();
-        galleryFlow.discardDraft();
-        clearRuntimeFocus("gallery");
-        clearSessionRetryFeedback();
-        editorFlow.closeDraft();
-        catalogImportFlow.closeScreens();
-        galleryFlow.stopScrolling();
-        providerFlow.releaseScrollbar();
-        editorFlow.releaseScrollbar();
-        catalogImportFlow.releaseScrollbar();
-        catalogImportFlow.resetClosedScroll();
-        publish();
+        long closingGeneration = ++state.generation;
+        state.galleryScreenGeneration++;
+        retireBoth(this::retirePreviewScope, () -> {
+            if (disposed || state.generation != closingGeneration) return;
+            clearPreviewAccessories();
+            editorFlow.acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
+            providerFlow.acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LIVE_UNAVAILABLE));
+            galleryFlow.discardDraft();
+            clearProviderRefresh();
+            state.editorReturnsToProviders = false;
+            state.galleryReturnsToProviders = false;
+            providerFlow.clearPreviewSources();
+            state.providersOpen = false;
+            providerFlow.leaveChooser();
+            state.busy = false;
+            state.sessionActivity = ClientSnapshot.SessionActivity.NONE;
+            galleryFlow.dismissDeletion();
+            galleryFlow.discardDraft();
+            clearRuntimeFocus("gallery");
+            clearSessionRetryFeedback();
+            editorFlow.closeDraft();
+            catalogImportFlow.closeScreens();
+            galleryFlow.stopScrolling();
+            providerFlow.releaseScrollbar();
+            editorFlow.releaseScrollbar();
+            catalogImportFlow.releaseScrollbar();
+            catalogImportFlow.resetClosedScroll();
+            publish();
+        });
     }
 
     private com.naocraftlab.skins.client.CpmModelPublication cpmPublication;
@@ -1585,10 +1855,12 @@ public final class ClientRuntime implements AutoCloseable {
         catch (RuntimeException unavailable) { observed = null; }
         if (!Objects.equals(importIdentity, observed)) {
             editorFlow.clearLayerControlContinuity();
-            if (importIdentity != null) CapeProjection.retirePreviewSkins();
+            boolean retireSources = importIdentity != null;
             importIdentity = observed;
-            importAccountEpoch++;
-            clearPreviewBody();
+            long accountEpoch = ++importAccountEpoch;
+            long generation = state.generation;
+            retirePreviewScope(() -> { if (retireSources) CapeProjection.retirePreviewSkins(); });
+            if (disposed || importAccountEpoch != accountEpoch || state.generation != generation) return;
             if (catalogImportFlow.hasImportScope() || editorFlow.hasSaveScope()) {
                 state.generation++;
                 state.busy = false;
@@ -1685,11 +1957,12 @@ public final class ClientRuntime implements AutoCloseable {
     void importWorldChanged() {
         onClient(() -> {
             if (disposed) return;
-            importWorldEpoch++;
             editorFlow.clearLayerControlContinuity();
-            clearPreviewBody();
+            long worldEpoch = ++importWorldEpoch;
+            long generation = state.generation;
+            retirePreviewScope(CapeProjection::retirePreviewSkins);
+            if (disposed || importWorldEpoch != worldEpoch || state.generation != generation) return;
             catalogImportFlow.invalidatePendingScope(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.STALE_WORLD);
-            CapeProjection.retirePreviewSkins();
             editorFlow.invalidateSneaky();
             publish();
         });
@@ -1700,10 +1973,12 @@ public final class ClientRuntime implements AutoCloseable {
             if (disposed) {
                 return;
             }
-            importResourceEpoch++;
             editorFlow.clearLayerControlContinuity();
+            long resourceEpoch = ++importResourceEpoch;
+            long generation = state.generation;
             boolean bodyChanged = displayedBodyKind != PreviewRenderer.DisplayKind.UNCONFIRMED;
-            clearPreviewBody();
+            retirePreviewScope();
+            if (disposed || importResourceEpoch != resourceEpoch || state.generation != generation) return;
             catalogImportFlow.invalidatePendingScope(com.naocraftlab.skins.client.CpmModelFileConversion.Reason.STALE_RESOURCES);
             boolean environmentChanged = refreshSkinExtensionEnvironment();
             editorFlow.invalidateSneaky();
@@ -2046,6 +2321,10 @@ public final class ClientRuntime implements AutoCloseable {
                 && Objects.equals(identity, importIdentity);
     }
 
+    public String previewBodyDemand(ViewSpec.Preview preview) {
+        return numericFitDemand(preview).toString();
+    }
+
     public String previewBodySource(ViewSpec.Preview preview) {
         if (preview.bodySource().filter(source -> source.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent())
             return "gallery:" + preview.bodySource().orElseThrow()
@@ -2065,6 +2344,8 @@ public final class ClientRuntime implements AutoCloseable {
     private java.util.function.Consumer<PreviewRenderer.BodyStatus> bodyCallback;
     private Object bodyRegistration;
     private Runnable bodyAccepted;
+    private Runnable bodyRetired;
+    private java.util.function.BooleanSupplier bodyLifetime;
     private String bodySource;
     private long bodyGeneration;
     private boolean bodyProviders;
@@ -2079,9 +2360,21 @@ public final class ClientRuntime implements AutoCloseable {
 
     public java.util.function.Consumer<PreviewRenderer.BodyStatus> observePreviewBody(ViewSpec.Preview preview,
             java.util.function.Supplier<PreviewRenderer.DisplayKind> capability, Runnable accepted) {
+        return observePreviewBody(preview, capability, accepted, () -> {});
+    }
+
+    public java.util.function.Consumer<PreviewRenderer.BodyStatus> observePreviewBody(ViewSpec.Preview preview,
+            java.util.function.Supplier<PreviewRenderer.DisplayKind> capability, Runnable accepted, Runnable retired) {
         Objects.requireNonNull(preview, "preview");
         Objects.requireNonNull(capability, "capability");
+        if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) return ignored -> {};
+        long generation = state.generation;
+        long galleryGeneration = state.galleryScreenGeneration;
+        Object previousRegistration = bodyRegistration;
         observeImportIdentity();
+        if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || state.generation != generation
+                || state.galleryScreenGeneration != galleryGeneration
+                || bodyRegistration != null && bodyRegistration != previousRegistration) return ignored -> {};
         String source = previewBodySource(preview);
         if (bodyCapability == capability && source.equals(bodySource) && bodyPreviewCurrent()) return bodyCallback;
         if (!previewObserverAdmitted(preview)) return ignored -> {};
@@ -2090,10 +2383,12 @@ public final class ClientRuntime implements AutoCloseable {
         bodyPreview = preview;
         bodyCapability = capability;
         bodyAccepted = Objects.requireNonNull(accepted);
+        bodyRetired = Objects.requireNonNull(retired);
         bodySource = source;
         bodyGeneration = galleryMainOpen() ? state.galleryScreenGeneration : state.generation;
         bodyProviders = state.providersOpen || !state.providers.galleryAvailable();
         bodyGallery = galleryMainOpen();
+        bodyLifetime = previewBodyLifetime(preview);
         try { bodyIdentity = operations.sessionIdentity(); }
         catch (RuntimeException unavailable) { bodyIdentity = null; }
         displayedBodyKind = PreviewRenderer.DisplayKind.UNCONFIRMED;
@@ -2101,8 +2396,8 @@ public final class ClientRuntime implements AutoCloseable {
         bodyCallback = value -> onClient(() -> {
             if (bodyRegistration != registration) return;
             if (!bodyPreviewCurrent()) {
-                if (retainedGalleryContextCurrent()) return;
-                if (bodyRegistration == registration) invalidatePreviewBody(bodyCallback);
+                if (bodyGallery && retainedBodyContextCurrent()) return;
+                retireInvalidPreviewBody(registration);
                 return;
             }
             if (bodyRegistration != registration) return;
@@ -2128,7 +2423,28 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void clearPreviewBody() {
-        galleryFlow.clearBody();
+        var retired = detachPreviewBody();
+        retireBoth(galleryFlow::clearBody, () -> { if (retired != null) retired.run(); });
+    }
+
+    private void retireInvalidPreviewBody(Object registration) {
+        if (registration != bodyRegistration) return;
+        boolean retain = !bodyGallery && retainedBodyContextCurrent();
+        if (registration != bodyRegistration) return;
+        if (!retain) {
+            clearPreviewBody();
+            return;
+        }
+        bodyRegistration = null;
+        bodyCapability = null;
+        bodyAccepted = null;
+        displayedBodyKind = PreviewRenderer.DisplayKind.UNCONFIRMED;
+    }
+
+    private Runnable detachPreviewBody() {
+        var retired = bodyRetired;
+        bodyRetired = null;
+        bodyLifetime = null;
         bodyRegistration = null;
         bodyCallback = null;
         bodyCapability = null;
@@ -2137,6 +2453,7 @@ public final class ClientRuntime implements AutoCloseable {
         bodySource = null;
         bodyIdentity = null;
         displayedBodyKind = PreviewRenderer.DisplayKind.UNCONFIRMED;
+        return retired;
     }
 
     private boolean bodyPreviewCurrent() {
@@ -2165,7 +2482,7 @@ public final class ClientRuntime implements AutoCloseable {
         var capability = bodyCapability;
         if (capability == null) return PreviewRenderer.DisplayKind.UNCONFIRMED;
         if (!bodyPreviewCurrent()) {
-            if (registration == bodyRegistration && !retainedGalleryContextCurrent()) clearPreviewBody();
+            if (!bodyGallery || !retainedBodyContextCurrent()) retireInvalidPreviewBody(registration);
             return PreviewRenderer.DisplayKind.UNCONFIRMED;
         }
         if (registration != bodyRegistration) return PreviewRenderer.DisplayKind.UNCONFIRMED;
@@ -2177,21 +2494,23 @@ public final class ClientRuntime implements AutoCloseable {
         }
         if (registration != bodyRegistration) return PreviewRenderer.DisplayKind.UNCONFIRMED;
         if (!bodyPreviewCurrent()) {
-            if (registration == bodyRegistration) clearPreviewBody();
+            retireInvalidPreviewBody(registration);
             return PreviewRenderer.DisplayKind.UNCONFIRMED;
         }
         return registration == bodyRegistration && displayed != null ? displayed : PreviewRenderer.DisplayKind.UNCONFIRMED;
     }
 
-    private boolean retainedGalleryContextCurrent() {
-        if (!bodyGallery || !galleryMainOpen() || bodyPreview == null
-                || bodyGeneration != state.galleryScreenGeneration
-                || !Objects.equals(bodySource, previewBodySource(bodyPreview))) return false;
-        var source = bodyPreview.bodySource().orElse(null);
-        if (source == null || source.accountEpoch() != importAccountEpoch
-                || source.worldEpoch() != importWorldEpoch || source.resourceEpoch() != importResourceEpoch
-                || source.screenGeneration() != state.galleryScreenGeneration || state.account == null
-                || !source.accountId().equals(state.account.accountId())) return false;
+    private boolean retainedBodyContextCurrent() {
+        if (bodyPreview == null || bodyLifetime == null || !bodyLifetime.getAsBoolean()) return false;
+        if (bodyGallery) {
+            if (!galleryMainOpen() || bodyGeneration != state.galleryScreenGeneration
+                    || !Objects.equals(bodySource, previewBodySource(bodyPreview))) return false;
+            var source = bodyPreview.bodySource().orElse(null);
+            if (source == null || source.accountEpoch() != importAccountEpoch
+                    || source.worldEpoch() != importWorldEpoch || source.resourceEpoch() != importResourceEpoch
+                    || source.screenGeneration() != state.galleryScreenGeneration || state.account == null
+                    || !source.accountId().equals(state.account.accountId())) return false;
+        } else if (!bodyProviders && editorFlow.editor() == null) return false;
         try { return Objects.equals(bodyIdentity, operations.sessionIdentity()); }
         catch (RuntimeException unavailable) { return false; }
     }
@@ -2224,7 +2543,14 @@ public final class ClientRuntime implements AutoCloseable {
             java.util.function.Supplier<com.naocraftlab.skins.client.PreviewAccessories> capability) {
         Objects.requireNonNull(preview, "preview");
         Objects.requireNonNull(capability, "capability");
+        if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED) return ignored -> {};
+        long generation = state.generation;
+        long galleryGeneration = state.galleryScreenGeneration;
+        Object previousRegistration = accessoryRegistration;
         observeImportIdentity();
+        if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || state.generation != generation
+                || state.galleryScreenGeneration != galleryGeneration
+                || accessoryRegistration != null && accessoryRegistration != previousRegistration) return ignored -> {};
         boolean gallerySource = preview.bodySource().filter(s -> s.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent();
         String source = gallerySource ? galleryFlow.accessoryInput() : previewBodySource(preview);
         if (accessoryCapability == capability && Objects.equals(source, accessorySource) && accessoryPreviewCurrent()) return accessoryCallback;
@@ -3445,43 +3771,44 @@ public final class ClientRuntime implements AutoCloseable {
             if (disposed) {
                 return;
             }
-            cancelOptiFineAccountLink();
-            cancelSkinMcAccountLink();
-            cancelSneakyEditorLink();
-            clearPreviewAccessories();
-            providerFlow.clearPreviewSources();
-            clearPreviewBody();
             disposed = true;
-            environmentSubscription.close();
-            cancelCapeCatalogCapacityNotice();
             state.generation++;
             state.lifecycle = ClientSnapshot.Lifecycle.CLOSED;
-            state.editorReturnsToProviders = false;
-            state.busy = false;
-            clearSessionRetryFeedback();
-            editorFlow.closeDraft();
-            catalogImportFlow.leaveForSavedPreset();
-            appearanceRefresh.ifPresent(AppearanceRefresh::close);
-            serverAppearanceReadiness.ifPresent(ServerAppearanceReadiness::close);
-            providerRefresh.close();
-            clearProviderRefresh();
-            capeObservations.closeOptiFineCapes();
-            operations.close();
-            previewAssets.close();
+            retireBoth(this::retirePreviewScope, () -> {
+                cancelOptiFineAccountLink();
+                cancelSkinMcAccountLink();
+                cancelSneakyEditorLink();
+                clearPreviewAccessories();
+                providerFlow.clearPreviewSources();
+                environmentSubscription.close();
+                cancelCapeCatalogCapacityNotice();
+                state.editorReturnsToProviders = false;
+                state.busy = false;
+                clearSessionRetryFeedback();
+                editorFlow.closeDraft();
+                catalogImportFlow.leaveForSavedPreset();
+                appearanceRefresh.ifPresent(AppearanceRefresh::close);
+                serverAppearanceReadiness.ifPresent(ServerAppearanceReadiness::close);
+                providerRefresh.close();
+                clearProviderRefresh();
+                capeObservations.closeOptiFineCapes();
+                operations.close();
+                previewAssets.close();
 
-            listeners.clear();
-            publish();
-            if (ownedWorker != null) {
-                ownedWorker.shutdownNow();
-            }
-            if (ownedReconciliationWorker != null) {
-                ownedReconciliationWorker.shutdownNow();
-            }
-            if (ownedSessionWorker != null) {
-                ownedSessionWorker.shutdownNow();
-            }
-            reconciliation.close();
-            diagnostics.close();
+                listeners.clear();
+                publish();
+                if (ownedWorker != null) {
+                    ownedWorker.shutdownNow();
+                }
+                if (ownedReconciliationWorker != null) {
+                    ownedReconciliationWorker.shutdownNow();
+                }
+                if (ownedSessionWorker != null) {
+                    ownedSessionWorker.shutdownNow();
+                }
+                reconciliation.close();
+                diagnostics.close();
+            });
         });
     }
 
@@ -5152,6 +5479,7 @@ public final class ClientRuntime implements AutoCloseable {
                 configuration.compatibility().hideIncompatibleCatalogSkins(),
                 configuration.compatibility().hideIncompatibleGalleryLooks(), state.providers);
         refreshGalleryAdmission();
+        reconcileNumericFit();
         ClientSnapshot published = snapshot;
         listeners.forEach(listener -> listener.accept(published));
     }

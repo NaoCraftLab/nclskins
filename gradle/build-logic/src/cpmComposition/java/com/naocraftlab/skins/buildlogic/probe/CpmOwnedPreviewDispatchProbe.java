@@ -264,17 +264,23 @@ public final class CpmOwnedPreviewDispatchProbe {
             if (pending) {
                 check(boundary.loads == 1 && boundary.borrowed == 0 && registry.registered.isEmpty()
                         && terminal.requests.isEmpty(), label + ": pending C never falls back to borrowed A");
+                check(boundary.lastRegistration != null && boundary.releases == 0
+                        && boundary.lastSource.get() == PreviewRenderer.DisplayKind.UNCONFIRMED,
+                        label + ": texture-pending source preserves its unconfirmed body observer");
                 var registration = boundary.lastRegistration;
                 var source = boundary.lastSource;
-                check(registration != null && boundary.releases == 0
-                        && source.get() == PreviewRenderer.DisplayKind.UNCONFIRMED,
-                        label + ": pending texture preserves its selected source observer without display authority");
-                invoke(screenType, screen, render, new Class<?>[]{Graphics.class, immediate ? ViewSpec.Preview.class : ViewSpec.class},
+                for (int i = 0; i < 100; i++) invoke(screenType, screen, render,
+                        new Class<?>[]{Graphics.class, immediate ? ViewSpec.Preview.class : ViewSpec.class},
                         new Graphics(), immediate ? preview : view);
-                check(registration == boundary.lastRegistration && source == boundary.lastSource && boundary.releases == 0,
-                        label + ": repeated pending frames keep the same source registration");
+                check(boundary.lastRegistration == registration && boundary.lastSource == source
+                        && boundary.releases == 0
+                        && boundary.loads == 1 && boundary.borrowed == 0 && registry.registered.isEmpty()
+                        && terminal.requests.isEmpty() && source.get() == PreviewRenderer.DisplayKind.UNCONFIRMED,
+                        label + ": 100 pending frames preserve one unconfirmed observer without display or retirement");
                 invoke(screenType, screen, immediate ? "releasePreviews" : "releasePreviewBody", new Class<?>[0]);
-                check(boundary.releases > 0, label + ": explicit retirement releases the pending source registration");
+                check(boundary.releases == 1, label + ": explicit close retires its own pending registration");
+                checkBodyReleased(runtime);
+                registration.accept(PreviewRenderer.BodyStatus.READY);
                 checkBodyReleased(runtime);
                 terminal.close();
                 return;
@@ -1860,7 +1866,24 @@ public final class CpmOwnedPreviewDispatchProbe {
         public RenderTerminal() {}
         public RenderTerminal(DiagnosticSink diagnostics) {}
         RuntimeBoundary boundary;
-        int preparations;
+        int preparations, fitApplicabilityChecks, fitPreparations, retirements;
+        String preparedSource, preparedDemand;
+        public boolean modelFitApplicable() { fitApplicabilityChecks++; return true; }
+        public void retireBody() { retirements++; }
+        public Optional<ModelFitPreparation> prepareModelFit(String source, PreviewAppearance appearance) {
+            fitPreparations++;
+            return Optional.empty();
+        }
+        public void prepareBody(String source, String demand, boolean expected) {
+            preparedSource = source;
+            preparedDemand = demand;
+            prepareBody(source, expected);
+        }
+        public boolean prepareGalleryBody(String source, String demand, boolean expected, java.util.function.BooleanSupplier admission) {
+            preparedSource = source;
+            preparedDemand = demand;
+            return prepareGalleryBody(source, expected, admission);
+        }
         boolean displayed, ordinary, current = true, closed;
         public com.naocraftlab.skins.client.PreviewModelFrames.Body body() {
             return new com.naocraftlab.skins.client.PreviewModelFrames.Body(displayed ? BodyStatus.READY : BodyStatus.ORDINARY,
@@ -1933,6 +1956,7 @@ public final class CpmOwnedPreviewDispatchProbe {
         Consumer<Consumer<PreviewAccessories>> beforeAccessoryRelease;
         int accessoryReleases;
         boolean pending, screenClosed;
+        final List<CompletableFuture<Optional<byte[]>>> pendingSkinLoads = new ArrayList<>();
         ViewSpec presented;
         public boolean closed() { return screenClosed || runtime != null && runtime.closed(); }
         public Optional<ViewSpec.Preview> galleryPreviewCandidate() {
@@ -1981,7 +2005,11 @@ public final class CpmOwnedPreviewDispatchProbe {
         }
         public CompletableFuture<Optional<byte[]>> loadSkinPreview(ViewSpec.Preview preview) {
             loads++;
-            if (pending) return new CompletableFuture<>();
+            if (pending) {
+                var result = new CompletableFuture<Optional<byte[]>>();
+                pendingSkinLoads.add(result);
+                return result;
+            }
             return ordinary == null ? runtime.loadSkinPreview(preview) : CompletableFuture.completedFuture(Optional.of(ordinary.clone()));
         }
         public Optional<PlayerAppearance> previewPlayerAppearance(ViewSpec.Preview preview) {
@@ -1991,6 +2019,14 @@ public final class CpmOwnedPreviewDispatchProbe {
         public void reportSkinPreviewFailure(ViewSpec.Preview preview) { throw new AssertionError("Owned registration failure"); }
         public String previewCapeSurfaceKey(ViewSpec.Preview preview) { return runtime.previewCapeSurfaceKey(preview); }
         public String previewBodySource(ViewSpec.Preview preview) { return runtime.previewBodySource(preview); }
+        public String previewBodyDemand(ViewSpec.Preview preview) { return runtime.previewBodyDemand(preview); }
+        public void observePreviewModelFitDemand(ViewSpec.Preview preview, PreviewRenderer<?> renderer) {
+            runtime.observePreviewModelFitDemand(preview, renderer);
+        }
+        public CompletableFuture<com.naocraftlab.skins.runtime.PreviewAssets.NumericFitResult> preparePreviewModelFit(
+                ViewSpec.Preview preview, PreviewRenderer<?> renderer, PreviewRenderer.PreviewAppearance appearance) {
+            return runtime.preparePreviewModelFit(preview, renderer, appearance);
+        }
         public boolean waitsForCpmBody(ViewSpec.Preview preview) { return runtime.waitsForCpmBody(preview); }
         public java.util.function.BooleanSupplier previewBodyAdmission(ViewSpec.Preview preview) { return runtime.previewBodyAdmission(preview); }
         public java.util.function.BooleanSupplier previewBodyLifetime(ViewSpec.Preview preview) { return runtime.previewBodyLifetime(preview); }
@@ -2000,6 +2036,10 @@ public final class CpmOwnedPreviewDispatchProbe {
         public Consumer<PreviewRenderer.BodyStatus> observePreviewBody(ViewSpec.Preview preview, Supplier<PreviewRenderer.DisplayKind> source, Runnable accepted) {
             bodyRegistrations++; lastSource = source;
             return lastRegistration = runtime.observePreviewBody(preview, source, accepted);
+        }
+        public Consumer<PreviewRenderer.BodyStatus> observePreviewBody(ViewSpec.Preview preview, Supplier<PreviewRenderer.DisplayKind> source, Runnable accepted, Runnable retired) {
+            bodyRegistrations++; lastSource = source;
+            return lastRegistration = runtime.observePreviewBody(preview, source, accepted, retired);
         }
         public Consumer<PreviewRenderer.BodyStatus> observePreviewBody(ViewSpec.Preview preview,
                 Supplier<PreviewRenderer.DisplayKind> source) {

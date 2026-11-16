@@ -65,6 +65,111 @@ public final class AvatarRenderStatePreviewRenderer
                                     .setAsset(EquipmentAssets.ELYTRA)
                                     .build())
                     .build());
+    private NativeFit nativeFit;
+
+    @Override public void suppressModelFit(String source) {
+        session.suppressFit(source);
+    }
+
+    @Override public boolean modelFitApplicable() {
+        var client = Minecraft.getInstance();
+        return com.naocraftlab.skins.compat.client.identifier.measurement.AvatarFitMode.supported()
+                && !closed && client.level != null && client.player != null;
+    }
+
+    @Override public java.util.Optional<ModelFitPreparation> prepareModelFit(String source, PreviewAppearance appearance) {
+        var client = Minecraft.getInstance();
+        if (!modelFitApplicable()) return java.util.Optional.empty();
+        if (nativeFit != null && nativeFit.source.equals(source) && nativeFit.appearance.skin().equals(appearance.skin())
+                && nativeFit.appearance.model() == appearance.model() && nativeFit.ownerCurrent())
+            return java.util.Optional.of(nativeFit);
+        var owner = session;
+        var previous = nativeFit;
+        nativeFit = null;
+        if (previous != null) previous.close();
+        if (closed || session != owner || nativeFit != null) return java.util.Optional.empty();
+        var admission = owner.prepareFit();
+        if (closed || session != owner || nativeFit != null) return java.util.Optional.empty();
+        nativeFit = new NativeFit(source, appearance, owner, admission);
+        return java.util.Optional.of(nativeFit);
+    }
+
+    private final class NativeFit implements ModelFitPreparation {
+        private final String source;
+        private final PreviewAppearance appearance;
+        private final EditorPreviewSession owner;
+        private final EditorPreviewSession.FitPreparation admission;
+        private final Minecraft client = Minecraft.getInstance();
+        private final Object world = client.level;
+        private final Object local = client.player;
+        private final java.util.Optional<NativePlayerSkinLifecycle.Registration> texture;
+        private final java.util.concurrent.CompletableFuture<ModelFitMeasurement> result = new java.util.concurrent.CompletableFuture<>();
+        private final com.naocraftlab.skins.client.ScreenOwnedRenderTarget target = new com.naocraftlab.skins.client.ScreenOwnedRenderTarget();
+        private volatile boolean retired, requested;
+        private boolean queued, eligible, custom, cpm, earsRequired;
+        private volatile com.naocraftlab.skins.compat.client.identifier.measurement.AvatarEarsFitMode.EarsBody ears;
+        private volatile com.naocraftlab.skins.client.PreviewModelFrames.Body cpmBody;
+        private com.naocraftlab.skins.client.PreviewModelFrames.NeutralBody neutral;
+        private ModelFitMeasurement reference;
+        private volatile com.naocraftlab.skins.runtime.EffectiveSkinSource selectedSource;
+        private com.naocraftlab.skins.client.PreviewModelNormalization.Fit fit;
+        private com.naocraftlab.skins.compat.client.identifier.measurement.AvatarBodyCapture capture;
+
+        private NativeFit(String source, PreviewAppearance appearance, EditorPreviewSession owner, EditorPreviewSession.FitPreparation admission) {
+            this.source = source; this.appearance = appearance; this.owner = owner;
+            this.admission = admission;
+            texture = NativePlayerSkinLifecycle.registration(appearance.skin().location());
+        }
+
+        @Override public boolean ownerCurrent() {
+            return !retired && !closed && owner == session && admission.ownerCurrent()
+                    && client.level == world && client.player == local
+                    && NativePlayerSkinLifecycle.registration(appearance.skin().location()).equals(texture)
+                    && (selectedSource == null || selectedSource.active());
+        }
+
+        @Override public boolean current() {
+            return !retired && !closed && admission.current() && client.level == world && client.player == local
+                    && NativePlayerSkinLifecycle.registration(appearance.skin().location()).equals(texture)
+                    && texture.map(value -> value.state() != NativePlayerSkinLifecycle.State.FAILED
+                            && value.state() != NativePlayerSkinLifecycle.State.RETIRED).orElse(true)
+                    && (selectedSource == null || selectedSource.active())
+                    && (cpmBody == null || cpmBody.current().getAsBoolean())
+                    && (ears == null || ears.current());
+        }
+
+        @Override public java.util.concurrent.CompletableFuture<ModelFitMeasurement> measure() {
+            requested = true;
+            return result;
+        }
+
+        @Override public void complete(ModelFitMeasurement value) {
+            if (!current()) return;
+            reference = Objects.requireNonNull(value);
+            fit = value.fit();
+            if (eligible && (!custom || reference != null)) {
+                admission.complete();
+                target.close();
+                if (neutral != null) { neutral.close(); neutral = null; }
+            }
+        }
+
+        @Override public void close() {
+            if (!closed && fit != null && gallery != null && gallery.displays(owner)) return;
+            if (retired) return;
+            retired = true;
+            admission.close();
+            target.close();
+            if (neutral != null) neutral.close();
+            result.complete(null);
+        }
+
+        private boolean matches(PreviewRequest request) {
+            return owner == session && appearance.skin().equals(request.appearance().skin())
+                    && appearance.model() == request.appearance().model();
+        }
+    }
+
     private EditorPreviewSession session = new EditorPreviewSession();
     private EditorPreviewSession.Gallery gallery;
     private final java.util.Map<EditorPreviewSession, NativeSlot> gallerySlots = new java.util.LinkedHashMap<>();
@@ -73,19 +178,19 @@ public final class AvatarRenderStatePreviewRenderer
 
     private record NativeSlot(EditorPreviewSession session, GameProfile profile, PreviewPlayer player,
             ClientLevel level, EditorPreviewClock clock, EditorPreviewTickGate tickGate, AvatarPipPreviewRenderer baked,
-            com.naocraftlab.skins.client.ScreenOwnedRenderTarget target) {}
+            com.naocraftlab.skins.client.ScreenOwnedRenderTarget target, NativeFit fit) {}
 
     private void saveGallerySlot() {
         if (activeGallerySource != null && gallerySlots.containsKey(activeGallerySource)) gallerySlots.put(activeGallerySource,
                 new NativeSlot(session, previewProfile, previewPlayer, previewLevel, previewClock, previewTickGate, bakedRenderer,
-                        gallerySlots.get(activeGallerySource).target()));
+                        gallerySlots.get(activeGallerySource).target(), nativeFit));
     }
 
     private void selectGallerySession(EditorPreviewSession candidate) {
         gallerySlots.computeIfAbsent(candidate, ignored -> new NativeSlot(candidate,
                 new GameProfile(UUID.randomUUID(), "NCLSkinPreview"), null, null,
                 new EditorPreviewClock(), new EditorPreviewTickGate(), new AvatarPipPreviewRenderer(),
-                new com.naocraftlab.skins.client.ScreenOwnedRenderTarget()));
+                new com.naocraftlab.skins.client.ScreenOwnedRenderTarget(), null));
         selectGallerySlot(candidate);
     }
 
@@ -95,7 +200,7 @@ public final class AvatarRenderStatePreviewRenderer
         if (slot == null) throw new IllegalStateException("Retired Gallery source");
         activeGallerySource = source;
         session = slot.session(); previewProfile = slot.profile(); previewPlayer = slot.player();
-        previewLevel = slot.level(); previewClock = slot.clock(); previewTickGate = slot.tickGate(); bakedRenderer = slot.baked();
+        previewLevel = slot.level(); previewClock = slot.clock(); previewTickGate = slot.tickGate(); bakedRenderer = slot.baked(); nativeFit = slot.fit();
     }
 
     private void retireGallerySlots() {
@@ -103,6 +208,7 @@ public final class AvatarRenderStatePreviewRenderer
         gallerySlots.entrySet().removeIf(entry -> {
             var slot = entry.getValue();
             if (gallery.retains(slot.session())) return false;
+            if (slot.fit() != null) slot.fit().close();
             CapeProjection.retireSkin(slot.profile().id());
             try { slot.baked().close(); } finally { slot.target().close(); }
             return true;
@@ -110,6 +216,10 @@ public final class AvatarRenderStatePreviewRenderer
     }
 
     @Override public boolean prepareGalleryBody(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) {
+        return prepareGalleryBody(source, source, cpm, candidateCurrent);
+    }
+
+    @Override public boolean prepareGalleryBody(String source, String demand, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) {
         if (closed || !candidateCurrent.getAsBoolean() || closed) return false;
         if (gallery == null) {
             session.invalidateDisplayedBody();
@@ -120,7 +230,7 @@ public final class AvatarRenderStatePreviewRenderer
             gallery.observeBody(status -> { retireGallerySlots(); bodyObserver.accept(status); });
         }
         var client = Minecraft.getInstance();
-        var candidate = gallery.prepare(source, cpm, client.level != null && client.player != null, candidateCurrent);
+        var candidate = gallery.prepare(source, demand, cpm, client.level != null && client.player != null, candidateCurrent);
         if (candidate == null || closed || gallery == null || !gallery.retains(candidate)) return false;
         saveGallerySlot();
         retireGallerySlots();
@@ -131,7 +241,7 @@ public final class AvatarRenderStatePreviewRenderer
     }
 
     @Override public boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) {
-        if (!prepareGalleryBody(source,cpm,candidateCurrent)) return false;
+        if (!prepareGalleryBody(source, cpm, candidateCurrent)) return false;
         if (!session.imageTracked()) session.beginImage(source);
         return true;
     }
@@ -139,6 +249,14 @@ public final class AvatarRenderStatePreviewRenderer
     @Override public boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent,
             java.util.function.BooleanSupplier lifetime) {
         if (!prepareGalleryImage(source, cpm, candidateCurrent)) return false;
+        gallery.lifetime(source, lifetime);
+        return true;
+    }
+
+    @Override public boolean prepareGalleryImage(String source, String demand, boolean cpm,
+            java.util.function.BooleanSupplier candidateCurrent, java.util.function.BooleanSupplier lifetime) {
+        if (!prepareGalleryBody(source, demand, cpm, candidateCurrent)) return false;
+        if (!session.imageTracked()) session.beginImage(source);
         gallery.lifetime(source, lifetime);
         return true;
     }
@@ -203,7 +321,7 @@ public final class AvatarRenderStatePreviewRenderer
     private java.util.function.Consumer<PreviewAccessories> accessoryObserver = value -> {};
     private EditorPreviewSession accessoryObserverSession;
     private EditorPreviewSession accessoryPreparation;
-    private boolean closed;
+    private volatile boolean closed;
 
     @Override
     public void observeAccessories(java.util.function.Consumer<PreviewAccessories> observer) {
@@ -257,11 +375,40 @@ public final class AvatarRenderStatePreviewRenderer
 
     @Override public com.naocraftlab.skins.client.PreviewModelFrames.Body body() { return gallery == null ? session.body() : gallery.body(); }
 
+    @Override public void retireBody() {
+        if (gallery != null) {
+            gallery.close();
+            retireGallerySlots();
+            gallery = null;
+            activeGallerySource = null;
+        }
+        session.retireBody();
+        if (nativeFit != null) nativeFit.close();
+        nativeFit = null;
+        CapeProjection.retireSkin(previewProfile.id());
+        bakedRenderer.close();
+        session = new EditorPreviewSession();
+        session.observeBody(bodyObserver);
+        previewProfile = new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
+        previewPlayer = null;
+        previewLevel = null;
+        previewClock = new EditorPreviewClock();
+        previewTickGate = new EditorPreviewTickGate();
+        bakedRenderer = new AvatarPipPreviewRenderer();
+        accessoryObserverSession = null;
+        accessoryPreparation = null;
+    }
+
     @Override public void prepareBody(String source, boolean cpm) {
+        prepareBody(source, source, cpm);
+    }
+
+    @Override public void prepareBody(String source, String demand, boolean cpm) {
         if (closed) return;
         if (gallery != null) {
             gallery.close(); retireGallerySlots(); gallery = null; activeGallerySource = null;
             if (closed) return;
+            nativeFit = null;
             session = new EditorPreviewSession(); session.observeBody(bodyObserver);
             previewProfile = new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
             previewPlayer = null; previewLevel = null;
@@ -271,7 +418,7 @@ public final class AvatarRenderStatePreviewRenderer
         var client = Minecraft.getInstance();
         accessoryObserverSession = null;
         accessoryPreparation = session;
-        session.beginBody(source, cpm, !closed && client.level != null && client.player != null);
+        session.beginBody(source, demand, cpm, !closed && client.level != null && client.player != null);
     }
 
     @Override
@@ -352,6 +499,133 @@ public final class AvatarRenderStatePreviewRenderer
                 renderFallback(graphics, request);
                 return;
             }
+            var fitting = nativeFit;
+            if (fitting != null && fitting.matches(request) && fitting.cpmBody != null
+                    && !fitting.cpmBody.current().getAsBoolean()) {
+                fitting.eligible = false;
+                fitting.result.complete(null);
+                return;
+            }
+            normalization: if (fitting != null && fitting.matches(request) && fitting.current()
+                    && (fitting.requested || fitting.fit != null)) {
+                var source = CapeProjection.skinSource(previewProfile.id());
+                if (source != fitting.selectedSource) {
+                    fitting.selectedSource = source;
+                    fitting.ears = null;
+                }
+                var requirements = CapeProjection.previewBodyRequirements(previewProfile.id());
+                fitting.eligible = false;
+                if (source != CapeProjection.skinSource(previewProfile.id()) || (source != null && !source.active())) return;
+                fitting.cpm = requirements.cpm() == com.naocraftlab.skins.client.PreviewModelFrames.Requirement.REQUIRED;
+                if (fitting.ears == null)
+                    fitting.ears = com.naocraftlab.skins.compat.client.identifier.measurement.AvatarEarsFitMode.ears(fitting.selectedSource);
+                fitting.earsRequired = fitting.ears != null || requirements.ears() == com.naocraftlab.skins.client.PreviewModelFrames.Requirement.REQUIRED;
+                fitting.custom = fitting.cpm || fitting.earsRequired;
+                if (!requirements.admitted()) {
+                    fitting.result.complete(null);
+                    session.declineFit();
+                    break normalization;
+                }
+                if (fitting.earsRequired) {
+                    if (!com.naocraftlab.skins.compat.client.identifier.measurement.AvatarEarsFitMode.earsAvailable()) {
+                        fitting.result.complete(null);
+                        session.declineFit();
+                        break normalization;
+                    }
+                    if (fitting.ears == null) {
+                        if (session.waitsForBody()) return;
+                        break normalization;
+                    }
+                }
+                if (fitting.cpm) {
+                    var body = com.naocraftlab.skins.client.PreviewModelFrames.prepare(previewProfile, appearance);
+                    if (body.status() == BodyStatus.PENDING) {
+                        if (session.waitsForBody()) return;
+                        break normalization;
+                    }
+                    if (body.status() != BodyStatus.READY || !body.current().getAsBoolean()) {
+                        fitting.result.complete(null);
+                        session.declineFit();
+                        break normalization;
+                    }
+                    fitting.cpmBody = body;
+                    if (fitting.fit == null || fitting.reference == null) {
+                        if (fitting.neutral == null)
+                            fitting.neutral = com.naocraftlab.skins.client.PreviewModelFrames.neutral(previewProfile, appearance);
+                        if (fitting.neutral == null) {
+                            if (session.waitsForBody()) return;
+                            break normalization;
+                        }
+                        var neutralBody = fitting.neutral.body();
+                        if (neutralBody.status() == BodyStatus.PENDING) {
+                            if (session.waitsForBody()) return;
+                            break normalization;
+                        }
+                        if (neutralBody.status() != BodyStatus.READY || !neutralBody.current().getAsBoolean()) {
+                            fitting.result.complete(null);
+                            session.declineFit();
+                            break normalization;
+                        }
+                    }
+                }
+                fitting.eligible = true;
+                if (fitting.eligible && fitting.fit != null && (!fitting.custom || fitting.reference != null)) {
+                    fitting.admission.complete();
+                    fitting.target.close();
+                    if (fitting.neutral != null) { fitting.neutral.close(); fitting.neutral = null; }
+                }
+            }
+            if (fitting != null && fitting.matches(request) && fitting.current()
+                    && fitting.eligible
+                    && ((fitting.requested && !fitting.result.isDone()) || (fitting.custom && fitting.fit != null && fitting.reference == null))
+                    && !fitting.queued) {
+                fitting.queued = true;
+                if (!fitting.eligible) fitting.result.complete(null);
+                else {
+                    var neutralAppearance = new PreviewAppearance(appearance.skin(), appearance.model(), java.util.Optional.empty(),
+                            CapeMode.OFF, com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(), false, false);
+                    var neutralRequest = new PreviewRequest(neutralAppearance, 0, 0, 64, 128, 0, 0, 1, request.intent());
+                    var captureContext = new AvatarPreviewContext(minecraft.player, neutralAppearance, playerSkin(neutralAppearance),
+                            ItemStack.EMPTY, fitting::current, ignored -> {});
+                    captureContext.target(fitting.target);
+                    var neutralState = createRenderState(minecraft, renderPlayer, captureContext);
+                    configurePreviewState(neutralState, neutralAppearance, playerSkin(neutralAppearance), neutralRequest);
+                    boolean referencePass = fitting.custom && fitting.reference == null;
+                    captureContext.measurement(() -> {
+                        var neutralScope = fitting.neutral == null ? null : fitting.neutral.open(referencePass);
+                        com.naocraftlab.skins.client.PreviewModelFrames.Lease earsScope = null;
+                        try {
+                            earsScope = fitting.ears == null ? null : fitting.ears.open(neutralState, referencePass);
+                            var ownedEarsScope = earsScope;
+                            fitting.capture = new com.naocraftlab.skins.compat.client.identifier.measurement.AvatarBodyCapture(neutralState, fitting::current);
+                            return () -> {
+                                try (neutralScope; ownedEarsScope) { fitting.capture.close(); }
+                            };
+                        } catch (RuntimeException | Error failure) {
+                            var failedEarsScope = earsScope;
+                            try (neutralScope; failedEarsScope) { throw failure; }
+                        }
+                    }, success -> {
+                        var measured = success && fitting.capture != null ? fitting.capture.ordinary() : null;
+                        if (measured == null) fitting.result.complete(null);
+                        else if (referencePass) { fitting.reference = measured; fitting.queued = false; }
+                        else if (fitting.custom) {
+                            var value = measured.fit();
+                            fitting.result.complete(new ModelFitMeasurement(fitting.reference.referenceHeight(),
+                                    fitting.reference.referenceCenterX(), fitting.reference.referenceCenterY(), fitting.reference.referenceCenterZ(),
+                                    com.naocraftlab.skins.client.PreviewModelNormalization.full(fitting.reference.referenceHeight(),
+                                            value.bodyHeight(), value.centerX(), value.centerY(), value.centerZ(), value.halfWidth(), value.halfDepth())));
+                        } else fitting.result.complete(measured);
+                    });
+                    var owned = (NclSkinsWideDepthState) neutralState;
+                    owned.nclskins$setPreviewContext(captureContext);
+                    owned.nclskins$setFailureSink(failure -> fitting.result.complete(null));
+                    owned.nclskins$setLayerFailureSink(failure -> fitting.result.complete(null));
+                    graphics.entity(neutralState, 64, new Vector3f(), new Quaternionf().rotateZ((float) Math.PI),
+                            new Quaternionf(), -128, -256, -64, -128);
+                }
+                return;
+            }
             if (session.waitsForBody()) {
                 session.body(com.naocraftlab.skins.client.PreviewModelFrames.prepare(previewProfile, request.appearance()));
                 if (session.bodyStatus() == BodyStatus.PENDING) return;
@@ -361,13 +635,17 @@ public final class AvatarRenderStatePreviewRenderer
             var frameWorld = minecraft.level;
             var frameTexture = NativePlayerSkinLifecycle.registration(appearance.skin().location());
             var framePlayer = minecraft.player;
+            boolean ordinaryFit = session.fitSuppressed() || fitting != null && fitting.matches(request)
+                    && (!fitting.current() || !fitting.eligible || fitting.fit == null);
+            var displayed = ordinaryFit ? session.ordinaryDisplay(() -> true) : session.displayBody(() -> true);
             AvatarPreviewContext context = new AvatarPreviewContext(minecraft.player, appearance, skin, chestEquipment,
                     () -> !closed && minecraft.level == frameWorld && minecraft.player == framePlayer
                             && gallery == frameGallery
                             && (frameGallery == null ? previewPlayer == renderPlayer && previewLevel == frameWorld : frameGallery.retains(session))
                             && NativePlayerSkinLifecycle.isReady(appearance.skin().location())
                             && NativePlayerSkinLifecycle.registration(appearance.skin().location()).equals(frameTexture)
-                            && frameCurrent.getAsBoolean(), session.displayBody(() -> true));
+                            && frameCurrent.getAsBoolean(), com.naocraftlab.skins.client.PreviewModelFrames.mapStatus(displayed,
+                                    status -> ordinaryFit && status == BodyStatus.READY ? BodyStatus.ORDINARY : status));
             if (frameTarget != null) context.target(frameTarget);
             float previewAge = previewClock.ageTicks(renderPlayer.tickCount);
             applySettling(renderPlayer, previewAge, session.capeSettling(
@@ -383,7 +661,9 @@ public final class AvatarRenderStatePreviewRenderer
                             appearance.cape().map(TextureHandle::location).orElse(null),
                             appearance.capeMode() == CapeMode.CAPE, appearance.capeGlint(), appearance.capeValidity()));
             NclSkinsWideDepthState previewState = (NclSkinsWideDepthState) state;
-            float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale();
+            var fullFit = nativeFit != null && nativeFit.matches(request) && nativeFit.current() && nativeFit.eligible ? nativeFit.fit : null;
+            float requestedScale = FIT_PADDING * request.height() / MODEL_HEIGHT * request.scale()
+                    * (float) (fullFit == null ? 1 : fullFit.normalization());
             previewState.nclskins$setDepthExtent(PreviewDepthEnvelope.forRequest(
                     request.intent(), requestedScale, request.pitchDegrees(), appearance.capeMode()));
             previewState.nclskins$setFailureSink(failure -> { if (context.current()) onLiveRenderFailure(session, frameAccessoryObserver, failure); });
@@ -404,6 +684,14 @@ public final class AvatarRenderStatePreviewRenderer
                     centeredTranslation.y()
                             + PreviewStageGeometry.modelOffsetY(request, requestedScale),
                     centeredTranslation.z());
+            if (fullFit != null) {
+                float measuredDepth = (float) (requestedScale * ((Math.abs(fullFit.centerY()) + fullFit.bodyHeight() * 0.5) * Math.abs(Math.sin(pitchRadians))
+                        + (Math.abs(-fullFit.centerX() * Math.sin(Math.toRadians(request.yawDegrees()))
+                                + fullFit.centerZ() * Math.cos(Math.toRadians(request.yawDegrees())))
+                                + Math.hypot(fullFit.halfWidth(), fullFit.halfDepth())) * Math.abs(Math.cos(pitchRadians))));
+                previewState.nclskins$setDepthExtent(Math.min(PreviewDepthEnvelope.MAXIMUM,
+                        previewState.nclskins$depthExtent() + measuredDepth));
+            }
 
             graphics.entity(
                     state,
@@ -614,6 +902,7 @@ public final class AvatarRenderStatePreviewRenderer
 
         state.walkAnimationPos = 0.0F;
         state.walkAnimationSpeed = 0.0F;
+        AvatarAttackAnimation.reset(state);
         state.swimAmount = 0.0F;
         state.isCrouching = false;
         state.isFallFlying = false;
@@ -701,9 +990,10 @@ public final class AvatarRenderStatePreviewRenderer
 
     @Override
     public void close() {
+        closed = true;
+        if (nativeFit != null) nativeFit.close();
         if (gallery != null) { gallery.close(); retireGallerySlots(); }
         session.invalidateDisplayedBody();
-        closed = true;
         clearAccessoryInspection();
         accessoryObserver = value -> {};
         CapeProjection.retireSkin(previewProfile.id());

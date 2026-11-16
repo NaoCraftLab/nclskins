@@ -547,6 +547,7 @@ final class ViewSpecGoldenTest {
                     .append("yaw=").append(preview.yawDegrees()).append('|')
                     .append("pitch=").append(preview.pitchDegrees()).append('|')
                     .append("scale=").append(preview.scale()).append('|')
+                    .append(preview.layoutScale() == 1F ? "" : "layoutScale=" + preview.layoutScale() + "|")
                     .append("preset=").append(preview.presetId().map(UUID::toString).orElse("-")).append('\n');
         }
         result.append("back_equipment_previews\n");

@@ -120,6 +120,45 @@ public final class CapeProjection {
                 observation.capeContentEmpty(), observation.elytraContentEmpty());
     }
 
+
+    public static boolean ownsSkinTexture(EffectiveSkinSource source, Object texture) {
+        return source != null && source.active() && skinSource(source.cacheId()) == source
+                && PIXELS.owns(source.location(), source.revision(), texture);
+    }
+
+    public static com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements previewBodyRequirements(UUID cacheId) {
+        var unknown = com.naocraftlab.skins.client.PreviewModelFrames.Requirement.UNKNOWN;
+        EffectiveSkinSource source = skinSource(cacheId);
+        if (source == null || !source.active() || !source.preview())
+            return new com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements(unknown, unknown);
+        var result = source.bodyRequirements(() -> classifyBodyRequirements(source));
+        return source.active() && skinSource(cacheId) == source ? result
+                : new com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements(unknown, unknown);
+    }
+
+    private static com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements classifyBodyRequirements(EffectiveSkinSource source) {
+        var unknown = com.naocraftlab.skins.client.PreviewModelFrames.Requirement.UNKNOWN;
+        var absent = com.naocraftlab.skins.client.PreviewModelFrames.Requirement.ABSENT;
+        var required = com.naocraftlab.skins.client.PreviewModelFrames.Requirement.REQUIRED;
+        int[] pixels = source.pixels();
+        if (pixels == null) return new com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements(unknown, unknown);
+        var image = new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(0, 0, 64, 64, pixels, 0, 64);
+        var evidence = new com.naocraftlab.skins.core.compatibility.SkinFeatureAnalyzer().analyze(image);
+        var cpm = switch (new com.naocraftlab.skins.core.png.CpmCarrierReader().read(image).status()) {
+            case ABSENT -> absent;
+            case VALID -> required;
+            case MALFORMED -> com.naocraftlab.skins.client.PreviewModelFrames.Requirement.DENIED;
+            case UNKNOWN -> unknown;
+        };
+        var ears = evidence.supportedFeatures().contains(com.naocraftlab.skins.core.compatibility.SkinFeature.EARS)
+                || evidence.potentialConflicts().contains(com.naocraftlab.skins.core.compatibility.SkinConflictReason.MALFORMED_EARS_DATA)
+                ? required : absent;
+        return source.active() ? new com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements(cpm, ears)
+                : new com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements(unknown, unknown);
+    }
+
+
     public static EffectiveSkinSource skinSource(UUID cacheId) {
         Registration registration = CURRENT.get();
         return registration == null ? null : registration.skinSources.get(cacheId);

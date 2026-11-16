@@ -3,13 +3,17 @@ package com.naocraftlab.skins.buildlogic
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 
 import javax.tools.ToolProvider
-import java.util.concurrent.TimeUnit
 import java.util.zip.ZipFile
 
 abstract class VerifyCpmIntegrationTask extends DefaultTask {
@@ -19,6 +23,9 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
     @InputDirectory abstract DirectoryProperty getProbeDirectory()
     @InputDirectory abstract DirectoryProperty getCarrierFixtures()
     @OutputDirectory abstract DirectoryProperty getWorkDirectory()
+    @Optional @InputFile abstract RegularFileProperty getNativeBodyProof()
+    @Optional @Input abstract Property<String> getNativeBodyProfile()
+    @Optional @Input abstract Property<String> getNativeBodyLoader()
 
     static boolean declaresExtendableClass(String accessRules, String owner) {
         accessRules.readLines().any { line ->
@@ -27,7 +34,42 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
         }
     }
 
+    static void validateNativeCompletion(Map proof,String profile,String loader) {
+        def immediate=['body','owner-live','owner-decline','capture-omission','image-readiness']
+        def staged=['measurement-cases','baked-menu-cold','optional-availability','warm-restart','capture-omission','body','owner-live','owner-decline']
+        def profiles=['immediate-26.1':'fabric','immediate-26.1-neoforge':'neoforge','staged-26.3-fabric':'fabric','staged-26.3-neoforge':'neoforge']
+        if(!(loader in ['fabric','neoforge']) || !(profile=='staged' || profiles[profile]==loader)
+                || proof.status!='PASS' || proof.profile!=profile || proof.loader!=loader || proof.producer!='genuine-native-mesh' || proof.consumer!='canonical-body-material-ack')
+            throw new IllegalStateException('Canonical native BODY proof is missing')
+        def expected=profile.startsWith('immediate-')?immediate:profile=='staged'?staged+['image-readiness']:staged[0..5]+['body-capture-omission']+staged[6..7]+['image-readiness']
+        if(proof.roster!=expected)throw new IllegalStateException('Canonical native BODY roster is incomplete')
+    }
+
+    static String selectSubmissionLoader(boolean renderer, boolean aw, boolean at, boolean neoRuntime) {
+        if (!renderer) return null
+        if (aw && !neoRuntime) return 'fabric'
+        if (at && neoRuntime) return 'neoforge'
+        throw new IllegalStateException('Submission renderer has no matched native loader access contract')
+    }
+
+    static void validateSubmissionCompletion(Map proof,String loader) {
+        if (!(loader in ['fabric','neoforge']) || proof.status!='PASS' || proof.profile!='submission-1.21.11'
+                || proof.loader!=loader || proof.producer!='genuine-native-mesh' || proof.consumer!='own-cpm-hidden-visible-common-ack'
+                || proof.roster!=['capture-omission','exceptional-cleanup','reference-body-numeric','hidden-visible-common-ack'])
+            throw new IllegalStateException('Canonical submission completion is missing or incomplete')
+    }
+
+    private boolean submissionCapture
+    private boolean submissionCaptureComplete
+    private String submissionLoader
+
     @TaskAction void verify() {
+        if (nativeBodyProof.isPresent() != nativeBodyProfile.isPresent() || nativeBodyProof.isPresent() != nativeBodyLoader.isPresent())
+            throw new IllegalStateException('Native BODY proof/profile/loader task binding is incomplete')
+        if (nativeBodyProof.isPresent()) {
+            def proof = new groovy.json.JsonSlurper().parse(nativeBodyProof.get().asFile)
+            validateNativeCompletion(proof,nativeBodyProfile.get(),nativeBodyLoader.get())
+        }
         File work = workDirectory.get().asFile
         project.delete(work)
         File compiled = new File(work, 'classes')
@@ -45,6 +87,18 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
             }
         }
         if (cpm.size() != 1) throw new IllegalStateException('Expected one pinned CPM compile API')
+        submissionCapture = inputs.any { File input ->
+            if (input.isDirectory()) return new File(input, 'com/naocraftlab/skins/compat/client/identifier/submission/SubmissionPreviewRenderer.class').isFile()
+            input.name.endsWith('.jar') && new ZipFile(input).withCloseable { zip ->
+                zip.getEntry('com/naocraftlab/skins/compat/client/identifier/submission/SubmissionPreviewRenderer.class') != null
+            }
+        }
+        boolean aw=new ZipFile(cpm.first()).withCloseable { it.getEntry('cpm.accesswidener')!=null }
+        boolean at=new ZipFile(cpm.first()).withCloseable { it.getEntry('META-INF/accesstransformer.cfg')!=null }
+        boolean neoRuntime=inputs.any { file -> file.isFile() && file.name.endsWith('.jar') && new ZipFile(file).withCloseable { it.getEntry('net/neoforged/neoforge/client/event/RenderPlayerEvent.class')!=null } }
+        submissionLoader=selectSubmissionLoader(submissionCapture,aw,at,neoRuntime)
+        submissionCapture=submissionLoader!=null
+        submissionCaptureComplete=false
         String modelPart='net/minecraft/client/model/geom/ModelPart'
         boolean extendable=new ZipFile(cpm.first()).withCloseable { zip ->
             ['cpm.accesswidener', 'META-INF/accesstransformer.cfg'].any { resource ->
@@ -260,6 +314,65 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
             runProbe(work, 'raw-behavior', [previewResourceTransforms, new File(work, 'raw-transformed'), new File(work, 'transformed')] + rawClasspath,
                     'CpmRawSourceProbe', [rawFamily, carrierFixtures.get().asFile.absolutePath, new File(work, 'raw-config.json').path])
         }
+        if (submissionCapture) {
+            File nativeClasses = new File(work, 'submission-capture-classes'); nativeClasses.mkdirs()
+            File nativeSdk = inputs.find { File input ->
+                input.isFile() && input.name.endsWith('.jar') && new ZipFile(input).withCloseable { zip ->
+                    zip.getEntry('net/minecraft/client/renderer/entity/LivingEntityRenderer.class') != null
+                }
+            }
+            if (nativeSdk == null) throw new IllegalStateException('Selected submission SDK is missing')
+            File lwjgl = inputs.find { it.name ==~ /lwjgl-[0-9]+\.[0-9]+\.[0-9]+\.jar/ }
+            if (lwjgl == null) throw new IllegalStateException('Selected submission LWJGL dependency is missing')
+            String lwjglVersion = lwjgl.name.substring('lwjgl-'.length(), lwjgl.name.length() - '.jar'.length())
+            String os = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+            boolean arm = System.getProperty('os.arch') in ['aarch64', 'arm64']
+            String classifier = os.contains('mac') ? (arm ? 'natives-macos-arm64' : 'natives-macos') :
+                    os.contains('win') ? (arm ? 'natives-windows-arm64' : 'natives-windows') :
+                    (arm ? 'natives-linux-arm64' : 'natives-linux')
+            def platform = project.configurations.detachedConfiguration(*['lwjgl', 'lwjgl-stb', 'lwjgl-jemalloc'].collect {
+                project.dependencies.create("org.lwjgl:${it}:${lwjglVersion}:${classifier}")
+            })
+            platform.transitive = false
+            List<File> nativePlatform = platform.files.toList()
+            List<File> nativeClasspath = [nativeSdk, compiled, new File(probe, 'resources')] + runtimeMixins + probeClasspath.files + inputs + nativePlatform
+            List<File> nativeSources = project.fileTree(new File(probe, 'nativeMeasurement/submission/java')).matching { include '**/*.java' }.files.sort { it.path }
+            if (nativeSources.size() != 3) throw new IllegalStateException('Submission CPU fixture source closure is incomplete')
+            nativeSources += new File(probe,'nativeMeasurement/java/com/naocraftlab/skins/buildlogic/probe/FixtureCleanup.java')
+            if (submissionLoader=='neoforge') nativeSources += new File(probe,'nativeMeasurement/immediate/neoforge/java/com/naocraftlab/skins/buildlogic/probe/NeoImmediateEvents.java')
+            int nativeResult = ToolProvider.systemJavaCompiler.run(null, System.out, System.err,
+                    (['-proc:none', '--release', '17', '-classpath', nativeClasspath*.path.join(File.pathSeparator), '-d', nativeClasses.path] + nativeSources*.path) as String[])
+            if (nativeResult != 0) throw new IllegalStateException('Submission CPU fixture compilation failed')
+            File nativeInputs = new File(work, 'submission-capture-inputs')
+            runProbe(work, 'submission-capture-setup', [nativeClasses] + nativeClasspath,
+                    'SubmissionCaptureSetup', [nativeInputs.path, nativeClasses.path])
+            runProbe(work,'submission-cleanup',[nativeInputs,nativeClasses]+hostClasspath+nativePlatform,
+                    'CpmBehaviorProbe',[new File(work,'submission-cleanup-config.json').path,carrierFixtures.get().asFile.path,'submission-capture'],
+                    ['--enable-native-access=ALL-UNNAMED','-Dnclskins.cpm.submissionCapture=true','-Dnclskins.cpm.submissionCleanup=true'])
+            if (!new File(work,'submission-cleanup.log').text.contains('PASS SUBMISSION_CLEANUP exact unregister failure restores borrowed state and closes owned resources'))
+                throw new IllegalStateException('Submission exceptional cleanup was not executed')
+            File omitted=new File(work,'submission-omitted-inputs')
+            runProbe(work,'submission-omission-setup',[nativeClasses]+nativeClasspath,'SubmissionCaptureSetup',[omitted.path,nativeClasses.path,'omit-vertices'])
+            runProbe(work,'submission-omission',[omitted,nativeClasses]+hostClasspath+nativePlatform,'CpmBehaviorProbe',
+                    [new File(work,'submission-omission-config.json').path,carrierFixtures.get().asFile.path,'submission-capture'],
+                    ['--enable-native-access=ALL-UNNAMED','-Dnclskins.cpm.submissionCapture=true'],
+                    'java.lang.AssertionError: actual native reference and BODY captures emit vertices')
+            String omission=new File(work,'submission-omission.log').text
+            if (!(omission =~ /SUBMISSION_CAPTURE_WITNESS roots=[1-9][0-9]* draws=[1-9][0-9]* captures=0 capturedVertices=0 creates=0 persisted=ABSENT/).find())
+                throw new IllegalStateException('Submission omission did not reach genuine geometry with absent numeric fit')
+            runProbe(work, 'submission-capture-behavior', [nativeInputs, nativeClasses] + hostClasspath + nativePlatform,
+                    'CpmBehaviorProbe', [new File(work, 'submission-capture-config.json').path,
+                    carrierFixtures.get().asFile.absolutePath, 'submission-capture'],
+                    ['--enable-native-access=ALL-UNNAMED', '-Dnclskins.cpm.submissionCapture=true'])
+            String positive=new File(work,'submission-capture-behavior.log').text
+            if (!positive.contains('PASS SUBMISSION_CPM actual native reference/BODY/numeric -> own hidden image/material/fence -> visible image/fence/common ACK'))
+                throw new IllegalStateException('Submission own CPM image flow is incomplete')
+            def completion=[status:'PASS',profile:'submission-1.21.11',loader:submissionLoader,producer:'genuine-native-mesh',consumer:'own-cpm-hidden-visible-common-ack',
+                    roster:['capture-omission','exceptional-cleanup','reference-body-numeric','hidden-visible-common-ack']]
+            validateSubmissionCompletion(completion,submissionLoader)
+            new File(work,'submission-completion.json').text=groovy.json.JsonOutput.toJson(completion)
+            submissionCaptureComplete=true
+        }
         if (rawFamily == null) {
             File seams = new File(work, 'material-host'); seams.mkdirs()
             File fixture = new File(work, 'material-fixture'); fixture.mkdirs()
@@ -327,16 +440,12 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
             List<File> mutationClasspath = [mutation, previewResourceTransforms, new File(work, 'transformed')] + hostClasspath
             File mutationLog = new File(work, 'accessory-mutation-' + boundary + '.log')
             File mutationTemp = new File(work, 'tmp-accessory-mutation-' + boundary); mutationTemp.mkdirs()
-            Process mutated = new ProcessBuilder([new File(System.getProperty('java.home'), 'bin/java').path,
+            List<String> mutationCommand = [new File(System.getProperty('java.home'), 'bin/java').path,
                     '-Djava.awt.headless=true', '-Dmax.bg.threads=1', '-Djava.io.tmpdir=' + mutationTemp.absolutePath,
                     '-cp', mutationClasspath*.absolutePath.join(File.pathSeparator),
                     'com.naocraftlab.skins.buildlogic.probe.CpmBehaviorProbe', new File(work, 'mutation-' + boundary + '-config.json').path,
-                    carrierFixtures.get().asFile.absolutePath]).redirectErrorStream(true).redirectOutput(mutationLog).start()
-            boolean mutationFinished = mutated.waitFor(60, TimeUnit.SECONDS)
-            if (!mutationFinished) mutated.destroyForcibly()
-            if (!mutationFinished || mutated.exitValue() == 0 || !mutationLog.text.contains(expected[1]))
-                throw new IllegalStateException('Accessory behavior probe did not reject missing production ' + boundary + ' gate')
-            logger.lifecycle('Accessory mutation rejected: bypassing the production ' + boundary + ' gate fails behavior')
+                    carrierFixtures.get().asFile.absolutePath]
+            runMutation(mutationCommand, mutationLog, boundary, expected[1])
         }
         runProbe(work, 'owned-preview-resource-dispatch',
                 [previewResourceTransforms, new File(work, 'transformed'), modelGuard] + hostClasspath,
@@ -371,7 +480,12 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
     }
 
     private void runProbe(File work, String label, List<File> classpath, String main, List<String> args,
-            List<String> properties = []) {
+            List<String> properties = [], String expectedFailure = null) {
+        if (main == 'CpmBehaviorProbe' && nativeBodyProof.isPresent()
+                && nativeBodyProfile.get() in ['staged','immediate-26.1','immediate-26.1-neoforge','staged-26.3-fabric','staged-26.3-neoforge'])
+            properties = properties + ['-Dnclskins.cpm.extractionImageProof=true']
+        if (main == 'CpmBehaviorProbe' && args.size() == 2 && submissionCaptureComplete) properties = properties + ['-Dnclskins.cpm.submissionCaptureDeferred=true']
+        if (main == 'CpmBehaviorProbe' && args.size() == 2 && nativeBodyProof.isPresent()) args = args + ['protocol']
         File output = new File(work, label + '.log')
         File temp = new File(work, 'tmp-' + label)
         if (!temp.mkdirs()) throw new IllegalStateException('CPM probe temporary directory is not fresh: ' + label)
@@ -379,11 +493,33 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
                 '-Djava.awt.headless=true', '-Dmax.bg.threads=1', '-Djava.io.tmpdir=' + temp.absolutePath] + properties +
                 ['-cp', classpath*.absolutePath.join(File.pathSeparator), 'com.naocraftlab.skins.buildlogic.probe.' + main] + args
         new File(work, label + '-command.json').text = groovy.json.JsonOutput.toJson(command)
-        Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true).redirectOutput(output).start()
-        boolean finished = process.waitFor(60, TimeUnit.SECONDS)
-        if (!finished) process.destroyForcibly()
-        logger.lifecycle(output.getText('UTF-8').trim())
-        if (!finished || process.exitValue() != 0) throw new IllegalStateException('Native CPM probe failed: ' + label)
+        Process process = startCpmProcess(command, output)
+        int exit = CompositionProcess.await(process, 60_000L, 5_000L)
+        IllegalStateException failure = exit != 0 ? new IllegalStateException('Native CPM probe failed: ' + label) : null
+        try {
+            logger.lifecycle(output.getText('UTF-8').trim())
+        } catch (Throwable reporting) {
+            if (failure == null) throw reporting
+            failure.addSuppressed(reporting)
+        }
+        if (expectedFailure != null) {
+            String text=output.text
+            if (exit==0 || !text.contains(expectedFailure) || text.contains('LinkageError') || text.contains('Caused by:') || text.contains('Suppressed:'))
+                throw new IllegalStateException('Expected exact clean native sensitivity failure: '+label)
+            return
+        }
+        if (failure != null) throw failure
+    }
+
+    protected Process startCpmProcess(List<String> command, File output) {
+        new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(output).start()
+    }
+
+    protected void runMutation(List<String> command, File output, String boundary, String expected) {
+        Process mutated = startCpmProcess(command, output)
+        int exit = CompositionProcess.await(mutated, 60_000L, 5_000L)
+        if (exit == 0 || !output.text.contains(expected))
+            throw new IllegalStateException('Accessory behavior probe did not reject missing production ' + boundary + ' gate')
+        logger.lifecycle('Accessory mutation rejected: bypassing the production ' + boundary + ' gate fails behavior')
     }
 }

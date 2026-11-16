@@ -17,6 +17,7 @@ public final class EffectiveSkinSource {
     private final int[] pixels;
     private final List<Runnable> retirement = new ArrayList<>();
     private volatile boolean retired;
+    private com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements bodyRequirements;
     private volatile CpmAccessoryObservation accessories = CpmAccessoryObservation.unknown();
     private long observer;
 
@@ -55,6 +56,11 @@ public final class EffectiveSkinSource {
     public boolean preview() { return preview; }
     public boolean active() { return !retired; }
     public int[] pixels() { return pixels == null ? null : pixels.clone(); }
+    synchronized com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements bodyRequirements(
+            java.util.function.Supplier<com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements> classifier) {
+        if (bodyRequirements == null) bodyRequirements = classifier.get();
+        return bodyRequirements;
+    }
     long revision() { return revision; }
 
     public AutoCloseable onRetirement(Runnable action) {

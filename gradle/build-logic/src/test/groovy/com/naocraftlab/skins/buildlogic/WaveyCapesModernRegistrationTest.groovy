@@ -12,6 +12,61 @@ import static org.junit.jupiter.api.Assertions.*
 class WaveyCapesModernRegistrationTest {
     @TempDir File temporary
 
+    @org.junit.jupiter.api.Test
+    void submissionProjectionContractRejectsIncompleteDepthInputs() {
+        File javaHome = new File(TargetRuntime.resolveJavaHome(21))
+        File sources = new File('../../gradle/build-logic/src/waveyLoaderComposition').canonicalFile
+        File output = new File(temporary, 'projection-contract')
+        assertTrue(output.mkdirs())
+        List<File> tooling = [ClassReader, ClassNode, org.objectweb.asm.commons.ClassRemapper].collect {
+            new File(it.protectionDomain.codeSource.location.toURI())
+        }.unique()
+        String classpath = tooling*.absolutePath.join(File.pathSeparator)
+        List<String> arguments = [new File(javaHome, 'bin/javac').absolutePath, '-proc:none', '--release', '21',
+                '-cp', classpath, '-d', output.absolutePath]
+        List<File> terminals = []
+        new File(sources, 'terminal').eachFileRecurse(groovy.io.FileType.FILES) { if (it.name.endsWith('.java')) terminals.add(it) }
+        arguments.addAll(terminals*.absolutePath)
+        arguments.add(new File(sources, 'contract/java/com/naocraftlab/skins/buildlogic/contract/SubmissionPreviewContract.java').absolutePath)
+        File compilerLog = new File(temporary, 'projection-compile.log')
+        def compiler = new ProcessBuilder(arguments).redirectErrorStream(true).redirectOutput(compilerLog).start()
+        assertEquals(0, CompositionProcess.await(compiler, 60_000L, 5_000L), compilerLog.text)
+        String owner = 'com/naocraftlab/skins/buildlogic/probe/wavey/SubmissionRawInputs$Projection'
+        ClassNode positive = new ClassNode()
+        positive.version = Opcodes.V17; positive.access = Opcodes.ACC_PUBLIC
+        positive.name = owner; positive.superName = 'java/lang/Object'
+        positive.interfaces.add('com/naocraftlab/skins/compat/client/identifier/measurement/PipDepthProjection$Buffer')
+        [['<init>', '(Ljava/lang/String;FFZ)V'], ['getBuffer', '(FF)Lcom/mojang/blaze3d/buffers/GpuBufferSlice;'], ['close', '()V']].each {
+            positive.methods.add(new MethodNode(Opcodes.ACC_PUBLIC, it[0], it[1], null, null))
+        }
+        def setter = new MethodNode(Opcodes.ACC_PUBLIC, 'nclskins$depthExtent', '(F)V', null, null)
+        setter.visitVarInsn(Opcodes.ALOAD, 0); setter.visitVarInsn(Opcodes.FLOAD, 1)
+        setter.visitFieldInsn(Opcodes.PUTFIELD, owner, 'depthExtent', 'F'); setter.visitInsn(Opcodes.RETURN)
+        positive.methods.add(setter)
+        Map<String, Closure> mutations = [positive: {}, missingInterface: { it.interfaces.clear() },
+                missingSetter: { it.methods.removeIf { m -> m.name == 'nclskins$depthExtent' } },
+                wrongDescriptor: { it.methods.find { m -> m.name == 'nclskins$depthExtent' }.desc = '(D)V' },
+                wrongBufferDescriptor: { it.methods.find { m -> m.name == 'getBuffer' }.desc = '(FF)Ljava/lang/Object;' },
+                wrongForwarding: { node ->
+                    def method = node.methods.find { it.name == 'nclskins$depthExtent' }
+                    def load = method.instructions.toArray().find { it.opcode == Opcodes.FLOAD }
+                    method.instructions.set(load, new InsnNode(Opcodes.FCONST_0))
+                }]
+        mutations.each { String name, Closure mutation ->
+            ClassNode node = new ClassNode(); positive.accept(node); mutation(node)
+            ClassWriter writer = new ClassWriter(0); node.accept(writer)
+            File input = new File(temporary, name + '.class'); input.bytes = writer.toByteArray()
+            File log = new File(temporary, name + '.log')
+            def process = new ProcessBuilder(new File(javaHome, 'bin/java').absolutePath, '-cp', output.absolutePath + File.pathSeparator + classpath,
+                    'com.naocraftlab.skins.buildlogic.contract.SubmissionPreviewContract', '--projection-abi', input.absolutePath)
+                    .redirectErrorStream(true).redirectOutput(log).start()
+            int exit = CompositionProcess.await(process, 30_000L, 5_000L)
+            assertEquals(name == 'positive' ? 0 : 1, exit, name + ': ' + log.text)
+            if (name != 'positive') assertTrue(log.text.contains(name == 'missingInterface' ? 'SUBMISSION_PROJECTION_DEPTH_INTERFACE' :
+                    name == 'wrongForwarding' ? 'SUBMISSION_PROJECTION_VALUE_FORWARDING' : 'SUBMISSION_PROJECTION_ABI'), name + ': ' + log.text)
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(strings = ['neoforge-1.21.11', 'neoforge-26.1', 'neoforge-26.2', 'neoforge-26.3',
             'neoforge-1.21.11|prepare', 'neoforge-26.1|prepare', 'neoforge-26.2|prepare', 'neoforge-26.3|prepare'])
@@ -275,6 +330,59 @@ class WaveyCapesModernRegistrationTest {
         connectedOnly.commands.removeIf { it.name == 'isolated-production-abi' }
         def failure = assertThrows(IllegalStateException) { guards.completeDirect(connectedOnly) }
         assertTrue(failure.message.contains('mandatory proof kinds'), failure.message)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ['neoforge-26.1'])
+    void isolatedAbiAcceptsOnlyExactLauncherPreambleBeforeBinding(String target) {
+        Map fixture = runtimeFixture(target)
+        Map stage = fixture.isolated
+        WaveyCompositionGuards.verifyAbi(stage)
+        rewriteAbiLog(stage) { ['Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/admitted/scratch'] + it }
+        WaveyCompositionGuards.verifyAbi(stage)
+        assertEquals('PASS', fixture.guards.completeDirect(stage))
+        fixture.composition.guardReceipt.get().asFile.text = groovy.json.JsonOutput.toJson(stage)
+        assertEquals('PASS', fixture.composition.completeDirect(fixture.receipt))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ['neoforge-26.1'])
+    void launcherPreamblePreservesAbiAdmissionNegatives(String target) {
+        Map fixture = runtimeFixture(target)
+        Map base = fixture.isolated
+        rewriteAbiLog(base) { ['Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/admitted/scratch'] + it }
+        File log = new File(base.commands.find { it.name == 'isolated-production-abi' }.log)
+        byte[] original = log.bytes
+        Map cases = [
+                wrongBinding: ['ABI binding/close marker', { l -> l[1]='ABI_BINDING_PASS '+('0'*64); l }],
+                duplicateBinding: ['ABI binding/close marker', { l -> l.add(2,l[1]); l }],
+                missingBinding: ['ABI binding/close marker', { l -> l.remove(1); l }],
+                prebindingEvent: ['ABI receipt ordering', { l -> l.add(1,'ABI_UNKNOWN foreign'); l }],
+                prebindingGarbage: ['ABI receipt ordering', { l -> l.add(1,'unexpected output'); l }],
+                malformedNotice: ['ABI receipt ordering', { l -> l[0]='Picked up JAVA_TOOL_OPTIONS:-Djava.io.tmpdir=/x'; l }],
+                indentedNotice: ['ABI receipt ordering', { l -> l[0]=' '+l[0]; l }],
+                duplicateNotice: ['ABI receipt ordering', { l -> l.add(1,l[0]); l }],
+                earlyClose: ['ABI receipt ordering', { l -> l.remove('ISOLATED_PRODUCTION_ABI_CLOSED_PASS'); l.add(2,'ISOLATED_PRODUCTION_ABI_CLOSED_PASS'); l }],
+                duplicateClose: ['ABI binding/close marker', { l -> l.add('ISOLATED_PRODUCTION_ABI_CLOSED_PASS'); l }],
+                missingPass: ['ABI cell roster/cleanup', { l -> l.remove('ABI_CELL_PASS supported'); l }],
+                missingCleanup: ['ABI cell roster/cleanup', { l -> l.remove('ABI_CELL_CLEANUP_PASS supported'); l }],
+                missingClosed: ['ABI cell roster/cleanup', { l -> l.remove('ABI_CELL_CLOSED supported'); l }],
+                reorderedLifecycle: ['ABI receipt ordering', { l -> Collections.swap(l,l.indexOf('ABI_CELL_PASS supported'),l.indexOf('ABI_CELL_CLEANUP_PASS supported')); l }],
+                duplicateLifecycle: ['ABI cell roster/cleanup', { l -> l.add(2,'ABI_CELL_CLEANUP_PASS supported'); l }],
+                unknownRecord: ['ABI extra record/cell', { l -> l.add(l.size()-1,'ABI_UNKNOWN foreign'); l }],
+                provenance: ['ABI definition carrier', { l -> l.collect { it.startsWith('ABI_DEFINE ') ? it.replace(' production ', ' parent-resource ') : it } }]]
+        cases.each { label, test ->
+            Map changed = new JsonSlurper().parseText(groovy.json.JsonOutput.toJson(base)) as Map
+            try {
+                rewriteAbiLog(changed, test[1] as Closure)
+                def failure = assertThrows(IllegalStateException, { WaveyCompositionGuards.verifyAbi(changed) }, label)
+                assertTrue(failure.message.contains(test[0]), label+': '+failure.message)
+            } finally { log.bytes = original }
+        }
+        Map corrupt = new JsonSlurper().parseText(groovy.json.JsonOutput.toJson(base)) as Map
+        corrupt.commands.find { it.name == 'isolated-production-abi' }.sha256 = '0'*64
+        def failure = assertThrows(IllegalStateException) { WaveyCompositionGuards.verifyAbi(corrupt) }
+        assertTrue(failure.message.contains('ABI log binding'))
     }
 
     @ParameterizedTest

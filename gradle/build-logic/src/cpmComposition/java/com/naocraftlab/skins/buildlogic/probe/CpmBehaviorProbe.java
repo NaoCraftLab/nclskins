@@ -119,6 +119,7 @@ public final class CpmBehaviorProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        try (var nativeMeasurement = CpmExtractionBodyProbe.measurementScope()) {
         initializeHost(new File(args[0]));
         UUID profileControl = new UUID(0, 811);
         check(nativeProfileId(profileControl) == profileControl, "raw profile UUID is preserved");
@@ -144,6 +145,11 @@ public final class CpmBehaviorProbe {
                         java.nio.file.Files.readAllBytes(new File(args[1], "classic-a.png").toPath()));
                 var registration = CapeProjection.installEvents(events())) {
             gallery = ownedGallery;
+            if (args.length > 2 && args[2].equals("submission-capture")) {
+                if (!Boolean.getBoolean("nclskins.cpm.submissionCapture")) throw new AssertionError("submission capture preparation is required");
+                CpmBakedDisplayProbe.submissionCpmImage(gallery);
+                return;
+            }
             if(args.length>2 && args[2].equals("loading-canonical")) {
                 var appearance = new PreviewRenderer.PreviewAppearance(new TextureHandle("fixture:body-readiness",64,64),SkinModel.CLASSIC,Optional.empty(),PreviewRenderer.CapeMode.OFF,true);
                 CpmBakedDisplayProbe.loadingCanonical = true;
@@ -169,7 +175,7 @@ public final class CpmBehaviorProbe {
             frameRetirement();
             CpmMaterialBoundaryProbe.sharedSheets(loader, world, registration);
             CpmAccessoryProbe.run(loader, world, registration, new File(args[1]));
-            nonDrawingBodyReadinessAndPreviewStatus();
+            if (args.length < 3 || !args[2].equals("protocol")) nonDrawingBodyReadinessAndPreviewStatus();
             imageReadiness();
             CpmMaterialBoundaryProbe.sneakyPreview(loader, new File(args[1]));
             if (Boolean.getBoolean("nclskins.cpm.materialProbe")) {
@@ -184,11 +190,13 @@ public final class CpmBehaviorProbe {
         MinecraftCapeFallbackProbe.lifecycle(loader, CpmBehaviorProbe::drain, new File(args[1]));
         lateDecodeCannotSignalNewConnection();
         System.out.println("Transformed CPM behavior passed: textures, priority, subject policy, packets, decode/resolve/frame retirement");
+        }
     }
 
     private static void imageReadiness() throws Exception {
         var appearance=new PreviewRenderer.PreviewAppearance(new TextureHandle("fixture:body-readiness",64,64),SkinModel.CLASSIC,Optional.empty(),PreviewRenderer.CapeMode.OFF,true);
-        CpmExtractionBodyProbe.cpmImage(appearance,gallery);
+        if (!Boolean.getBoolean("nclskins.cpm.extractionImageProof"))
+            CpmExtractionBodyProbe.cpmImage(appearance,gallery);
         CpmBakedDisplayProbe.submissionCpmImage(gallery);
         CpmPreviewScopeProbe.cpmImage(appearance,gallery);
     }
@@ -265,6 +273,7 @@ public final class CpmBehaviorProbe {
                 + " currentRole=" + player.isClientPlayer() + " currentSubject=" + player.getUUID().equals(world.getUUID()));
         check(definition instanceof OwnedCpmDefinition && definition.doRender()
                 && java.util.Arrays.equals(source.pixels(), image.getData()), "own selected Gallery pixels decode and resolve through pinned CPM");
+        CpmExtractionBodyProbe.measurementPlayers.put(profile, player);
         Object primary = new Object();
         var manager = new com.tom.cpm.shared.model.render.ModelRenderManager<Object, Object, Object, Object>() {{
             var holder = new RedirectHolder<Object, Object, Object, Object>(this, primary) {
@@ -445,9 +454,18 @@ public final class CpmBehaviorProbe {
                         && (NET.preview.get() + NET.world.get() + NET.events.get()) == packetsBefore,
                 "native body producers create no resolution, resource or network demand");
         var refreshedSource = CapeProjection.effectiveSkin(id, id, appearance.skin().location(), appearance.model(), true);
-        ((CpmPlayerAccess) (Object) player).nclskins$source(refreshedSource);
-        var exceptional = new ModelDefinition(new IllegalStateException("synthetic-private-error"), player);
-        player.setModelDefinition(CompletableFuture.completedFuture(exceptional), false);
+        drain();
+        Player<?> refreshedPlayer = loader.loadPlayer(id, ModelDefinitionLoader.PLAYER_UNIQUE);
+        check(refreshedSource != null && refreshedSource.active()
+                        && CpmIntegration.source(refreshedPlayer) == refreshedSource,
+                "exceptional fixture uses the current source and actual loader-owned player after native producer retirement");
+        var exceptional = new ModelDefinition(new IllegalStateException("synthetic-private-error"), refreshedPlayer);
+        var exceptionalFuture = CompletableFuture.completedFuture(exceptional);
+        refreshedPlayer.setModelDefinition(exceptionalFuture, false);
+        check(loader.loadPlayer(id, ModelDefinitionLoader.PLAYER_UNIQUE) == refreshedPlayer
+                        && refreshedPlayer.getDefinitionFuture().getNow(null) == exceptional
+                        && refreshedPlayer.getModelDefinition0() == exceptional,
+                "non-owned exceptional definition belongs to the actual current loader receiver, not the retired fixture player");
         check(CpmIntegration.preparePreview(id, appearance).status() == PreviewRenderer.BodyStatus.FAILED,
                 "non-owned exceptional native definition is failed, never body-ready");
         var manager = new com.tom.cpm.shared.model.RenderManager<UUID, Object, Object, Object>(null, loader, value -> (UUID) value);
@@ -1165,7 +1183,7 @@ public final class CpmBehaviorProbe {
         };
     }
 
-    private static void drain() { Runnable task; while ((task = GAME.poll()) != null) task.run(); }
+    static void drain() { Runnable task; while ((task = GAME.poll()) != null) task.run(); }
     private static com.tom.cpm.shared.skin.TextureProvider trackedTexture(AtomicInteger freed) {
         return new com.tom.cpm.shared.skin.TextureProvider() {
             @Override public void free() { freed.incrementAndGet(); }

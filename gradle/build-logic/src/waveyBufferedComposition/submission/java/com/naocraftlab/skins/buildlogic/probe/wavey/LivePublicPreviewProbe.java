@@ -131,7 +131,7 @@ public final class LivePublicPreviewProbe {
                 SubmissionRawInputs.set(GameRenderer.class, game, "featureRenderDispatcher", features);
                 int calls = layer.calls, geometry = BufferedCapeHost.geometry;
                 try (LivePreviewRenderer consumer = new LivePreviewRenderer(buffers);
-                        var frame = com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.open()) {
+                        var frame = com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.open(LivePublicPreviewProbe.class)) {
                     consumer.prepare(emitted, gui, 1);
                     List<net.minecraft.client.gui.render.state.BlitRenderState> blits = new ArrayList<>();
                     gui.forEachElement(element -> { if (element instanceof net.minecraft.client.gui.render.state.BlitRenderState blit) blits.add(blit); }, GuiRenderState.TraverseRange.ALL);

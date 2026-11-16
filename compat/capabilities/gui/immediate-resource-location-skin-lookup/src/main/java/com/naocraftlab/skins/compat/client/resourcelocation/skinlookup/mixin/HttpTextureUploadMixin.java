@@ -1,7 +1,7 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.mixin;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import com.naocraftlab.skins.client.NativeTextureUploadTracker;
+import com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.RegisteredSkinTexture;
 import net.minecraft.client.renderer.texture.HttpTexture;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -14,6 +14,6 @@ abstract class HttpTextureUploadMixin {
             method = "upload(Lcom/mojang/blaze3d/platform/NativeImage;)V",
             at = @At("TAIL"))
     private void nclskins$markNativePlayerSkinReady(NativeImage image, CallbackInfo callback) {
-        NativeTextureUploadTracker.uploaded(this);
+        ((RegisteredSkinTexture) this).nclskins$uploadedSkinTexture();
     }
 }

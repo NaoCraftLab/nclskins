@@ -20,6 +20,7 @@ public final class NclBakedPlayerTarget implements AutoCloseable {
             if (closed) throw new IllegalStateException("Dispatcher is closed");
             ContextOwner next = CONTEXTS.computeIfAbsent(java.util.Objects.requireNonNull(state), ignored -> new ContextOwner());
             if (next.closed) throw new IllegalStateException("GUI context is closed");
+            com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.own(next);
             if (owner != next) {
                 ContextOwner previous = owner;
                 next.participants++;
@@ -40,7 +41,7 @@ public final class NclBakedPlayerTarget implements AutoCloseable {
         }
     }
 
-    public static final class ContextOwner {
+    public static final class ContextOwner implements AutoCloseable {
         private final Set<NclBakedPlayerTarget> targets = Collections.newSetFromMap(new WeakHashMap<>());
         private int participants;
         private boolean closed;
@@ -56,8 +57,11 @@ public final class NclBakedPlayerTarget implements AutoCloseable {
             return resource;
         }
 
-        private void leave() {
-            if (--participants != 0) return;
+        private void leave() { participants--; }
+
+        @Override
+        public void close() {
+            if (closed) return;
             closed = true;
             var retired = new ArrayList<>(targets);
             targets.clear();

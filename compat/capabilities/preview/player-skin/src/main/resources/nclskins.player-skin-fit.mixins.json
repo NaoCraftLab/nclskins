@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.naocraftlab.skins.compat.client.resourcelocation.skinlookup.mixin",
+  "client": ["PlayerSkinBufferFitMixin", "PlayerSkinCapeFitMixin", "PlayerSkinElytraFitMixin", "PlayerSkinPoseFitMixin"],
+  "injectors": {"defaultRequire": 1}
+}

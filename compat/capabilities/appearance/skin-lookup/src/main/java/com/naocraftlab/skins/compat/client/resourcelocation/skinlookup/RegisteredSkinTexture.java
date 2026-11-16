@@ -7,4 +7,8 @@ public interface RegisteredSkinTexture {
     void nclskins$registeredSkinLocation(ResourceLocation location);
 
     void nclskins$skinRegistration(NativePlayerSkinLifecycle.Registration registration);
+
+    void nclskins$admittedSkinTexture();
+
+    void nclskins$uploadedSkinTexture();
 }

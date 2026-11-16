@@ -14,6 +14,21 @@ final class PreviewInteractionModelTest {
     private static final Bounds PREVIEW = new Bounds(10, 10, 100, 180);
 
     @Test
+    void newEditorSessionStartsAtLogicalUnitZoomAtEveryViewportHeight() {
+        for (int height : new int[]{180, 240, 480, 1080}) {
+            PreviewInteractionModel model = PreviewInteractionModel.editor(
+                    height, PreviewRenderer.CapeMode.CAPE);
+
+            assertEquals(1.0F, model.scale(), "initial user zoom at height " + height);
+            assertEquals(-22.0F, model.yawDegrees());
+            assertEquals(-5.0F, model.pitchDegrees());
+            assertEquals(PreviewRenderer.CapeMode.CAPE, model.capeMode());
+            assertEquals(OuterLayerVisibility.allVisible(), model.outerLayerVisibility());
+            assertFalse(model.rotating());
+        }
+    }
+
+    @Test
     void clippedGalleryPreviewCannotCapturePointerOutsideItsClip() {
         var s=TestFixtures.ready(TestFixtures.account(1),null,0);
         var view=new GalleryPresenter().present(s,320,180,0,0,com.naocraftlab.skins.client.PreviewRenderer.CapeMode.CAPE);

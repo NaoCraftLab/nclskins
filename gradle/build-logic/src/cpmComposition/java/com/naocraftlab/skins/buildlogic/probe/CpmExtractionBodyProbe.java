@@ -70,6 +70,13 @@ public final class CpmExtractionBodyProbe {
     private static final java.util.List<TextureView> materials = new java.util.ArrayList<>();
     private static TextureView lastMaterial;
     static Runnable blitBoundary = () -> {};
+    public static java.util.function.Predicate<Avatar> measurement = ignored -> false;
+    public static java.util.function.LongSupplier galleryClock = System::nanoTime;
+    static final Map<java.util.UUID, Object> measurementPlayers = new HashMap<>();
+    static AutoCloseable measurementScope() throws Exception {
+        if (!Boolean.getBoolean("nclskins.cpm.nativeMeasurement")) return () -> {};
+        return (AutoCloseable)Class.forName("com.naocraftlab.skins.buildlogic.probe.CpmNativeMeasurementBackend").getMethod("scope").invoke(null);
+    }
     private static Consumer<Object[]> retainedPrepare;
     private static Consumer<Object[]> retainedInner;
     private static Consumer<Object[]> retainedFrame;
@@ -79,11 +86,14 @@ public final class CpmExtractionBodyProbe {
     private static Object sharedBackend;
     private static boolean shareBackend;
     private static boolean consumerFinished;
+    static Consumer<ClassNode> rendererOperands = ignored -> {};
     private static boolean requireConsumerFence;
     private static int fenceFailures;
 
 
     static void bodyProducer(PreviewRenderer.PreviewAppearance appearance, Runnable binding, Runnable cleanupFailure, com.naocraftlab.skins.runtime.GalleryNativePassFixture gallery) throws Exception {
+        if (Boolean.getBoolean("nclskins.cpm.nativeMeasurement"))
+            Class.forName("com.naocraftlab.skins.buildlogic.probe.CpmNativeMeasurementBackend").getMethod("install").invoke(null);
         if (CpmExtractionBodyProbe.class.getClassLoader().getResource(PREFIX.replace('.', '/') + "AvatarPreviewContext.class") == null) return;
         PreviewModelFrames.install(value -> {
             var frame = com.naocraftlab.skins.compat.cpm.CpmFrame.open(value);
@@ -443,6 +453,27 @@ public final class CpmExtractionBodyProbe {
             };
             submit = ignored -> binding.run(); late = () -> {}; passClose = () -> {}; frameClose = () -> {}; afterInner = () -> {}; cached = false;
             prepareBody.invoke(renderer, "fixture:producer-render", false);
+            if (Boolean.getBoolean("nclskins.cpm.fitReference") || CpmExtractionBodyProbe.class.getClassLoader().getResource("nclskins.preview-fit.mixins.json") != null) {
+                Object fitOwner=create(rendererType);
+                for(var field:rendererType.getDeclaredFields()) {
+                    field.setAccessible(true);
+                    Object value=switch(field.getName()) {
+                        case "session" -> new com.naocraftlab.skins.client.EditorPreviewSession();
+                        case "gallerySlots" -> new java.util.LinkedHashMap<>();
+                        case "previewProfile" -> new com.mojang.authlib.GameProfile(java.util.UUID.randomUUID(),"NCLFitControl");
+                        case "bakedRenderer" -> new Baked();
+                        default -> field.get(renderer);
+                    };
+                    field.set(fitOwner,value);
+                }
+                @SuppressWarnings("unchecked") var fittingRenderer = (PreviewRenderer<Graphics>) fitOwner;
+                var preparation = fittingRenderer.prepareModelFit("fixture:producer-render", appearance);
+                check(preparation.isPresent(), "reference actual native renderer admits ordinary model-fit preparation");
+                var fit = preparation.orElseThrow();
+                check(fit.current() && !fit.measure().isDone(), "ordinary fit waits for the actual deferred native geometry pass");
+                fit.close();
+                check(!fit.current(), "native fit retirement revokes admission before native work");
+            }
             render.invoke(renderer, new Graphics(), request);
             check(session.body().status() == PreviewRenderer.BodyStatus.ORDINARY, "actual extraction renderer enqueue does not report displayed READY");
             Consumer<GuiState> execute = state -> {
@@ -800,6 +831,9 @@ public final class CpmExtractionBodyProbe {
     private static void nativeFlickerMaterials(Class<?> rendererType, Object template,
             com.naocraftlab.skins.runtime.GalleryNativePassFixture original, ClassLoader loader,
             Consumer<GuiState> prepare, boolean atomicCape) throws Exception {
+        var previousClock=galleryClock;
+        long[] imageTime={System.nanoTime()};
+        galleryClock=()->imageTime[0];
         try (var subject = cpmImageJoin ? original.freshOwnedCpm() : original.freshOwned();
              var profiles = cpmImageJoin ? CpmBehaviorProbe.nativeProfileScope() : (AutoCloseable)() -> {}) {
             if (atomicCape) subject.localCapes();
@@ -808,7 +842,7 @@ public final class CpmExtractionBodyProbe {
             for (var field : rendererType.getDeclaredFields()) {
                 field.setAccessible(true);
                 if (field.getName().equals("closed")) continue;
-                field.set(renderer, field.getName().equals("session") ? new EditorPreviewSession()
+                field.set(renderer, field.getName().equals("session") ? new EditorPreviewSession(galleryClock)
                         : field.getName().equals("gallerySlots") ? new java.util.LinkedHashMap<>() : field.get(template));
             }
             Class<?> hostType = CpmPreviewScreenSlice.loadNativeLifecycle(PREFIX + "NclSkinsScreen", rendererType);
@@ -903,10 +937,38 @@ public final class CpmExtractionBodyProbe {
                         check(java.util.Arrays.equals(registry.registered.get(own.appearance().skin()), subject.ownedBytes(desired)), "FLICKER own loaded bitmap before native pass");
                         boolean expectedCpm=cpmImageJoin && action.equals("initial");
                         check(desired.bodySource().orElseThrow().cpmExpected()==expectedCpm,"JOIN actual imported source determines CPM/ordinary expectation");
-                        if(expectedCpm) definitions.add(prepareOwnedFeedback(subject,host,rendererType,renderer,own.appearance().skin()));
-                        else submit=ignored -> {};
-                        Graphics.states.clear(); Graphics.strata.clear(); materials.clear();
-                        call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
+                        if(expectedCpm) {
+                            definitions.add(prepareOwnedFeedback(subject,host,rendererType,renderer,own.appearance().skin()));
+                            long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(8);
+                            boolean prepared=false;
+                            while(System.nanoTime()<deadline) {
+                                CpmBehaviorProbe.drain();subject.drainWorkers();
+                                Graphics.states.clear();Graphics.strata.clear();materials.clear();
+                                call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                                Object fitting=ownedField(renderer,"nativeFit");
+                                if(fitting instanceof PreviewRenderer.ModelFitPreparation current && current.current()
+                                        && subject.runtime.previewBodySource(desired).equals(ownedField(fitting,"source"))
+                                        && ownedField(fitting,"fit")!=null) {prepared=true;break;}
+                                var numericStates=new java.util.ArrayList<>(Graphics.states);
+                                if(!numericStates.isEmpty()) {
+                                    consumerControl("normal");
+                                    consumerFrame(loader,()->numericStates.forEach(prepare),CpmExtractionBodyProbe::consumerSubmitted);
+                                    signalConsumers();
+                                }
+                                Object operation=ownedField(subject.runtime,"numericFitOperation");
+                                Object settled=operation==null?null:((java.util.concurrent.CompletableFuture<?>)ownedField(operation,"result")).getNow(null);
+                                check(settled==null || ((com.naocraftlab.skins.runtime.PreviewAssets.NumericFitResult)settled).value()!=null,
+                                        "JOIN own numeric preparation requires genuine captured geometry before image material");
+                                Thread.sleep(1);
+                            }
+                            check(prepared && subject.numericCreates==1 && subject.durableNumericFit().status()
+                                            ==com.naocraftlab.skins.runtime.PreviewModelFitStore.Status.PRESENT,
+                                    "JOIN actual numeric preparation persists its own native measurement before hidden image");
+                        } else {
+                            submit=ignored -> {};
+                            Graphics.states.clear();Graphics.strata.clear();materials.clear();
+                            call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                        }
                         var states = new java.util.ArrayList<>(Graphics.states);
                         check(!states.isEmpty(), "FLICKER actual compiled host emits material input");
                         System.out.println("TRACE FLICKER action=" + action + " queued=" + states.size()
@@ -920,7 +982,9 @@ public final class CpmExtractionBodyProbe {
                             check(!imageSession.imageVisible(), "JOIN actual native source begins hidden");
                             if (action.equals("initial")) {
                                 check(!imageSession.imageSpinner(), "JOIN actual host/native source has no immediate spinner");
-                                Thread.sleep(310);
+                                imageTime[0]+=java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(299);
+                                check(!imageSession.imageSpinner(), "JOIN actual pending source stays spinner-free before 300ms");
+                                imageTime[0]+=java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(1);
                                 check(imageSession.imageSpinner(), "JOIN actual pending own source delays spinner until 300ms");
                                 call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
                                 check(imageSession.imageSpinner(), "JOIN host frame/stage does not reset 300ms");
@@ -1224,6 +1288,8 @@ public final class CpmExtractionBodyProbe {
                     for(int i=definitions.size()-1;i>=0;i--) definitions.get(i).close();
                 }
             }
+        } finally {
+            galleryClock=previousClock;
         }
     }
 
@@ -1252,12 +1318,20 @@ public final class CpmExtractionBodyProbe {
         boolean added = namespace.equals("net.minecraft.client.renderer.state.gui.");
         check(added || namespace.equals("net.minecraft.client.gui.render.state."), "exact admitted SDK collector namespace");
         String name = namespace + "GuiRenderState";
-        var resource = CpmExtractionBodyProbe.class.getClassLoader().getResource(name.replace('.', '/') + ".class");
+        var resources = CpmExtractionBodyProbe.class.getClassLoader().getResources(name.replace('.', '/') + ".class");
+        java.net.URL resource = null;
+        while (resources.hasMoreElements()) {
+            var next = resources.nextElement();
+            if (next.getProtocol().equals("jar")) { resource = next; break; }
+        }
         check(resource != null && resource.getProtocol().equals("jar"), "genuine SDK collector must come from its dependency JAR");
         var connection = (java.net.JarURLConnection)resource.openConnection();
         var jar = connection.getJarFileURL();
         byte[] debugFlags = sdkDebugFlags(jar, namespace);
         try (var sdk = new java.net.URLClassLoader(new java.net.URL[]{jar}, CpmExtractionBodyProbe.class.getClassLoader()) {
+            @Override public java.net.URL getResource(String name) {
+                return name.startsWith("net/minecraft/") ? findResource(name) : super.getResource(name);
+            }
             @Override protected Class<?> loadClass(String requested, boolean resolve) throws ClassNotFoundException {
                 if (!requested.startsWith("net.minecraft.")) return super.loadClass(requested, resolve);
                 if (!(requested.startsWith(namespace) || requested.startsWith("net.minecraft.client.gui.navigation.")
@@ -1466,7 +1540,9 @@ public final class CpmExtractionBodyProbe {
 
     private static void nativeAccessoryFeedback(Class<?> rendererType, Object template,
             com.naocraftlab.skins.runtime.GalleryNativePassFixture original, Consumer<GuiState> execute, boolean ownedCpm, boolean competing) throws Exception {
-        try (var subject = ownedCpm ? original.freshOwnedCpm() : original.fresh();
+        try (var subject = ownedCpm ? Boolean.getBoolean("nclskins.cpm.nativeMeasurement") && !competing
+                ? original.freshOwnedCpm(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(System.getProperty("nclskins.aba.carrier"))))
+                : original.freshOwnedCpm() : original.fresh();
              var profiles = ownedCpm ? CpmBehaviorProbe.nativeProfileScope() : (AutoCloseable) () -> {}) {
             subject.enableCpmCape();
             if (competing) subject.localCapeWinner();
@@ -1571,6 +1647,7 @@ public final class CpmExtractionBodyProbe {
                     if (ownedCpm) definitions.add(prepareOwnedFeedback(subject, host, rendererType, renderer, firstRequest[0].appearance().skin()));
                     armed[0] = true;
                     call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
+                    if (ownedCpm) subject.drainWorkers();
                     subject.runtime.view(854,480,0,0);
                     check(scenario.equals("cpm-off") || publications[0] > 0, "Accessory discriminator must read the prepared native candidate");
                     var p1 = subject.runtime.galleryPreviewCandidate().orElseThrow();
@@ -1581,6 +1658,7 @@ public final class CpmExtractionBodyProbe {
                     AccessoryProjection.forcedAvailability = com.naocraftlab.skins.client.PreviewAccessories.Availability.UNKNOWN;
                     if (ownedCpm) definitions.add(prepareOwnedFeedback(subject, host, rendererType, renderer, firstRequest[0].appearance().skin()));
                     call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
+                    if (ownedCpm) subject.drainWorkers();
                     check(key.equals(subject.runtime.previewBodySource(subject.runtime.galleryPreviewCandidate().orElseThrow())),
                             "NEXT_FRAME_FIXED_POINT: cold P1 metadata cannot revert its own recipe");
                     check(competing || !present || !subject.runtime.view(854,480,0,0).widget("gallery.preview_mode").orElseThrow().enabled(),
@@ -1589,8 +1667,17 @@ public final class CpmExtractionBodyProbe {
                     subject.runtime.view(854,480,0,0);
                     check(key.equals(subject.runtime.previewBodySource(subject.runtime.galleryPreviewCandidate().orElseThrow())),
                             "P1 live confirmation keeps the same full key");
-                    call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
-                    GuiState p1State = Graphics.queued;
+                    GuiState preparedP1 = ownedCpm ? awaitOwnedPreparation(subject, host, draw, execute) : null;
+                    if (ownedCpm && !competing && Boolean.getBoolean("nclskins.cpm.nativeMeasurement")) {
+                        check(subject.numericCreates == 1 && subject.durableNumericFit().status()
+                                        == com.naocraftlab.skins.runtime.PreviewModelFitStore.Status.PRESENT,
+                                "own measured BODY creates exactly one durable numeric winner");
+                        System.out.println("OWN_FIT_DURABLE firstCreates=" + subject.numericCreates
+                                + " persisted=" + subject.durableNumericFit().status());
+                    }
+                    if (preparedP1 == null) call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
+                    if (ownedCpm) subject.drainWorkers();
+                    GuiState p1State = preparedP1 == null ? Graphics.queued : preparedP1;
                     if (ownedCpm) ownedFeedbackBinding(subject, production, key, rendererType, renderer, p1State);
                     execute.accept(p1State);
                     check(subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"P1 hidden own material cannot common ACK");
@@ -1601,6 +1688,13 @@ public final class CpmExtractionBodyProbe {
                             && lastMaterial.texture.data.equals(((Avatar)p1State.renderState()).appearance), "P1 actual native material belongs to its own request");
                     check(key.equals(subject.runtime.previewBodySource(subject.preview())), "ACK publishes the same stable P1 recipe");
                     check(!ownedCpm || subject.runtime.view(854,480,0,0).widget("gallery.preview_mode").orElseThrow().enabled(), "own CPM BODY restores current cape control");
+                    if (ownedCpm && !competing && Boolean.getBoolean("nclskins.cpm.nativeMeasurement")
+                            && System.getProperty("nclskins.ownerLifecycle") != null) {
+                        publications[0] = 0;
+                        ownerLifecycle(System.getProperty("nclskins.ownerLifecycle"), subject, host, draw, execute,
+                                rendererType, renderer, production, key, definitions);
+                        return;
+                    }
                     subject.layersVisible(!ownedCpm);
                     int stablePublications = publications[0];
                     for (int frame = 0; frame < 3; frame++) {
@@ -1613,6 +1707,15 @@ public final class CpmExtractionBodyProbe {
                         System.out.println("PASS initial accessory fixed point publications=" + publications[0]);
                         publications[0] = 0;
                         var held = subject.preview();
+                        int refinementLoads=subject.numericLoads,refinementCreates=subject.numericCreates;
+                        boolean aba = ownedCpm && Boolean.getBoolean("nclskins.cpm.nativeMeasurement");
+                        Object abaOperation = aba ? ownedField(subject.runtime, "numericFitOperation") : null;
+                        Object abaFit = aba ? ownedField(renderer, "nativeFit") : null;
+                        Object abaSlot = nativeSlot(renderer,key);
+                        int abaCaptures = aba ? nativeCounter("captures") : 0;
+                        int abaCopies = aba ? nativeCounter("copies") : 0;
+                        int abaDecodes = aba ? nativeCounter("decodes") : 0;
+                        if (aba) check(key.equals(ownedField(abaOperation, "source")), "ABA starts at immutable original numeric source S0");
                         AccessoryProjection.elytra = false;
                         subject.runtime.view(854,480,0,0);
                         var capeOnly = subject.runtime.galleryPreviewCandidate().orElseThrow();
@@ -1620,14 +1723,84 @@ public final class CpmExtractionBodyProbe {
                                 "same skin/source IDs with changed native capability retain full BODY discrimination");
                         check(subject.preview().equals(held), "changed capability retains A until B own success");
                         if (ownedCpm) definitions.add(prepareOwnedFeedback(subject, host, rendererType, renderer, firstRequest[0].appearance().skin()));
-                        call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
-                        if (ownedCpm) ownedFeedbackBinding(subject, production, subject.runtime.previewBodySource(capeOnly), rendererType, renderer, Graphics.queued);
-                        execute.accept(Graphics.queued);
+                        GuiState preparedCape = ownedCpm ? awaitOwnedPreparation(subject, host, draw, execute) : null;
+                        if (ownedCpm) {
+                            var field=rendererType.getDeclaredField("nativeFit");field.setAccessible(true);
+                            var fit=field.get(renderer);
+                            var sourceField=fit.getClass().getDeclaredField("source");sourceField.setAccessible(true);
+                            var valueField=fit.getClass().getDeclaredField("fit");valueField.setAccessible(true);
+                            check(((PreviewRenderer.ModelFitPreparation)fit).current() && valueField.get(fit)!=null
+                                            && sourceField.get(fit).equals(subject.runtime.previewBodySource(capeOnly))
+                                            && subject.numericLoads==refinementLoads && subject.numericCreates==refinementCreates,
+                                    "successful same-demand refinement owns current native fit without numeric I/O retry");
+                        }
+                        if (preparedCape == null) call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
+                        GuiState capeState = preparedCape == null ? Graphics.queued : preparedCape;
+                        if (ownedCpm) ownedFeedbackBinding(subject, production, subject.runtime.previewBodySource(capeOnly), rendererType, renderer, capeState);
+                        execute.accept(capeState);
                         check(subject.preview().equals(held) && subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED,"cape-only hidden own consumer preserves retained common projection");
                         call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));execute.accept(Graphics.queued);
                         check(subject.preview().equals(capeOnly) && subject.displayed() == (ownedCpm ? PreviewRenderer.DisplayKind.CPM : PreviewRenderer.DisplayKind.ORDINARY),
                                 "cape-only successor commits its own native pass and coherent controls");
                         subject.layersVisible(!ownedCpm);
+                        if (aba) {
+                            check(!((Map<?,?>) slotsField.get(renderer)).containsValue(abaSlot)
+                                            && !((PreviewRenderer.ModelFitPreparation)abaFit).current(),
+                                    "S1 own ACK actually retires original S0 native slot and fit");
+                            AccessoryProjection.elytra = true;
+                            subject.runtime.view(854,480,0,0);
+                            var returned = subject.runtime.galleryPreviewCandidate().orElseThrow();
+                            check(key.equals(subject.runtime.previewBodySource(returned)), "accessory feedback returns exact S0 without a new semantic demand");
+                            definitions.add(prepareOwnedFeedback(subject, host, rendererType, renderer, firstRequest[0].appearance().skin()));
+                            Object freshSlot = nativeSlot(renderer,key);
+                            check(freshSlot != null && freshSlot != abaSlot, "ABA creates a fresh native S0 slot, not retained original ownership");
+                            awaitOwnedFit(subject, host, draw, execute);
+                            Object freshFit = ownedField(renderer, "nativeFit");
+                            System.out.println("ABA_RETURN fit=" + (freshFit != null) + " native=" + production.displayKind()
+                                    + " common=" + subject.displayed() + " loads=" + (subject.numericLoads-refinementLoads)
+                                    + " creates=" + (subject.numericCreates-refinementCreates));
+                            check(freshFit != null && freshFit != abaFit && ((PreviewRenderer.ModelFitPreparation)freshFit).current()
+                                            && key.equals(ownedField(freshFit,"source")) && ownedField(freshFit,"fit") != null,
+                                    "ABA recreated S0 owns current source-matching native normalization, not FULL factor one");
+                            var fit = (com.naocraftlab.skins.client.PreviewModelNormalization.Fit)ownedField(freshFit,"fit");
+                            check(fit.normalization()<0.5 && fit.equals(ownedField(abaFit,"fit")), "ABA uses original successful numeric winner");
+                            var requestMethod=hostType.getDeclaredMethod("galleryRequest",com.naocraftlab.skins.runtime.ViewSpec.Preview.class);
+                            requestMethod.setAccessible(true);
+                            @SuppressWarnings("unchecked") var actualRequest=((Optional<PreviewRenderer.PreviewRequest>)requestMethod.invoke(host,returned)).orElseThrow();
+                            int settledClassifiers=nativeCounter("classifiers");
+                            int abaVertices=0;
+                            for (int frame=0;frame<10;frame++) {
+                                call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                                var state=Graphics.queued;
+                                ownedFeedbackBinding(subject,production,key,rendererType,renderer,state);
+                                check(Math.abs(state.scale()/ (0.97*actualRequest.height()/2.125*actualRequest.scale())-fit.normalization())<0.001,
+                                        "ABA actual native scale applies correct own normalization");
+                                try (var live=(AutoCloseable)Class.forName("com.naocraftlab.skins.buildlogic.probe.CpmNativeMeasurementBackend").getMethod("liveScope").invoke(null)) {
+                                    execute.accept(state);
+                                }
+                                var vertexField=Class.forName("com.naocraftlab.skins.buildlogic.probe.ReferenceBodyProbe").getDeclaredField("verticesCount");
+                                vertexField.setAccessible(true);int emitted=vertexField.getInt(null);
+                                check(emitted>0,"ABA own live native prepared geometry is nonempty");abaVertices+=emitted;
+                                check(lastMaterial!=null && !lastMaterial.texture.closed
+                                                && lastMaterial.texture.data.equals(((Avatar)state.renderState()).appearance)
+                                                && production.body().current().getAsBoolean() && subject.displayed()==PreviewRenderer.DisplayKind.CPM,
+                                        "ABA own current material/native pass/common ACK survives settled frames");
+                                check(ownedField(renderer,"nativeFit")==freshFit && ownedField(subject.runtime,"numericFitOperation")==abaOperation,
+                                        "ABA settled frames reuse exact native preparation and semantic operation");
+                            }
+                            check(subject.numericLoads==refinementLoads && subject.numericCreates==refinementCreates
+                                            && nativeCounter("captures")==abaCaptures && nativeCounter("copies")==abaCopies
+                                            && nativeCounter("decodes")==abaDecodes && nativeCounter("classifiers")==settledClassifiers,
+                                    "ABA roundtrip has zero numeric load/create/capture/neutral-decode retry and settled classification");
+                            var row = new java.util.LinkedHashMap<String,Object>();
+                            row.put("sameOperation",true);row.put("originalSourceReturned",true);row.put("oldSlotRetired",true);
+                            row.put("freshSlot",true);row.put("ownCurrentFit",true);row.put("settledFrames",10);
+                            row.put("normalization",fit.normalization());row.put("displayKind",subject.displayed().name());
+                            row.put("liveVertices",abaVertices);
+                            row.put("numericLoads",0);row.put("numericCreates",0);row.put("captures",0);row.put("neutralDecodes",0);
+                            java.nio.file.Files.writeString(java.nio.file.Path.of(System.getProperty("probe.dir"),"same-demand-aba.json"),new com.google.gson.Gson().toJson(row));
+                            System.out.println("PASS same-demand S0-S1-ownACK-S0 own-fit/material/normalization/ACK settled10 numericRetry0");
+                        }
                     }
                     if (competing) {
                         var writable = subject.runtime.galleryPreviewCandidate().orElseThrow();
@@ -1652,6 +1825,7 @@ public final class CpmExtractionBodyProbe {
                         String inspectedKey = subject.runtime.previewBodySource(inspected);
                         definitions.add(prepareOwnedFeedback(subject,host,rendererType,renderer,firstRequest[0].appearance().skin()));
                         for (int frame=0; frame<4; frame++) {
+                            awaitOwnedFit(subject, host, draw, execute);
                             call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
                             var state = Graphics.queued; ownedFeedbackBinding(subject,production,inspectedKey,rendererType,renderer,state);
                             execute.accept(state);
@@ -1691,12 +1865,13 @@ public final class CpmExtractionBodyProbe {
             capability = production::displayKind;
             capabilityField.set(host, capability);
         }
-        var registration = subject.runtime.observePreviewBody(candidate, capability, () -> production.confirmGalleryBody(source));
+        var registration = subject.runtime.observePreviewBody(candidate, capability, () -> production.confirmGalleryBody(source), production::retireBody);
         var observerField = host.getClass().getDeclaredField("bodyObserver"); observerField.setAccessible(true);
         observerField.set(host, registration);
         production.observeBody(registration);
         check(candidate.bodySource().orElseThrow().cpmExpected()
-                        && production.prepareGalleryBody(source, true, subject.runtime.galleryPreviewAdmission(candidate)),
+                        && production.prepareGalleryBody(source, subject.runtime.previewBodyDemand(candidate),
+                                subject.runtime.waitsForCpmBody(candidate), subject.runtime.galleryPreviewAdmission(candidate)),
                 "genuine host registration precedes own preparation and pinned decode, never a no-op observer");
         var slots = rendererType.getDeclaredField("gallerySlots"); slots.setAccessible(true);
         Object slot = nativeSlot(renderer,source);
@@ -1709,6 +1884,240 @@ public final class CpmExtractionBodyProbe {
         var appearance = request.orElseThrow().appearance();
         check(appearance.skin().equals(skin), "own pinned definition uses actual compiled host skin handle");
         return CpmBehaviorProbe.nativeOwnedBody(subject.ownedBytes(candidate), CpmBehaviorProbe.nativeProfileId(profile), appearance);
+    }
+
+    public static int fitPrepares, fitAllocations, fitCompletes;
+
+    public static void fitEvent(int event) {
+        if (event == 0) fitPrepares++;
+        else if (event == 1) fitAllocations++;
+        else if (event == 2) fitCompletes++;
+        else throw new AssertionError("Unknown fit event");
+    }
+
+    private static void ownerLifecycle(String mode, com.naocraftlab.skins.runtime.GalleryNativePassFixture subject,
+            Object host, Method draw, Consumer<GuiState> execute, Class<?> rendererType, Object renderer,
+            PreviewRenderer<Graphics> production, String source, java.util.List<AutoCloseable> definitions) throws Exception {
+        check(java.util.Set.of("live", "decline").contains(mode), "known owner lifecycle case");
+        var initial = subject.preview();
+        var anchor = initial.anchorBounds();
+        subject.runtime.pointerScrolled(anchor.x()+anchor.width()/2.0,anchor.y()+anchor.height()/2.0,0,1);
+        check(subject.preview().scale()>initial.scale(),"owner lifecycle starts after admitted nondefault user zoom");
+        Object operation = ownedField(subject.runtime, "numericFitOperation");
+        Object originalFit = ownedField(renderer, "nativeFit");
+        var originalSession = (EditorPreviewSession) ownedField(renderer, "session");
+        var originalPreview = subject.preview();
+        Object composition = ownerComposition(subject.runtime.view(854,480,0,0));
+        var projections = new java.util.ArrayList<Object>();
+        var subscription = subject.runtime.subscribe(ignored -> projections.add(ownerComposition(subject.runtime.view(854,480,0,0))));
+        try {
+        String demand = subject.runtime.previewBodyDemand(originalPreview);
+        var gallery = (EditorPreviewSession.Gallery) ownedField(renderer, "gallery");
+        var slots = (Map<?, ?>) ownedField(renderer, "gallerySlots");
+        Object originalSlot = slots.get(originalSession);
+        check(originalSlot != null, "original displayed session owns its native slot");
+        int loads = subject.numericLoads, creates = subject.numericCreates, captures = nativeCounter("captures");
+        int decodes = nativeCounter("decodes"), copies = nativeCounter("copies");
+
+        AccessoryProjection.elytra = false;
+        subject.runtime.view(854,480,0,0);
+        var successor = subject.runtime.galleryPreviewCandidate().orElseThrow();
+        String successorSource = subject.runtime.previewBodySource(successor);
+        check(!source.equals(successorSource) && demand.equals(subject.runtime.previewBodyDemand(successor)),
+                "actual accessory producer refines render identity without changing demand/content/variant");
+        check(production.prepareGalleryBody(successorSource, demand, subject.runtime.waitsForCpmBody(successor),
+                subject.runtime.galleryPreviewAdmission(successor)), "pending successor is genuinely admitted");
+        definitions.add(prepareOwnedFeedback(subject,host,rendererType,renderer,
+                ((PreviewRenderer.PreviewAppearance)ownedField(originalFit,"appearance")).skin()));
+        Graphics.states.clear();
+        call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+        GuiState lateSuccessor = Graphics.states.stream().filter(state -> state.renderState() instanceof Avatar avatar
+                && avatar.appearance != null && !avatar.appearance.capeHasElytra()).findFirst().orElseThrow(
+                        () -> new AssertionError("held S1 must have its own actual compiled-host deferred native pass before ACK"));
+        var successorSession = (EditorPreviewSession) ownedField(renderer, "session");
+        Object successorFit = ownedField(renderer, "nativeFit");
+        check(successorFit != null && successorFit != originalFit && successorSession != originalSession
+                        && gallery.displays(originalSession) && gallery.retains(originalSession)
+                        && subject.preview().equals(originalPreview), "S1 stays unacknowledged while genuine S0 owner remains displayed/live");
+        var row = new java.util.LinkedHashMap<String,Object>();
+        if (mode.equals("live")) {
+            AccessoryProjection.elytra = true;
+            subject.runtime.view(854,480,0,0);
+            var returned = subject.runtime.galleryPreviewCandidate().orElseThrow();
+            check(source.equals(subject.runtime.previewBodySource(returned)), "pre-ACK return uses exact S0 identity");
+            check(production.prepareGalleryBody(source,demand,subject.runtime.waitsForCpmBody(returned),
+                    subject.runtime.galleryPreviewAdmission(returned)), "returned S0 remains admitted");
+            Object logical = ownedField(gallery,"desired");
+            var logicalSession = (EditorPreviewSession) ownedField(logical,"session");
+            var selectedSession = (EditorPreviewSession) ownedField(renderer,"session");
+            System.out.println("LIVE_RETAINED_RETURN coherent="+(logicalSession==selectedSession)+" reused="+(selectedSession==originalSession));
+            Object returnedSlot = slots.get(originalSession);
+            check(logicalSession == selectedSession && selectedSession == originalSession
+                            && returnedSlot != null && ownedField(returnedSlot,"session") == originalSession
+                            && ownedField(returnedSlot,"fit") == originalFit,
+                    "LIVE_RETAINED_SLOT: logical desired and native selected slot reuse the lawful displayed S0 session");
+            for (String resource : java.util.List.of("profile", "player", "level", "clock", "tickGate", "baked", "target"))
+                check(ownedField(returnedSlot,resource) == ownedField(originalSlot,resource),
+                        "LIVE_RETAINED_RESOURCE: returned S0 preserves its exact owned " + resource);
+            check(ownedField(renderer,"nativeFit")==originalFit && ((PreviewRenderer.ModelFitPreparation)originalFit).current(),
+                    "returned live S0 keeps its own source/normalization authority");
+            var fit=(com.naocraftlab.skins.client.PreviewModelNormalization.Fit)ownedField(originalFit,"fit");
+            check(fit.normalization()>0 && fit.normalization()<0.5,"live retained S0 owns the successful tall normalization");
+            var requestMethod=host.getClass().getDeclaredMethod("galleryRequest",com.naocraftlab.skins.runtime.ViewSpec.Preview.class);requestMethod.setAccessible(true);
+            @SuppressWarnings("unchecked") var request=((Optional<PreviewRenderer.PreviewRequest>)requestMethod.invoke(host,returned)).orElseThrow();
+            int vertices = 0;
+            for (int frame=0;frame<10;frame++) {
+                call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                GuiState state=Graphics.queued;
+                check(Math.abs(state.scale()/(0.97*request.height()/2.125*request.scale())-fit.normalization())<0.001,
+                        "retained S0 actual native scale applies own normalization exactly once");
+                ownedFeedbackBinding(subject,production,source,rendererType,renderer,state);
+                try (var live=(AutoCloseable)Class.forName("com.naocraftlab.skins.buildlogic.probe.CpmNativeMeasurementBackend").getMethod("liveScope").invoke(null)) {
+                    execute.accept(state);
+                }
+                var vertexField=Class.forName("com.naocraftlab.skins.buildlogic.probe.ReferenceBodyProbe").getDeclaredField("verticesCount");
+                vertexField.setAccessible(true);int emitted=vertexField.getInt(null);check(emitted>0,"retained S0 genuine geometry");vertices+=emitted;
+                check(production.body().current().getAsBoolean() && subject.displayed()==PreviewRenderer.DisplayKind.CPM
+                                && lastMaterial!=null && !lastMaterial.texture.closed
+                                && lastMaterial.texture.data.equals(((Avatar)state.renderState()).appearance)
+                                && subject.runtime.view(854,480,0,0).widget("gallery.preview_mode").orElseThrow().enabled(),
+                        "retained S0 own native material/common ACK/current controls remain coherent");
+            }
+            if(lateSuccessor!=null) execute.accept(lateSuccessor);
+            check(ownedField(renderer,"session")==originalSession && gallery.displays(originalSession)
+                            && subject.displayed()==PreviewRenderer.DisplayKind.CPM && production.body().current().getAsBoolean(),
+                    "late pending S1 cannot publish or retire returned S0");
+            row.put("coherentSession",true);row.put("reusedLiveSlot",true);row.put("liveVertices",vertices);
+            row.put("displayKind",subject.displayed().name());row.put("stableFrames",10);row.put("lateSuccessorRejected",true);
+            check(!projections.isEmpty() && projections.stream().allMatch(composition::equals)
+                            && composition.equals(ownerComposition(subject.runtime.view(854,480,0,0)))
+                            && subject.preview().scale()==originalPreview.scale(),
+                    "whole subscriber-observed retained composition/header/control topology/scroll and zoom stay stable");
+            row.put("compositionStable",true);row.put("zoom",subject.preview().scale());row.put("normalization",fit.normalization());
+        } else {
+            successorSession.declineFit();
+            check(!((PreviewRenderer.ModelFitPreparation)successorFit).current(),"same native owner has terminal fit admission");
+            int prepares=fitPrepares, allocations=fitAllocations, completes=fitCompletes;
+            for(int frame=0;frame<100;frame++) {
+                call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                check(ownedField(renderer,"session")==successorSession && slots.get(successorSession)!=null,
+                        "terminal case cannot be disguised by owner replacement");
+            }
+            System.out.println("TERMINAL_REBIND mode="+mode+" prepares="+(fitPrepares-prepares)+" allocations="+(fitAllocations-allocations)+" completes="+(fitCompletes-completes));
+            check(fitPrepares==prepares && fitAllocations==allocations && fitCompletes==completes
+                            && ownedField(renderer,"nativeFit")==successorFit,
+                    "TERMINAL_REBIND: 100 actual host frames must not prepare/complete/reallocate the same terminal owner");
+            int vertices=0;
+            for(int pass=-1;pass<3;pass++) {
+                call(draw,host,new Graphics(),subject.runtime.view(854,480,0,0));
+                var state=Graphics.queued;check(state!=null,"terminal normalization keeps permitted live fallback");
+                try(var live=(AutoCloseable)Class.forName("com.naocraftlab.skins.buildlogic.probe.CpmNativeMeasurementBackend").getMethod("liveScope").invoke(null)) { execute.accept(state); }
+                var count=Class.forName("com.naocraftlab.skins.buildlogic.probe.ReferenceBodyProbe").getDeclaredField("verticesCount");count.setAccessible(true);
+                int emitted=count.getInt(null);check(emitted>0,"declined normalization preserves genuine own live geometry");vertices+=emitted;
+                if (pass < 0) {
+                    check(production.displayKind()==PreviewRenderer.DisplayKind.UNCONFIRMED
+                                    && subject.displayed()==PreviewRenderer.DisplayKind.UNCONFIRMED
+                                    && successorSession.fitSuppressed() && ownedField(renderer,"nativeFit")==successorFit
+                                    && lastMaterial!=null && !lastMaterial.texture.closed
+                                    && lastMaterial.texture.data.equals(((Avatar)state.renderState()).appearance),
+                            "declined own hidden material permits a visible fallback but cannot common ACK");
+                    continue;
+                }
+                check(production.displayKind()==PreviewRenderer.DisplayKind.ORDINARY && subject.displayed()==PreviewRenderer.DisplayKind.ORDINARY
+                                && successorSession.fitSuppressed() && ownedField(renderer,"nativeFit")==successorFit
+                                && lastMaterial!=null && !lastMaterial.texture.closed && lastMaterial.texture.data.equals(((Avatar)state.renderState()).appearance),
+                        "terminal same owner has own material/common ordinary ACK, not false FULL or borrowed S0");
+            }
+            check(fitPrepares==prepares && fitAllocations==allocations && fitCompletes==completes,"fallback passes also perform zero fit retry");
+            row.put("sameOwner",true);row.put("stableFrames",100);row.put("nativePrepares",0);row.put("nativeAllocations",0);row.put("nativeCompletes",0);
+            row.put("terminal",mode);row.put("bodyStatus",successorSession.bodyStatus().name());
+            row.put("hiddenPasses",1);row.put("fallbackPasses",3);row.put("liveVertices",vertices);row.put("displayKind",subject.displayed().name());
+        }
+        check(ownedField(subject.runtime,"numericFitOperation")==operation
+                        && subject.numericLoads==loads && subject.numericCreates==creates && nativeCounter("captures")==captures
+                        && nativeCounter("decodes")==decodes && nativeCounter("copies")==copies,
+                "owner lifecycle preserves semantic operation and performs no numeric/capture/neutral-copy retry");
+        row.put("sameOperation",true);row.put("sameDemand",true);row.put("numericLoads",0);row.put("numericCreates",0);row.put("captures",0);row.put("neutralDecodes",0);
+        java.nio.file.Files.writeString(java.nio.file.Path.of(System.getProperty("probe.dir"),"owner-lifecycle-"+mode+".json"),new com.google.gson.Gson().toJson(row));
+        System.out.println("PASS owner-lifecycle "+mode);
+        } finally { subscription.close(); }
+    }
+
+    private static Object ownerComposition(com.naocraftlab.skins.runtime.ViewSpec view) {
+        return java.util.List.of(view.panels(),view.texts().stream().map(text -> java.util.List.of(text.id(),text.bounds(),text.message())).toList(),
+                view.widgets().stream().filter(com.naocraftlab.skins.runtime.ViewSpec.Widget::visible)
+                        .map(widget -> java.util.List.of(widget.id(),widget.kind(),widget.bounds())).toList(),view.scrollSurfaces(),view.scrollbar());
+    }
+
+    private static Object ownedField(Object owner, String name) throws Exception {
+        var field=owner.getClass().getDeclaredField(name);field.setAccessible(true);return field.get(owner);
+    }
+
+    private static int nativeCounter(String name) throws Exception {
+        var field=Class.forName("com.naocraftlab.skins.buildlogic.probe.FitCountingObservation").getDeclaredField(name);
+        field.setAccessible(true);return field.getInt(null);
+    }
+
+    private static GuiState awaitOwnedPreparation(com.naocraftlab.skins.runtime.GalleryNativePassFixture subject,
+            Object host, Method draw, Consumer<GuiState> execute) throws Exception {
+        CpmBehaviorProbe.drain(); subject.drainWorkers();
+        if (!Boolean.getBoolean("nclskins.cpm.nativeMeasurement")) return null;
+        String expected = subject.runtime.previewBodySource(subject.runtime.galleryPreviewCandidate().orElseThrow());
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(8);
+        while (System.nanoTime() < deadline) {
+            CpmBehaviorProbe.drain(); subject.drainWorkers();
+            Object renderer = host.getClass().getField("editorRenderer").get(host);
+            Object fitting = ownedField(renderer, "nativeFit");
+            if (fitting instanceof PreviewRenderer.ModelFitPreparation preparation && preparation.current()
+                    && expected.equals(ownedField(fitting, "source")) && ownedField(fitting, "fit") != null) return null;
+            Graphics.queued = null;
+            call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
+            fitting = ownedField(renderer, "nativeFit");
+            if (fitting instanceof PreviewRenderer.ModelFitPreparation preparation && preparation.current()
+                    && expected.equals(ownedField(fitting, "source")) && ownedField(fitting, "fit") != null) return Graphics.queued;
+            if (Graphics.queued != null) execute.accept(Graphics.queued);
+            Thread.sleep(1);
+        }
+        Object renderer=host.getClass().getField("editorRenderer").get(host);
+        Object fitting=ownedField(renderer,"nativeFit");
+        Object operation=ownedField(subject.runtime,"numericFitOperation");
+        Object result=operation==null?null:ownedField(operation,"result");
+        Object settled=result instanceof java.util.concurrent.CompletableFuture<?> future?future.getNow(null):null;
+        System.out.println("OWN_PREPARATION_DIAGNOSTIC loads="+subject.numericLoads+" creates="+subject.numericCreates
+                +" captures="+nativeCounter("captures")+" persisted="+(subject.numericKey==null?"NO_KEY":subject.durableNumericFit().status())
+                +" settled="+(settled==null?"pending":((com.naocraftlab.skins.runtime.PreviewAssets.NumericFitResult)settled).status())
+                +" fit="+(fitting!=null&&ownedField(fitting,"fit")!=null));
+        throw new AssertionError("own current native numeric preparation before hidden image consumer");
+    }
+
+    private static void awaitOwnedFit(com.naocraftlab.skins.runtime.GalleryNativePassFixture subject,
+            Object host, Method draw, Consumer<GuiState> execute) throws Exception {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(8);
+        String expected = subject.runtime.previewBodySource(subject.runtime.galleryPreviewCandidate().orElseThrow());
+        while ((subject.displayed() != PreviewRenderer.DisplayKind.CPM
+                || !expected.equals(subject.runtime.previewBodySource(subject.preview()))) && System.nanoTime() < deadline) {
+            CpmBehaviorProbe.drain(); subject.drainWorkers();
+            Graphics.queued = null;
+            call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0));
+            if (Graphics.queued != null) execute.accept(Graphics.queued);
+            subject.drainWorkers();
+            if (subject.displayed() != PreviewRenderer.DisplayKind.CPM) Thread.sleep(1);
+        }
+        if (subject.displayed() != PreviewRenderer.DisplayKind.CPM && Boolean.getBoolean("nclskins.cpm.nativeMeasurement")) {
+            Object operation=ownedField(subject.runtime,"numericFitOperation");
+            Object result=operation==null?null:ownedField(operation,"result");
+            Object settled=result instanceof java.util.concurrent.CompletableFuture<?> f?f.getNow(null):null;
+            Object renderer=host.getClass().getField("editorRenderer").get(host);
+            Object fitting=ownedField(renderer,"nativeFit");
+            var requirements=com.naocraftlab.skins.runtime.CapeProjection.previewBodyRequirements(AccessoryProjection.profile);
+            System.out.println("OWN_FIT_DIAGNOSTIC displayed="+subject.displayed()+" loads="+subject.numericLoads
+                    +" creates="+subject.numericCreates+" captures="+nativeCounter("captures")+" persisted="+(subject.numericKey==null?"NO_KEY":subject.durableNumericFit().status())
+                    +" operation="+(operation!=null)+" settled="+(settled==null?"pending":settled.getClass().getMethod("status").invoke(settled))
+                    +" requirements="+requirements+" fitting="+(fitting!=null)
+                    +(fitting==null?"":" eligible="+ownedField(fitting,"eligible")+" custom="+ownedField(fitting,"custom")+" cpm="+ownedField(fitting,"cpm")+" earsRequired="+ownedField(fitting,"earsRequired")+" retired="+ownedField(fitting,"retired")));
+        }
+        check(subject.displayed() == PreviewRenderer.DisplayKind.CPM
+                && expected.equals(subject.runtime.previewBodySource(subject.preview())), "own native measurement and durable fit reaches actual BODY ACK");
     }
 
     private static void ownedFeedbackBinding(com.naocraftlab.skins.runtime.GalleryNativePassFixture subject,
@@ -1774,6 +2183,7 @@ public final class CpmExtractionBodyProbe {
             try {
                 call(init, host);
                 check(subscription.get(host) != null && nativeHost.widgetAssemblies == 1, "actual compiled init installs its own publication subscriber and builds native widget terminals");
+                call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0)); execute.accept(Graphics.queued);
                 call(draw, host, new Graphics(), subject.runtime.view(854,480,0,0)); execute.accept(Graphics.queued);
                 @SuppressWarnings("unchecked") var production = (PreviewRenderer<Graphics>) renderer;
                 var beforeBody = production.body();
@@ -2023,8 +2433,33 @@ public final class CpmExtractionBodyProbe {
                 try (var input = getParent().getResourceAsStream(name.replace('.', '/') + ".class")) {
                     if (input == null) throw new ClassNotFoundException(name);
                     byte[] original = input.readAllBytes();
+                    if (Boolean.getBoolean("nclskins.cpm.nativeMeasurement") && (name.equals(PIP) || name.equals(GUI) || name.equals(FRAME))) {
+                        var resources = getParent().getResources(name.replace('.', '/') + ".class");
+                        boolean found = false;
+                        while (resources.hasMoreElements()) {
+                            var resource = resources.nextElement();
+                            if (!resource.getProtocol().equals("jar")) continue;
+                            try (var raw = resource.openStream()) { original = raw.readAllBytes(); }
+                            found = true; break;
+                        }
+                        if (!found) throw new AssertionError("Pinned raw native caller is missing: " + name);
+                    }
                     var node = new ClassNode(); new ClassReader(original).accept(node, 0);
-                    if (name.equals(PREFIX + "AvatarRenderStatePreviewRenderer")) rendererTerminals(node);
+                    if (name.equals(PREFIX + "AvatarRenderStatePreviewRenderer")) {
+                        rendererTerminals(node);
+                        rendererOperands.accept(node);
+                    }
+                    if (name.equals(PREFIX + "AvatarRenderStatePreviewRenderer") || name.equals(PREFIX + "AvatarRenderStatePreviewRenderer$NativeFit")) {
+                        for (var method : node.methods) {
+                            int event = name.endsWith("$NativeFit") ? method.name.equals("<init>") ? 1 : method.name.equals("complete") ? 2 : -1
+                                    : method.name.equals("prepareModelFit") ? 0 : -1;
+                            if (event < 0) continue;
+                            var count = new org.objectweb.asm.tree.InsnList();
+                            count.add(new org.objectweb.asm.tree.InsnNode(Opcodes.ICONST_0 + event));
+                            count.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKESTATIC, Type.getInternalName(CpmExtractionBodyProbe.class), "fitEvent", "(I)V", false));
+                            method.instructions.insert(count);method.maxStack=Math.max(method.maxStack,1);
+                        }
+                    }
                     if (name.equals(FRAME)) frameTerminals(node);
                     if (name.equals(PIP) || name.equals(GUI)) {
                         if (name.equals(PIP)) for (var method : node.methods) for (var instruction : method.instructions) {
@@ -2111,13 +2546,29 @@ public final class CpmExtractionBodyProbe {
     public static void retainedDraw(Object owner) { retainedDraw.accept(owner); }
     public static void framePreparation() { framePreparation.run(); }
 
+    private static final java.util.IdentityHashMap<Object, Object> consumerOwners = new java.util.IdentityHashMap<>();
+
+    static void closeConsumerOwner(ClassLoader loader, Object owner) throws Exception {
+        Object wrapper = consumerOwners.get(owner);
+        if (wrapper == null) throw new AssertionError("Missing native GUI owner");
+        var close = java.util.Arrays.stream(wrapper.getClass().getDeclaredMethods()).filter(m -> m.getName().equals("nclskins$closeOwner")).findFirst().orElseThrow();
+        close.setAccessible(true);
+        call(close, wrapper, (Operation<Void>) args -> null);
+    }
+
     static void consumerFrame(ClassLoader loader, Runnable preparation, Runnable draw) throws Exception {
+        consumerFrame(loader, loader, preparation, draw);
+    }
+
+    static void consumerFrame(ClassLoader loader, Object parentKey, Runnable preparation, Runnable draw) throws Exception {
         String modern = PREFIX + "mixin.GuiRendererMixin";
         String buffer = "com.naocraftlab.skins.compat.client.identifier.preview.mixin.GuiRendererMixin";
         String selected = loader.getResource(buffer.replace('.', '/') + ".class") != null ? buffer : modern;
         Class<?> wrapper = null;
         try { wrapper = loader.loadClass(selected); } catch (ClassNotFoundException absent) {}
-        Object wrapperOwner = wrapper == null ? null : create(wrapper);
+        Object wrapperOwner = consumerOwners.get(parentKey);
+        if (wrapperOwner == null && wrapper != null) { wrapperOwner = create(wrapper); consumerOwners.put(parentKey, wrapperOwner); }
+        final Object stableWrapper = wrapperOwner;
         Method frame = wrapper == null ? null : java.util.Arrays.stream(wrapper.getDeclaredMethods()).filter(m -> m.getName().equals("nclskins$withConsumerFrame")).findFirst().orElseThrow();
         Method consumed = wrapper == null ? null : java.util.Arrays.stream(wrapper.getDeclaredMethods()).filter(m -> m.getName().equals("nclskins$afterConsumer")).findFirst().orElseThrow();
         if (frame != null) { frame.setAccessible(true); consumed.setAccessible(true); }
@@ -2139,12 +2590,12 @@ public final class CpmExtractionBodyProbe {
         retainedFrame = args -> {
             Operation<Void> operation = ignored -> { call(original, args[0], buffered ? new Object[]{slice} : new Object[]{}); return null; };
             if (frame == null) operation.call();
-            else call(frame, wrapperOwner, buffered ? new Object[]{slice, operation} : new Object[]{operation});
+            else call(frame, stableWrapper, buffered ? new Object[]{slice, operation} : new Object[]{operation});
         };
         retainedDraw = owner -> {
             Operation<Void> operation = ignored -> { draw.run(); return null; };
             if (consumed == null) operation.call();
-            else call(consumed, wrapperOwner, buffered ? new Object[]{owner, slice, operation} : new Object[]{owner, operation});
+            else call(consumed, stableWrapper, buffered ? new Object[]{owner, slice, operation} : new Object[]{owner, operation});
         };
         try { call(render, nativeFrame, buffered ? new Object[]{slice} : new Object[]{}); }
         finally { framePreparation = previousPreparation; consumerDraw = previousDraw; retainedFrame = previousFrame; retainedDraw = previousConsumer; }
@@ -2223,20 +2674,36 @@ public final class CpmExtractionBodyProbe {
         label.access |= Opcodes.ACC_STATIC;
     }
 
+    static String loadingDescriptor(String descriptor) {
+        String suffix="Lnet/minecraft/resources/Identifier;IIFFIIIIIII)V";
+        if (descriptor.equals("(Lcom/mojang/blaze3d/pipeline/RenderPipeline;"+suffix)
+                || descriptor.equals("(Lcom/mojang/renderpearl/api/pipeline/RenderPipeline;"+suffix))
+            return "(Ljava/lang/Object;Ljava/lang/Object;IIFFIIIIIII)V";
+        return descriptor.replace("Lnet/minecraft/resources/Identifier;","Ljava/lang/Object;");
+    }
+
     private static void rendererTerminals(ClassNode node) {
-        for (var method : node.methods) for (var instruction : method.instructions) {
+        for (var method : node.methods) for (var instruction : method.instructions.toArray()) {
+            if (instruction instanceof org.objectweb.asm.tree.MethodInsnNode constructor
+                    && constructor.owner.equals(Type.getInternalName(EditorPreviewSession.Gallery.class))
+                    && constructor.name.equals("<init>") && constructor.desc.equals("()V")) {
+                method.instructions.insertBefore(constructor,new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC,
+                        Type.getInternalName(CpmExtractionBodyProbe.class),"galleryClock","Ljava/util/function/LongSupplier;"));
+                constructor.desc="(Ljava/util/function/LongSupplier;)V";
+                method.maxStack++;
+            }
             if (instruction instanceof org.objectweb.asm.tree.MethodInsnNode call && call.name.equals("blit")
                     && call.owner.equals("net/minecraft/client/gui/GuiGraphicsExtractor"))
-                call.desc = call.desc.replace("Lnet/minecraft/resources/Identifier;", "Ljava/lang/Object;");
+                call.desc = loadingDescriptor(call.desc);
         }
         var helpers = node.methods.stream().filter(method -> java.util.Set.of("playerSkin", "previewPlayer", "applySettling", "createRenderState", "configurePreviewState", "previewElytraStack").contains(method.name)).toList();
-        node.methods.removeIf(method -> !java.util.Set.of("render", "body", "prepareBody", "renderPrepared", "prepareImage", "prepareGalleryImage", "observeBody", "onLiveRenderFailure", "onLiveLayerFailure", "clearAccessoryInspection", "accessoryObserverFor",
-                "prepareGalleryBody", "confirmGalleryBody", "renderGallery", "renderRetained", "retainedTextures", "saveGallerySlot", "selectGallerySlot", "selectGallerySession", "retireGallerySlots", "galleryAccessories", "accessories", "observeAccessories", "close").contains(method.name)
+        node.methods.removeIf(method -> !java.util.Set.of("render", "body", "prepareBody", "modelFitApplicable", "prepareModelFit", "suppressModelFit", "retireBody", "renderPrepared", "prepareImage", "prepareGalleryImage", "observeBody", "onLiveRenderFailure", "onLiveLayerFailure", "clearAccessoryInspection", "accessoryObserverFor",
+                "prepareGalleryBody", "confirmGalleryBody", "renderGallery", "renderRetained", "transformRetained", "retainedTextures", "saveGallerySlot", "selectGallerySlot", "selectGallerySession", "retireGallerySlots", "galleryAccessories", "accessories", "observeAccessories", "close").contains(method.name)
                 && !method.name.startsWith("lambda$"));
 
         init(node);
         node.fields.removeIf(field -> !java.util.Set.of("session", "closed", "previewPlayer", "previewLevel", "previewProfile", "previewClock", "bakedRenderer", "diagnostics", "accessoryObserver", "accessoryObserverSession", "accessoryPreparation", "layerFailureLogged",
-                "gallery", "gallerySlots", "activeGallerySource", "bodyObserver", "previewTickGate").contains(field.name));
+                "gallery", "gallerySlots", "activeGallerySource", "bodyObserver", "previewTickGate", "nativeFit").contains(field.name));
         for (var old : helpers) {
             var helper = method(node, old.name, old.desc); helper.access = old.access;
             switch (old.name) {
@@ -2313,6 +2780,9 @@ public final class CpmExtractionBodyProbe {
         static String skin;
         static com.naocraftlab.skins.client.SkinModel model;
         static com.naocraftlab.skins.client.PreviewAccessories value;
+
+        public static com.naocraftlab.skins.client.PreviewModelFrames.BodyRequirements previewBodyRequirements(java.util.UUID id) { return com.naocraftlab.skins.runtime.CapeProjection.previewBodyRequirements(id); }
+        public static com.naocraftlab.skins.runtime.EffectiveSkinSource skinSource(java.util.UUID id) { return com.naocraftlab.skins.runtime.CapeProjection.skinSource(id); }
         public static com.naocraftlab.skins.client.PreviewAccessories previewAccessories(java.util.UUID id, String texture,
                 com.naocraftlab.skins.client.SkinModel selectedModel, PreviewRenderer.LiveReason reason) {
             profile = id; skin = texture; model = selectedModel;
@@ -2327,7 +2797,12 @@ public final class CpmExtractionBodyProbe {
     }
     public static final class Graphics {
         static final java.util.List<CpmBakedDisplayProbe.LoadingFrame> loadingFrames = new java.util.ArrayList<>();
-        public void blit(Pipeline pipeline, Object texture, int x, int y, float u, float v,
+        public void blit(Object pipeline, CpmOwnedPreviewDispatchProbe.Text texture, int x, int y, float u, float v,
+                int width, int height, int sourceWidth, int sourceHeight, int textureWidth, int textureHeight, int color) {
+            loadingFrames.add(new CpmBakedDisplayProbe.LoadingFrame(texture.getString(), x, y, u, v, width, height,
+                    sourceWidth, sourceHeight, textureWidth, textureHeight));
+        }
+        public void blit(Object pipeline, Object texture, int x, int y, float u, float v,
                 int width, int height, int sourceWidth, int sourceHeight, int textureWidth, int textureHeight, int color) {
             loadingFrames.add(new CpmBakedDisplayProbe.LoadingFrame(texture.toString(), x, y, u, v, width, height,
                     sourceWidth, sourceHeight, textureWidth, textureHeight));
@@ -2339,19 +2814,27 @@ public final class CpmExtractionBodyProbe {
         public void nextStratum() { stratum++; }
         public void enableScissor(int left, int top, int right, int bottom) { throw new AssertionError("Unexpected Gallery PIP scissor"); }
         public void disableScissor() {}
-        public void entity(State state, float scale, org.joml.Vector3fc offset, org.joml.Quaternionfc rotation, org.joml.Quaternionfc camera, int x0, int y0, int x1, int y1) { queued = new GuiState(state, x0, y0, x1, y1, scale); states.add(queued); strata.put(queued,stratum); }
-        public void entity(State state, float scale, org.joml.Vector3f offset, org.joml.Quaternionf rotation, org.joml.Quaternionf camera, int x0, int y0, int x1, int y1) { queued = new GuiState(state, x0, y0, x1, y1, scale); states.add(queued); strata.put(queued,stratum); }
+        public void entity(State state, float scale, org.joml.Vector3fc offset, org.joml.Quaternionfc rotation, org.joml.Quaternionfc camera, int x0, int y0, int x1, int y1) {
+            queued = new GuiState(state, x0, y0, x1, y1, scale, new org.joml.Vector3f(offset),
+                    new org.joml.Quaternionf(rotation), camera == null ? null : new org.joml.Quaternionf(camera));
+            states.add(queued); strata.put(queued,stratum);
+        }
+        public void entity(State state, float scale, org.joml.Vector3f offset, org.joml.Quaternionf rotation, org.joml.Quaternionf camera, int x0, int y0, int x1, int y1) {
+            entity(state, scale, (org.joml.Vector3fc) offset, (org.joml.Quaternionfc) rotation,
+                    (org.joml.Quaternionfc) camera, x0, y0, x1, y1);
+        }
     }
     public static final class Baked {
         public void render(Graphics graphics, PreviewRenderer.PreviewRequest request) {}
         public void close() {}
     }
     public interface PipState { int x0(); int x1(); int y0(); int y1(); float scale(); default org.joml.Matrix3x2fc pose() { return new org.joml.Matrix3x2f(); } default Rectangle scissorArea() { return null; } }
-    public record GuiState(State renderState, int x0, int y0, int x1, int y1, float scale) implements PipState {
+    public record GuiState(State renderState, int x0, int y0, int x1, int y1, float scale,
+            org.joml.Vector3f translation, org.joml.Quaternionf rotation, org.joml.Quaternionf overrideCameraAngle) implements PipState {
+        public GuiState(State renderState, int x0, int y0, int x1, int y1, float scale) {
+            this(renderState, x0, y0, x1, y1, scale, new org.joml.Vector3f(), new org.joml.Quaternionf(), null);
+        }
         public GuiState(State renderState) { this(renderState, 0, 0, 16, 16, 1); }
-        public org.joml.Vector3f translation() { return new org.joml.Vector3f(); }
-        public org.joml.Quaternionf rotation() { return new org.joml.Quaternionf(); }
-        public org.joml.Quaternionf overrideCameraAngle() { return null; }
     }
     public static final class GuiRenderState {
         public Panorama panoramaRenderState;
@@ -2409,6 +2892,7 @@ public final class CpmExtractionBodyProbe {
                 storage.payload = state instanceof Avatar avatar && avatar.appearance != null ? avatar.appearance : state;
                 storage.payloads.add(storage.payload);
             }
+            if (state instanceof Avatar avatar && measurement.test(avatar)) return;
             submits++; submit.accept(state instanceof Avatar avatar ? avatar.appearance : null);
         }
     }

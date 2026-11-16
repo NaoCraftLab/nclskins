@@ -5,10 +5,6 @@ import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.naocraftlab.skins.client.CenteredPipPreviewTransform;
 import com.naocraftlab.skins.client.OuterLayerPart;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Set;
-import java.util.WeakHashMap;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.gui.render.state.GuiRenderState;
@@ -23,8 +19,7 @@ import org.joml.Quaternionf;
 
 public final class BakedPreviewRenderer
         extends PictureInPictureRenderer<BakedPreviewRenderState> {
-    private final Set<BakedPreviewTarget> targets =
-            Collections.newSetFromMap(new WeakHashMap<>());
+    private boolean closed;
 
     public BakedPreviewRenderer(
             MultiBufferSource.BufferSource bufferSource) {
@@ -41,21 +36,18 @@ public final class BakedPreviewRenderer
             BakedPreviewRenderState state,
             GuiRenderState guiRenderState,
             int guiScale) {
+        if (closed) throw new IllegalStateException("Dispatcher is closed");
+        var owner = BakedPreviewTarget.context(guiRenderState);
         var completion = state.completion();
         if (completion != null && !completion.current()) return;
         BakedPreviewTarget target = state.target();
         try {
-        TargetRenderer renderer = target.acquire(
-                this,
-                () -> {
-                    targets.add(target);
-                    return new TargetRenderer(bufferSource);
-                },
-                TargetRenderer.class);
+        TargetRenderer renderer = owner.acquire(
+                target, () -> new TargetRenderer(bufferSource), TargetRenderer.class);
         target.retain();
         renderer.primaryRendered = false;
         if (completion != null && completion.reusesConfirmedOutput()) {
-            if (target.owns(this, renderer) && renderer.hasPreparedOutput()) renderer.blitTexture(state, guiRenderState);
+            if (target.owns(owner, renderer) && renderer.hasPreparedOutput()) renderer.blitTexture(state, guiRenderState);
             return;
         }
         renderer.outputReady = false;
@@ -63,7 +55,7 @@ public final class BakedPreviewRenderer
         if (completion != null && renderer.primaryRendered && renderer.hasPreparedOutput()) completion.accept(
                 new com.naocraftlab.skins.client.PreviewModelFrames.Body(
                         com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.ORDINARY,
-                        () -> target.owns(this, renderer) && renderer.hasPreparedOutput()));
+                        () -> target.owns(owner, renderer) && renderer.hasPreparedOutput()));
         } catch (RuntimeException | Error failure) {
             if (completion != null) completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
                     com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED, () -> true));
@@ -84,10 +76,8 @@ public final class BakedPreviewRenderer
 
     @Override
     public void close() {
-        for (BakedPreviewTarget target : new ArrayList<>(targets)) {
-            target.release(this);
-        }
-        targets.clear();
+        if (closed) return;
+        closed = true;
         super.close();
     }
 

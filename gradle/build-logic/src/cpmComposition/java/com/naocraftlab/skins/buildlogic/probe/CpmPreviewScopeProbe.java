@@ -166,6 +166,7 @@ public final class CpmPreviewScopeProbe {
         types.put("net/minecraft/client/resources/PlayerSkin$Model", Skin.Model.class);
         types.put("net/minecraft/client/gui/GuiGraphics", Graphics.class);
         types.put("com/mojang/blaze3d/vertex/PoseStack", Pose.class);
+        types.put("com/mojang/blaze3d/vertex/PoseStack$Pose", Pose.Entry.class);
         types.put("net/minecraft/client/gui/screens/inventory/InventoryScreen", Inventory.class);
         types.put("net/minecraft/client/model/PlayerModel", CpmBakedDisplayProbe.Model.class);
         types.put("net/minecraft/client/model/ElytraModel", CpmBakedDisplayProbe.Model.class);
@@ -1104,16 +1105,26 @@ public final class CpmPreviewScopeProbe {
                 int sourceWidth, int sourceHeight, int textureWidth, int textureHeight) {
             loadingFrames.add(new CpmBakedDisplayProbe.LoadingFrame(texture.toString(), x, y, u, v, width, height, sourceWidth, sourceHeight, textureWidth, textureHeight));
         }
+        private final Pose pose = new Pose();
         public void enableScissor(int x, int y, int right, int bottom) {}
         public void disableScissor() {}
-        public Pose pose() { return new Pose(); }
+        public Pose pose() { return pose; }
         public CpmBakedDisplayProbe.Buffers bufferSource() { return new CpmBakedDisplayProbe.Buffers(); }
         public void flush() { CpmBakedDisplayProbe.flush(); }
     }
     public static final class Pose {
-        public CpmBakedDisplayProbe.ImmediateMatrices last() { return new CpmBakedDisplayProbe.ImmediateMatrices(); }
-        public void pushPose() { CpmBakedDisplayProbe.push(); }
-        public void popPose() { CpmBakedDisplayProbe.pop(); }
+        private final java.util.ArrayDeque<Entry> entries = new java.util.ArrayDeque<>(java.util.List.of(new Entry()));
+        public Entry last() { return entries.getLast(); }
+        public void pushPose() { CpmBakedDisplayProbe.push(); entries.addLast(new Entry()); }
+        public void popPose() {
+            if (entries.size() == 1) throw new IllegalStateException("Cannot pop the incoming pose");
+            entries.removeLast();
+            CpmBakedDisplayProbe.pop();
+        }
+        public static final class Entry {
+            public org.joml.Matrix4f pose() { return new org.joml.Matrix4f(); }
+            public org.joml.Matrix3f normal() { return new org.joml.Matrix3f(); }
+        }
         public void scale(float x, float y, float z) {}
         public void translate(float x, float y, float z) { CpmBakedDisplayProbe.translated(x); }
         public void mulPose(org.joml.Quaternionfc rotation) {}

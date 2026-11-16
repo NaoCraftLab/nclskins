@@ -302,7 +302,7 @@ public final class ViewHostPolicy {
         Bounds stage = preview.bounds();
         return appearance.map(value -> new com.naocraftlab.skins.client.PreviewRenderer.PreviewRequest(
                 value, anchor.x(), anchor.y(), anchor.width(), anchor.height(),
-                preview.yawDegrees(), preview.pitchDegrees(), preview.scale(), preview.intent(),
+                preview.yawDegrees(), preview.pitchDegrees(), preview.renderedScale(), preview.intent(),
                 stage.x(), stage.y(), stage.width(), stage.height()));
     }
 

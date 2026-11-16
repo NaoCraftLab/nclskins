@@ -5,6 +5,21 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public interface PreviewAssets extends AutoCloseable {
+    enum NumericFitStatus { STORED, TRANSIENT, UNAVAILABLE, RETIRED }
+
+    record NumericFitResult(NumericFitStatus status, PreviewModelFitStore.Value value) {
+        public NumericFitResult {
+            if (status == null || (status == NumericFitStatus.STORED || status == NumericFitStatus.TRANSIENT) != (value != null)) {
+                throw new IllegalArgumentException("Invalid numeric preparation result");
+            }
+        }
+    }
+
+    CompletableFuture<NumericFitResult> prepareModelFit(java.util.UUID accountId,
+            com.naocraftlab.skins.core.model.SkinVariant variant, byte[] content,
+            java.util.function.BooleanSupplier current,
+            java.util.function.Supplier<CompletableFuture<PreviewModelFitStore.Value>> measurement);
+
     long catalogEpoch();
     void installWarmed(Map<String, byte[]> warmed, boolean replaceResources);
     CompletableFuture<Optional<byte[]>> requestPreview(String key, Source source);

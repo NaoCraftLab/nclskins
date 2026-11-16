@@ -50,6 +50,8 @@ final class CompatibilityHarness {
                 harness.absolutePath,
                 '--no-daemon',
                 "-PnclskinsBuildLogicWorkspace=${workspace(target, minecraftVersion, kind)}".toString(),
+                '--project-cache-dir',
+                new File(root, ".gradle/workspaces/${workspace(target, minecraftVersion, kind)}").absolutePath,
                 kind == 'LicensedClient' ? 'runClientLicensed' : "run${kind}".toString()]
         if (developmentLogging) command.add('-PnclskinsDevLogging=true')
         if (kind == 'Server' && target.loader.id == 'fabric') {
@@ -82,6 +84,8 @@ final class CompatibilityHarness {
         execute(
                 [wrapper.absolutePath, '-p', harness.absolutePath, '--no-daemon',
                  "-PnclskinsBuildLogicWorkspace=${workspace(target, minecraftVersion, kind)}".toString(),
+                 '--project-cache-dir',
+                 new File(root, ".gradle/workspaces/${workspace(target, minecraftVersion, kind)}").absolutePath,
                  'resolveCompatibilityRuntime'],
                 root,
                 target,

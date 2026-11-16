@@ -78,6 +78,7 @@ abstract class TargetRunTask extends DefaultTask {
                 target, target.minecraft.version.toString(), kind)
         List<String> command = [wrapper.absolutePath, '-p', targetDirectory.absolutePath,
                                 '--no-daemon', "-PnclskinsBuildLogicWorkspace=${workspace}".toString(),
+                                '--project-cache-dir', new File(root, ".gradle/workspaces/${workspace}").absolutePath,
                                 nativeTask]
         if (developmentLogging) command.add('-PnclskinsDevLogging=true')
         if (kind == 'Server') {

@@ -45,6 +45,12 @@ final class RetainedSkinPixels {
         return pixels == null || pixels.get() == null ? 0 : pixels.revision;
     }
 
+    synchronized boolean owns(String location, long revision, Object texture) {
+        drain();
+        Pixels pixels = textures.get(location);
+        return texture != null && pixels != null && pixels.get() == texture && pixels.revision == revision;
+    }
+
     record Snapshot(int[] argb, long revision) {}
 
     private void drain() {

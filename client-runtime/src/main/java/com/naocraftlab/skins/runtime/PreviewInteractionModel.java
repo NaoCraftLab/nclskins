@@ -17,7 +17,6 @@ public record PreviewInteractionModel(
         boolean rotating) {
     public static final float MIN_SCALE = 0.68F;
     public static final float MAX_SCALE = 2.0F;
-    private static final float FIT_PADDING = 0.97F;
 
     public PreviewInteractionModel {
         if (!Float.isFinite(yawDegrees)
@@ -37,10 +36,8 @@ public record PreviewInteractionModel(
     }
 
     public static PreviewInteractionModel editor(int viewportHeight, PreviewRenderer.CapeMode capeMode) {
-        int visibleHeight = Math.max(1, viewportHeight - 2 * (33 + 6));
-        float fitted = visibleHeight / (FIT_PADDING * Math.max(1, viewportHeight));
         return new PreviewInteractionModel(
-                -22.0F, -5.0F, clampScale(fitted), OuterLayerVisibility.allVisible(), capeMode, false);
+                -22.0F, -5.0F, 1.0F, OuterLayerVisibility.allVisible(), capeMode, false);
     }
 
     public PreviewInteractionModel beginRotate(Bounds bounds, double mouseX, double mouseY) {

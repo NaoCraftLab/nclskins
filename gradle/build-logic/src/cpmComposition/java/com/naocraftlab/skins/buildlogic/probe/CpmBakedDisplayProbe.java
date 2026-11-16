@@ -32,6 +32,10 @@ public final class CpmBakedDisplayProbe {
     private static int poses;
 
     public static void main(String[] args) throws Exception {
+        if (args.length == 1 && args[0].equals("submission-pool")) {
+            hiddenImage("submission-pool");
+            return;
+        }
         if (args.length == 1 && args[0].equals("frame-cards")) {
             System.setProperty("nclskins.frameCards","true");
             hiddenImage("frame-cards");
@@ -293,7 +297,7 @@ public final class CpmBakedDisplayProbe {
         types.put("net/minecraft/client/player/LocalPlayer", CpmPreviewScopeProbe.Avatar.class);
         types.put("net/minecraft/client/gui/GuiGraphics", CpmPreviewScopeProbe.Graphics.class);
         types.put("com/mojang/blaze3d/vertex/PoseStack", CpmPreviewScopeProbe.Pose.class);
-        types.put("com/mojang/blaze3d/vertex/PoseStack$Pose", ImmediateMatrices.class);
+        types.put("com/mojang/blaze3d/vertex/PoseStack$Pose", CpmPreviewScopeProbe.Pose.Entry.class);
         types.put("net/minecraft/resources/ResourceLocation", CpmPreviewScopeProbe.Location.class);
         types.put("net/minecraft/client/model/PlayerModel", Model.class);
         types.put("net/minecraft/client/model/EntityModel", Model.class);
@@ -597,6 +601,95 @@ public final class CpmBakedDisplayProbe {
         } finally {observeImmediateMenu=false;immediateMaterials.clear();immediateTranslations.clear();}
     }
 
+    private static void submissionPoolCards(Loader loader, Class<?> bakedType, java.lang.reflect.Method prepare, Class<?> dispatcherType) throws Exception {
+        var pixels = new java.awt.image.BufferedImage(64,64,java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        var png = new java.io.ByteArrayOutputStream(); javax.imageio.ImageIO.write(pixels,"PNG",png);
+        var appearance = new PreviewRenderer.PreviewAppearance(new TextureRegistry.TextureHandle("fixture:pool-host",64,64), SkinModel.CLASSIC, java.util.Optional.empty(), PreviewRenderer.CapeMode.OFF, OuterLayerVisibility.allVisible());
+        try (var base = new com.naocraftlab.skins.runtime.GalleryNativePassFixture(appearance,png.toByteArray()); var subject = base.freshOwned()) {
+            var hostType = CpmPreviewScreenSlice.loadNative(CpmPreviewScreenSlice.availableOwner(),bakedType);
+            for (String role : java.util.List.of("gallery", "skin-catalog")) {
+                Object host = hostType.getConstructor().newInstance(); var registry = new CpmOwnedPreviewDispatchProbe.Registry();
+                try (var skins = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,TextureRegistry.TextureKind.PLAYER_SKIN,com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding());
+                     var capes = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,TextureRegistry.TextureKind.IMAGE,com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding())) {
+                    for (var f : hostType.getDeclaredFields()) {
+                        Object value = switch(f.getName()) {
+                            case "runtime" -> subject.runtime; case "editorRenderer" -> submissionOwner(loader,loader.loadClass(bakedType.getPackageName()+".SubmissionPreviewRenderer"));
+                            case "skinTextures" -> skins; case "capeTextures" -> capes; case "textureRegistry" -> registry;
+                            case "width" -> 854; case "height" -> 480; default -> f.getType()==Map.class ? new HashMap<>() : null;
+                        }; if (value != null) f.set(host,value);
+                    }
+                    var view = role.equals("gallery") ? subject.staticSurfaces().get(0).view() : subject.catalogFrame();
+                    var key = hostType.getDeclaredMethod("skinKey",com.naocraftlab.skins.runtime.ViewSpec.Preview.class);key.setAccessible(true);
+                    for (var preview : view.previews()) {
+                        if (role.equals("gallery") && !preview.id().startsWith("gallery.preset.")) continue;
+                        Object k = key.invoke(null,preview); byte[] bytes = role.equals("gallery") ? subject.ownedBytes(preview) : png.toByteArray();
+                        skins.request(k,()->java.util.concurrent.CompletableFuture.completedFuture(java.util.Optional.of(bytes)),()->{});
+                        @SuppressWarnings("unchecked") var keys = (Map<String,Object>)field(host,"previewKeys"); keys.put(preview.id(),k);
+                    }
+                    var paint = hostType.getDeclaredMethod("renderStaticPreviews",Graphics.class,com.naocraftlab.skins.runtime.ViewSpec.class);paint.setAccessible(true);
+                    var replace = loader.loadClass(bakedType.getPackageName()+".BakedPreviewSubmission").getMethod("replace",Object.class,PipState.class);
+                    int[] parentClip = {0};
+                    var states = new java.util.ArrayList<Object>(); enqueue = graphics -> states.add(call(replace,null,graphics,
+                            new MenuState(new Rectangle(0,0,1000 + parentClip[0],1000))));
+                    Class<?> registration = loader.loadClass("net.neoforged.neoforge.client.gui.PictureInPictureRendererRegistration");
+                    Class<?> poolType = loader.loadClass("net.neoforged.neoforge.client.gui.PictureInPictureRendererPool");
+                    Object registered = registration.getConstructor(Class.class,java.util.function.Function.class).newInstance(prepare.getParameterTypes()[0],(java.util.function.Function<Object,Object>)buffers -> {
+                        try { return dispatcherType.getConstructor(Buffers.class).newInstance(buffers); } catch (Exception failure) { throw new AssertionError(failure); }
+                    });
+                    Object pool = poolType.getConstructor(registration,Buffers.class).newInstance(registered,new Buffers());
+                    var get = poolType.getMethod("get",PipState.class,int.class,boolean.class);var prune = poolType.getMethod("clearUnusedRenderers");
+                    var gui = new CpmExtractionBodyProbe.GuiRenderState(); var graphics = new Graphics();
+                    var stable = new java.util.IdentityHashMap<Object,PreviewModelFrames.Body>(); var generations = new java.util.IdentityHashMap<Object,Object>();
+                    var assignments = new java.util.IdentityHashMap<Object,Object>(); var textures = new java.util.IdentityHashMap<Object,CpmExtractionBodyProbe.LegacyTexture>(); int[] swaps = {0};
+                    try {
+                        for (int frame=0;frame<4;frame++) {
+                            parentClip[0]=frame;states.clear();paint.invoke(host,graphics,view);check(states.size()>=2,"POOL both actual "+role+" card sources emitted");
+                            var ordered = new java.util.ArrayList<>(states);if ((frame&1)!=0) java.util.Collections.reverse(ordered);
+                            if(frame==0)check(states.stream().allMatch(s->((PipState)s).x1()<0),"POOL genuine own hidden image producers");
+                            else check(states.stream().allMatch(s->((PipState)s).x0()>=0),"POOL stable "+role+" images do not rehide or restart");
+                            for (Object state : ordered) scheduledBaked(state,false);
+                            var materials = CpmExtractionBodyProbe.queuedMaterials();materials.clear(); final int currentFrame=frame;
+                            CpmExtractionBodyProbe.consumerFrame(loader,gui,()->{
+                                for (Object state : ordered) {
+                                    Object dispatcher = call(get,pool,state,1,true);if(dispatcher==null)dispatcher=call(get,pool,state,1,false);
+                                    Object target;try{target=state.getClass().getMethod("target").invoke(state);}catch(Exception failure){throw new AssertionError(failure);}
+                                    Object previous=assignments.put(target,dispatcher);if(previous!=null&&previous!=dispatcher)swaps[0]++;
+                                    call(prepare,dispatcher,state,gui,1);
+                                    for (var body : stable.values()) check(body.current().getAsBoolean(),"POOL real reassignment preserves established own "+role+" material currentness");
+                                }
+                            },()->{
+                                check(materials.size()==states.size(),"POOL every own physical material reaches native GUI consumer");
+                                for(int i=0;i<ordered.size();i++)try{
+                                    Object state=ordered.get(i);Object target=state.getClass().getMethod("target").invoke(state);var texture=materials.get(i).texture;
+                                    check(!texture.closed && texture.data.equals(field(state,"skinTexture")),"POOL consumed exact own source material");
+                                    if(currentFrame==0)textures.put(target,texture);else check(textures.get(target)==texture,"POOL dispatcher reassignment keeps exact image physical target");
+                                }catch(Exception failure){throw new AssertionError(failure);}
+                                CpmExtractionBodyProbe.consumerSubmitted();
+                            });
+                            CpmExtractionBodyProbe.signalConsumers();call(prune,pool);
+                            @SuppressWarnings("unchecked") var renderers=(Map<String,Object>)field(host,"bakedRenderers");
+                            for(Object renderer:renderers.values()) {var image=(EditorPreviewSession)field(renderer,"imageSession");check(image.imageVisible(),"POOL own hidden/visible fence keeps image ready");
+                                if(frame==0){stable.put(image,(PreviewModelFrames.Body)field(image,"imageMaterial"));generations.put(image,field(image,"imageGeneration"));}
+                                else check(generations.get(image).equals(field(image,"imageGeneration")),"POOL image attempt continuity across native reassignment");}
+                        }
+                        check(swaps[0]>0,"POOL actual Neo native reuse must reassign at least one real snapshot");
+                        call(prune,pool);for(var body:stable.values())check(body.current().getAsBoolean(),"POOL empty-frame prune does not retire GUI material");
+                        CpmExtractionBodyProbe.consumerFrame(loader,gui,()->{for(Object state:states){Object dispatcher=call(get,pool,state,1,false);call(prepare,dispatcher,state,gui,1);}},CpmExtractionBodyProbe::consumerSubmitted);
+                        closeTarget(pool);CpmExtractionBodyProbe.closeConsumerOwner(loader,gui);
+                        check(textures.values().stream().noneMatch(t->t.closed),"POOL native parent retirement waits for queued consumer fence");
+                        for(var body:stable.values())check(!body.current().getAsBoolean(),"POOL true parent close rejects old material currentness");
+                        CpmExtractionBodyProbe.signalConsumers();check(textures.values().stream().allMatch(t->t.closes==1),"POOL parent-close resources retire exactly once after fence");
+                        System.out.println("PASS SUBMISSION_POOL "+role+" actual snapshots/Neo pool/native reuse/prepare; hidden and separate visible consumer/fence; stable physical material/currentness/image attempt; empty prune; true parent close; swaps="+swaps[0]);
+                    } finally {closeTarget(pool);CpmExtractionBodyProbe.signalConsumers();@SuppressWarnings("unchecked") var renderers=(Map<String,Object>)field(host,"bakedRenderers");for(var renderer:renderers.values())closeTarget(renderer);}
+                }
+            }
+        }
+    }
+
+    private static boolean getNeoPoolResource() {
+        return CpmBakedDisplayProbe.class.getClassLoader().getResource("net/neoforged/neoforge/client/gui/PictureInPictureRendererPool.class") != null;
+    }
+
     private static void staticCardHost(Loader loader, Class<?> bakedType, java.lang.reflect.Method prepare,
             Object dispatcher, boolean late, boolean extraction) throws Exception {
         var pixels = new java.awt.image.BufferedImage(64,64,java.awt.image.BufferedImage.TYPE_INT_ARGB);
@@ -843,17 +936,18 @@ public final class CpmBakedDisplayProbe {
                     check(states.size() == 1 && ((PipState)states.get(0)).x1() < 0, "POOLED A starts with genuine own hidden producer");
                     Object imageIdentity = field(image, "imageIdentity"); Object generation = field(image, "imageGeneration");
                     Object stateA = states.get(0);
-                    CpmExtractionBodyProbe.consumerFrame(loader, () -> call(prepare, a,
+                    CpmExtractionBodyProbe.consumerFrame(loader, contextA, () -> call(prepare, a,
                             late ? new Object[]{stateA, contextA, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{stateA, contextA, 1}), CpmExtractionBodyProbe::consumerSubmitted);
                     var fenceA = takeConsumerFences();
                     check(materials.size() == 1 && field(image, "imageMaterial") == null && image.imagePreparing(),
                             "POOLED material A is prepared but its real fence has not published image readiness");
                     var physicalA = materials.get(0).texture;
                     closeTarget(a);
+                    CpmExtractionBodyProbe.closeConsumerOwner(loader, contextA);
                     states.clear(); renderer.render(new Graphics(), request);
                     check(states.size() == 1 && ((PipState)states.get(0)).x1() < 0, "POOLED same-source B remains own hidden pending");
                     Object stateB = states.get(0);
-                    CpmExtractionBodyProbe.consumerFrame(loader, () -> call(prepare, b,
+                    CpmExtractionBodyProbe.consumerFrame(loader, contextB, () -> call(prepare, b,
                             late ? new Object[]{stateB, contextB, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{stateB, contextB, 1}), CpmExtractionBodyProbe::consumerSubmitted);
                     var fenceB = takeConsumerFences();
                     check(materials.size() == 2 && materials.get(1).texture != physicalA, "POOLED B prepares its own resource after actual context A close");
@@ -874,7 +968,7 @@ public final class CpmBakedDisplayProbe {
                     states.clear(); renderer.render(new Graphics(), request);
                     check(states.size() == 1 && ((PipState)states.get(0)).x0() >= 0, "POOLED B follows its own fence with separately visible native state");
                     Object visible = states.get(0);
-                    CpmExtractionBodyProbe.consumerFrame(loader, () -> call(prepare, b,
+                    CpmExtractionBodyProbe.consumerFrame(loader, contextB, () -> call(prepare, b,
                             late ? new Object[]{visible, contextB, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{visible, contextB, 1}), CpmExtractionBodyProbe::consumerSubmitted);
                     CpmExtractionBodyProbe.signalConsumers();
                     System.out.println("PASS POOLED actual same-image context A retirement -> own B prepare -> real fence order " + (obsoleteLast ? "B,A" : "A,B") + " -> preserved current own B -> separate visible consumer");
@@ -961,7 +1055,7 @@ public final class CpmBakedDisplayProbe {
                     if (frame == 0) staleFirst[0] = emitted.get(0);
                     check(emitted.size()==3 && ordered.size()==3,"all three host emissions survive real SDK collector");
                     var consumed=new java.util.IdentityHashMap<Object,CpmExtractionBodyProbe.TextureView>();
-                    CpmExtractionBodyProbe.consumerFrame(loader,()->{
+                    CpmExtractionBodyProbe.consumerFrame(loader, guiContext,()->{
                         for(Object payload:ordered) {
                             int before=materials.size();
                             Object pooled = dispatchers[(ordered.indexOf(payload) + currentFrame) % dispatchers.length];
@@ -1003,18 +1097,27 @@ public final class CpmBakedDisplayProbe {
                         "POOLED pruning unused tail preserves active and unqueued retained A");
                 check(oldTextures.stream().noneMatch(value -> value.closed), "POOLED tail close does not retire context resources");
                 Object reusedSlot = late ? create(dispatcherType) : dispatcherType.getConstructor(Buffers.class).newInstance(new Buffers());
-                CpmExtractionBodyProbe.consumerFrame(loader, () -> {
+                CpmExtractionBodyProbe.consumerFrame(loader, guiContext, () -> {
                     Object state = lastStates.get(0);
                     call(prepare, reusedSlot, late ? new Object[]{state, guiContext, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{state, guiContext, 1});
                 }, CpmExtractionBodyProbe::consumerSubmitted);
                 CpmExtractionBodyProbe.signalConsumers();
-                closeTarget(dispatchers[0]); closeTarget(dispatchers[1]);
+                closeTarget(dispatchers[0]); closeTarget(dispatchers[1]); closeTarget(reusedSlot);
                 for (var material : stableMaterials.values()) check(material.current().getAsBoolean(),
-                        "POOLED cache-hit participant anchors all retained context targets");
+                        "POOLED empty frame with zero participants preserves all live GUI context targets");
+                Object afterEmpty = late ? create(dispatcherType) : dispatcherType.getConstructor(Buffers.class).newInstance(new Buffers());
+                CpmExtractionBodyProbe.consumerFrame(loader, guiContext, () -> {
+                    Object state = lastStates.get(0);
+                    call(prepare, afterEmpty, late ? new Object[]{state, guiContext, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{state, guiContext, 1});
+                }, CpmExtractionBodyProbe::consumerSubmitted);
+                CpmExtractionBodyProbe.signalConsumers();
+                closeTarget(afterEmpty);
+                for (var material : stableMaterials.values()) check(material.current().getAsBoolean(),
+                        "POOLED same GUI admits new dispatcher after empty frame without reviving or replacing material");
                 var newContext = new CpmExtractionBodyProbe.GuiRenderState();
                 Object replacement = late ? create(dispatcherType) : dispatcherType.getConstructor(Buffers.class).newInstance(new Buffers());
                 CpmExtractionBodyProbe.queuedMaterials().clear();
-                CpmExtractionBodyProbe.consumerFrame(loader, () -> {
+                CpmExtractionBodyProbe.consumerFrame(loader, newContext, () -> {
                     for (Object state : lastStates) call(prepare, replacement, late ? new Object[]{state, newContext, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{state, newContext, 1});
                 }, CpmExtractionBodyProbe::consumerSubmitted);
                 CpmExtractionBodyProbe.signalConsumers();
@@ -1027,7 +1130,7 @@ public final class CpmBakedDisplayProbe {
                 check(hiddenReplacement.size() == 3 && hiddenReplacement.stream().allMatch(value -> ((PipState)value).x1() < 0),
                         "POOLED new context requires each own hidden image producer, not forced readiness");
                 CpmExtractionBodyProbe.queuedMaterials().clear();
-                CpmExtractionBodyProbe.consumerFrame(loader, () -> {
+                CpmExtractionBodyProbe.consumerFrame(loader, newContext, () -> {
                     for (Object state : hiddenReplacement) call(prepare, replacement, late ? new Object[]{state, newContext, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{state, newContext, 1});
                 }, CpmExtractionBodyProbe::consumerSubmitted);
                 CpmExtractionBodyProbe.signalConsumers();
@@ -1036,9 +1139,10 @@ public final class CpmBakedDisplayProbe {
                 for (Object renderer : liveRenderers.values()) check(((EditorPreviewSession)field(renderer, "imageSession")).imageVisible(),
                         "POOLED old context final close cannot retire new context own material");
                 var newTextures = CpmExtractionBodyProbe.queuedMaterials().stream().map(value -> value.texture).toList();
-                CpmExtractionBodyProbe.consumerFrame(loader, () -> {
+                CpmExtractionBodyProbe.consumerFrame(loader, newContext, () -> {
                     for (Object state : hiddenReplacement) call(prepare, replacement, late ? new Object[]{state, newContext, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{state, newContext, 1});
                     closeTarget(replacement);
+                    try { CpmExtractionBodyProbe.closeConsumerOwner(loader, newContext); } catch (Exception failure) { throw new AssertionError(failure); }
                     closeTarget(replacement);
                 }, () -> {
                     check(newTextures.stream().noneMatch(value -> value.closed), "POOLED last context close preserves acquired native consumer");
@@ -1046,7 +1150,7 @@ public final class CpmBakedDisplayProbe {
                 });
                 check(newTextures.stream().noneMatch(value -> value.closed), "POOLED enqueued fence is not signal");
                 CpmExtractionBodyProbe.signalConsumers();
-                check(newTextures.stream().allMatch(value -> value.closes == 1), "POOLED final participant closes every resource exactly once after fence");
+                check(newTextures.stream().allMatch(value -> value.closes == 1), "POOLED true GUI parent close retires every resource exactly once after fence");
                 Object forbidden = late ? create(dispatcherType) : dispatcherType.getConstructor(Buffers.class).newInstance(new Buffers());
                 try {
                     Object state = hiddenReplacement.get(0);
@@ -1074,7 +1178,7 @@ public final class CpmBakedDisplayProbe {
                 var validLater = java.util.List.copyOf(Graphics.framePayloads);
                 check(validLater.size() == 3 && validLater.stream().allMatch(state -> ((PipState)state).x1() < 0),
                         "POOLED valid later slots perform their own hidden recovery");
-                CpmExtractionBodyProbe.consumerFrame(loader, () -> {
+                CpmExtractionBodyProbe.consumerFrame(loader, anchorContext, () -> {
                     for (Object state : validLater) call(prepare, tail, late ? new Object[]{state, anchorContext, new CpmExtractionBodyProbe.Features(), 1} : new Object[]{state, anchorContext, 1});
                 }, CpmExtractionBodyProbe::consumerSubmitted);
                 CpmExtractionBodyProbe.signalConsumers();
@@ -1086,9 +1190,10 @@ public final class CpmBakedDisplayProbe {
                 check(anchoredTextures.size() == 3 && anchoredTextures.stream().noneMatch(value -> value.closed),
                         "POOLED pruning participant lease does not invalidate scope/resource witness");
                 closeTarget(anchor);
+                CpmExtractionBodyProbe.closeConsumerOwner(loader, anchorContext);
                 check(anchoredTextures.stream().allMatch(value -> value.closes == 1)
                                 && (int)field(anchorOwner, "participants") == 0,
-                        "POOLED real original anchor close retires entire context exactly once");
+                        "POOLED true parent close retires entire context exactly once");
                 contextOwnerCleanup(loader);
                 System.out.println("PASS POOLED actual multi-dispatcher same-context permutation/currentness/generation; prune retained A; cache-hit participant; context replacement; old-close guard; own hidden recovery; acquired consumer/fence; final exact-once close; no closed-context revival");
                 if(root) ((AutoCloseable)field(host,"subscription")).close();
@@ -1118,7 +1223,7 @@ public final class CpmBakedDisplayProbe {
                 throw new IllegalStateException("fixture context cleanup " + index);
             }, AutoCloseable.class);
         }
-        try { closeTarget(lease); throw new AssertionError("POOLED cleanup fault must propagate"); }
+        try { closeTarget(lease); closeTarget(owner); throw new AssertionError("POOLED cleanup fault must propagate"); }
         catch (IllegalStateException expected) { check(expected.getSuppressed().length == 1, "POOLED aggregate cleanup preserves both failures"); }
         closeTarget(lease);
         check(closes[0] == 1 && closes[1] == 1 && (int)field(owner, "participants") == 0,
@@ -1135,6 +1240,7 @@ public final class CpmBakedDisplayProbe {
             call(acquire, nextOwner, target, (java.util.function.Supplier<AutoCloseable>)() -> replacement, AutoCloseable.class);
         }, AutoCloseable.class);
         closeTarget(reentrantLease);
+        closeTarget(reentrantOwner);
         check((boolean)call(targetType.getMethod("owns", Object.class, AutoCloseable.class), target, nextOwner, replacement)
                         && replacementCloses[0] == 0, "POOLED reentrant next context replacement survives old cleanup");
         closeTarget(target);
@@ -1147,6 +1253,7 @@ public final class CpmBakedDisplayProbe {
         try {
             call(acquire, duringOwner, create(targetType), (java.util.function.Supplier<AutoCloseable>)() -> {
                 closeTarget(duringCreate);
+                closeTarget(duringOwner);
                 return () -> rejectedCloses[0]++;
             }, AutoCloseable.class);
             throw new AssertionError("POOLED context closed in factory must reject late creation");
@@ -1373,6 +1480,11 @@ public final class CpmBakedDisplayProbe {
                     catch (Exception failure) { throw new AssertionError(failure); }
                 }
             };
+            if (scenario.equals("submission-pool")) {
+                loader.rawSdk = true;
+                submissionPoolCards(loader,bakedType,prepare,dispatcherType);
+                return;
+            }
             if (scenario.equals("context-callbacks")) {
                 lateContextCompletion(loader, bakedType, prepare, late, request);
                 return;
@@ -1383,6 +1495,7 @@ public final class CpmBakedDisplayProbe {
             }
             if (scenario.equals("card")) {
                 staticCardHost(loader, bakedType, prepare, dispatcher, late, extraction);
+                if (!extraction && getNeoPoolResource()) submissionPoolCards(loader,bakedType,prepare,dispatcherType);
                 if (extraction) {
                     lateContextCompletion(loader, bakedType, prepare, late, request);
                     frameCards(loader, bakedType, prepare, dispatcher, late);
@@ -2262,6 +2375,11 @@ public final class CpmBakedDisplayProbe {
                                                 + field(queued.get(0), "yawDegrees") + "/" + field(queued.get(0), "pitchDegrees") + "/" + field(queued.get(0), "scale")
                                                 + " expected=" + gesture.yawDegrees() + "/" + gesture.pitchDegrees() + "/" + gesture.scale()
                                                 + " oldScale=" + field(stateA,"scale"));
+                                double expectedScale = ((Number) field(stateA, "scale")).doubleValue()
+                                        * gesture.renderedScale() / before.renderedScale();
+                                double actualScale = ((Number) field(queued.get(0), "scale")).doubleValue();
+                                check(Math.abs(actualScale - expectedScale) < Math.max(0.0001, Math.abs(expectedScale) * 0.00001),
+                                        "REFRESH retained A uses rendered layout times logical zoom, without replacing A composition");
                             }
                             for (String component : extraction
                                     ? java.util.List.of("playerModel", "simplePlayerModel", "attachmentPlayerModel", "simpleAttachmentModel", "capeMode", "outerLayerVisibility", "skinTexture", "attachmentTexture")
@@ -3098,6 +3216,18 @@ public final class CpmBakedDisplayProbe {
     }
 
     static void submissionCpmImage(com.naocraftlab.skins.runtime.GalleryNativePassFixture original) throws Exception {
+        if (Boolean.getBoolean("nclskins.cpm.submissionCapture")) {
+            try {
+                Class.forName("com.naocraftlab.skins.buildlogic.probe.SubmissionCaptureBackend")
+                        .getMethod("run", com.naocraftlab.skins.runtime.GalleryNativePassFixture.class).invoke(null, original);
+            } catch (java.lang.reflect.InvocationTargetException failure) {
+                if (failure.getCause() instanceof Exception exception) throw exception;
+                if (failure.getCause() instanceof Error error) throw error;
+                throw failure;
+            }
+            return;
+        }
+        if (Boolean.getBoolean("nclskins.cpm.submissionCaptureDeferred")) return;
         String prefix="com.naocraftlab.skins.compat.client.identifier.submission.";
         if(CpmBakedDisplayProbe.class.getClassLoader().getResource(prefix.replace('.','/')+"SubmissionPreviewRenderer.class")==null)return;
         var loader=new Loader(prefix,prefix+"SubmissionPreviewRenderer",prefix+"SimplePreviewRenderer",prefix+"BakedPreviewRenderer",false);
@@ -3288,6 +3418,158 @@ public final class CpmBakedDisplayProbe {
         state.appearance = request.appearance();
     }
 
+    static final class SelectedFallback implements AutoCloseable {
+        private final Loader loader;
+        private final boolean extracting;
+        private final Object baked, dispatcher;
+        private final java.lang.reflect.Method render, replace, prepare;
+        private final Client previousClient = Client.current;
+        private final Client client = new Client();
+        private final java.util.List<Object> queued = new java.util.ArrayList<>();
+        int invocations, completions, primaryDraws, materialPasses;
+        float scale;
+        String source;
+        boolean failDraw;
+
+        SelectedFallback() throws Exception {
+            this(true);
+        }
+
+        SelectedFallback(boolean extracting) throws Exception {
+            this.extracting=extracting;
+            String prefix = "com.naocraftlab.skins.compat.client.identifier."+(extracting?"extraction.":"submission.");
+            loader = new Loader(prefix, prefix + (extracting?"AvatarRenderStatePreviewRenderer":"SubmissionPreviewRenderer"), prefix + (extracting?"AvatarPipPreviewRenderer":"SimplePreviewRenderer"),
+                    prefix + (extracting?"NclBakedPlayerRenderer":"BakedPreviewRenderer"), extracting);
+            loader.physical = true;
+            loader.rawSdk = true;
+            loader.types.put("com/mojang/blaze3d/textures/GpuTexture", CpmExtractionBodyProbe.LegacyTexture.class);
+            Client.current = client;
+            baked = create(loader.loadClass(loader.baked));
+            dispatcher = extracting?create(loader.loadClass(loader.dispatcher)):loader.loadClass(loader.dispatcher).getConstructor(Buffers.class).newInstance(new Buffers());
+            render = baked.getClass().getDeclaredMethod("render", Graphics.class, PreviewRenderer.PreviewRequest.class, PreviewModelFrames.Completion.class);
+            render.setAccessible(true);
+            replace = loader.loadClass(prefix + (extracting?"NclBakedPlayerSubmission":"BakedPreviewSubmission")).getMethod("replace", Object.class, PipState.class);
+            prepare = java.util.Arrays.stream(dispatcher.getClass().getDeclaredMethods())
+                    .filter(method -> method.getName().equals("prepare") && !method.isBridge()).findFirst().orElseThrow();
+        }
+
+        void render(PreviewRenderer.PreviewRequest request, PreviewModelFrames.Completion completion) {
+            invocations++;
+            enqueue = owner -> queued.add(call(replace, null, owner, new VanillaState()));
+            call(render, baked, new Graphics(), request, new PreviewModelFrames.Completion() {
+                public boolean current() { return completion.current(); }
+                public boolean currentInput(String location) { return completion.currentInput(location); }
+                public boolean needsOwnInputPreparation() { return completion.needsOwnInputPreparation(); }
+                public boolean reusesConfirmedOutput() { return completion.reusesConfirmedOutput(); }
+                public boolean requiresConsumption() { return completion.requiresConsumption(); }
+                public void accept(PreviewModelFrames.Body body) {
+                    if (current() && body.status() == PreviewRenderer.BodyStatus.ORDINARY && body.current().getAsBoolean()) completions++;
+                    completion.accept(body);
+                }
+            });
+        }
+
+        int queued() { return queued.size(); }
+
+        void menu(com.naocraftlab.skins.runtime.ClientRuntime runtime, boolean pause) throws Exception {
+            menu(runtime, pause, true, true);
+        }
+
+        void menu(com.naocraftlab.skins.runtime.ClientRuntime runtime, boolean pause,
+                boolean anchor, boolean expectedQueue) throws Exception {
+            MenuRuntime.current = runtime;
+            String prefix = loader.prefix;
+            loader.types.put("net/minecraft/client/gui/screens/Screen", MenuScreen.class);
+            loader.types.put("net/minecraft/client/gui/screens/TitleScreen", TitleMenu.class);
+            loader.types.put("net/minecraft/client/gui/screens/PauseScreen", PauseMenu.class);
+            loader.types.put("net/minecraft/client/gui/components/AbstractWidget", MenuWidget.class);
+            loader.types.put("net/minecraft/client/gui/components/events/GuiEventListener", MenuWidget.class);
+            loader.types.put((prefix+(extracting?"NclSkinsMenuPanel$NoChromeAction":"NclSkinsMenuPanel$State$Action")).replace('.','/'), MenuAction.class);
+            loader.types.put((prefix+(extracting?"NclSkinsExtractionClientRuntime":"SubmissionClientRuntime")).replace('.','/'), MenuRuntime.class);
+            Class<?> panel = loader.loadClass(prefix + "NclSkinsMenuPanel");
+            MenuScreen screen = pause ? new PauseMenu() : new TitleMenu();
+            screen.anchor = anchor;
+            if(extracting)check((boolean)panel.getMethod("supports", MenuScreen.class).invoke(null,screen), "actual native title/pause admission");
+            Class<?> type = loader.loadClass(prefix + (extracting?"NclSkinsMenuPanel$PlayerPreviewUnderlay":"NclSkinsMenuPanel$State"));
+            var unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");unsafeField.setAccessible(true);
+            Object underlay = ((sun.misc.Unsafe)unsafeField.get(null)).allocateInstance(type);
+            var action = new MenuAction();
+            set(underlay,"screen",screen);set(underlay,"action",action);set(underlay,"renderer",baked);
+            set(underlay,"placement",com.naocraftlab.skins.core.config.MenuPreviewPlacement.RIGHT);
+            enqueue = owner -> queued.add(call(replace,null,owner,new VanillaState()));
+            var extract = type.getDeclaredMethod(extracting?"extractRenderState":"render",Graphics.class,int.class,int.class,float.class);extract.setAccessible(true);
+            call(extract,underlay,new Graphics(),0,0,0F);
+            if (anchor) check(action.bounds.equals(java.util.Optional.of(
+                    new com.naocraftlab.skins.runtime.Bounds(531,142,104,116))), "actual native menu layout and action bounds");
+            check(queued.size() == (expectedQueue ? 1 : 0), "actual native menu selected baked queue admission");
+            MenuRuntime.current = null;
+        }
+
+        void assertMenuAppearance(com.naocraftlab.skins.client.TextureRegistry.TextureHandle skin,
+                com.naocraftlab.skins.client.SkinModel model, com.naocraftlab.skins.client.OuterLayerVisibility mask) {
+            Object state = queued.get(0);
+            check(stateField(state, "skinTexture").equals(new Identifier(skin.location())), "own queued menu source");
+            check(stateField(state, "playerModel") == field(baked,
+                    model == com.naocraftlab.skins.client.SkinModel.SLIM ? "slim" : "wide"), "own queued menu model");
+            check(stateField(state, "outerLayerVisibility").equals(mask), "own queued menu mask");
+        }
+
+        java.util.List<Map<String, Object>> definitions() { return java.util.List.copyOf(loader.definitions); }
+
+        void freezeDefinitions(java.nio.file.Path output) throws java.io.IOException {
+            for (var entry : loader.boundDefinitions.entrySet()) {
+                var file = output.resolve(entry.getKey().replace('.', '/') + ".class");
+                java.nio.file.Files.createDirectories(file.getParent());
+                java.nio.file.Files.write(file, entry.getValue());
+            }
+        }
+
+        void retireMenuTarget() {closeTarget(baked);}
+
+        void consume() throws Exception {
+            Client savedClient=Client.current;
+            Client.current=client;
+            var materials = CpmExtractionBodyProbe.queuedMaterials();
+            materials.clear();
+            CpmExtractionBodyProbe.cached = false;
+            if (failDraw) CpmExtractionBodyProbe.resetConsumerControl();
+            else CpmExtractionBodyProbe.consumerControl("normal");
+            int before = draws;
+            draw = () -> { if (failDraw) throw new IllegalStateException("synthetic selected fallback draw failure"); };
+            pop = () -> {};
+            CpmExtractionBodyProbe.bakedBoundaries(() -> {}, () -> {}, () -> {});
+            try {
+                CpmExtractionBodyProbe.consumerFrame(loader, () -> {
+                    for (var state : queued) {
+                        scale = ((PipState) state).scale();
+                        prepareRaw(prepare, dispatcher, state, prepare.getParameterCount() == 4);
+                        source = ((Identifier)stateField(state,"skinTexture")).value();
+                    }
+                }, () -> {
+                    CpmExtractionBodyProbe.consumerSubmitted();
+                    for (var material : materials) {
+                        check(material.texture.data.equals(new Identifier(source)), "selected fallback actual own material");
+                        materialPasses++;
+                    }
+                });
+            } finally {
+                primaryDraws += draws - before;
+                queued.clear();
+                CpmExtractionBodyProbe.signalConsumers();
+                materials.clear();
+                CpmExtractionBodyProbe.resetConsumerControl();
+                draw = () -> {};
+                enqueue = null;
+                Client.current=savedClient;
+            }
+        }
+
+        @Override public void close() {
+            try { closeTarget(baked); closeTarget(dispatcher); CpmExtractionBodyProbe.signalConsumers(); }
+            finally { MenuRuntime.current = null; if(Client.current==client)Client.current = previousClient; }
+        }
+    }
+
     private static final class Loader extends ClassLoader {
         private final String prefix, main, baked, dispatcher;
         private final Map<String, Class<?>> types = new HashMap<>();
@@ -3295,6 +3577,9 @@ public final class CpmBakedDisplayProbe {
         private boolean physical;
         private boolean live;
         private boolean interfaceDevice;
+        private boolean rawSdk;
+        private final java.util.List<Map<String, Object>> definitions = new java.util.ArrayList<>();
+        private final Map<String, byte[]> boundDefinitions = new HashMap<>();
         Loader(String prefix, String main, String baked, String dispatcher, boolean extracting) {
             super(CpmBakedDisplayProbe.class.getClassLoader()); this.prefix=prefix; this.main=main; this.baked=baked; this.dispatcher=dispatcher;
             types.putAll(CpmExtractionBodyProbe.nativeTypes());
@@ -3366,13 +3651,36 @@ public final class CpmBakedDisplayProbe {
         @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
             boolean pip = name.equals("net.minecraft.client.gui.render.pip.PictureInPictureRenderer");
             boolean frame = name.equals("net.minecraft.client.gui.render.GuiRenderer");
-            if (!pip && !frame && !name.startsWith(prefix) && !name.startsWith("com.naocraftlab.skins.compat.client.identifier.preview.")
+            if (!pip && !frame && !name.startsWith("net.neoforged.neoforge.client.gui.PictureInPictureRenderer") && !name.startsWith(prefix) && !name.startsWith("com.naocraftlab.skins.compat.client.identifier.preview.")
                     && !name.equals("com.naocraftlab.skins.compat.client.identifier.foil.CapeFoilBuffer")
                     && !name.equals("com.naocraftlab.skins.compat.client.identifier.IdentifierOuterLayerVisibilityController")) return super.loadClass(name,resolve);
             Class<?> found=findLoadedClass(name);
             if (found==null) try (var input=getParent().getResourceAsStream(name.replace('.','/')+".class")) {
                 if(input==null) throw new ClassNotFoundException(name);
-                byte[] original=input.readAllBytes(); var node=new ClassNode(); new ClassReader(original).accept(node,0);
+                byte[] original=input.readAllBytes();
+                var origin = getParent().getResource(name.replace('.', '/') + ".class");
+                if ((rawSdk || Boolean.getBoolean("nclskins.cpm.nativeMeasurement")) && (pip || frame)) {
+                    var resources=getParent().getResources(name.replace('.','/')+".class");
+                    boolean foundRaw=false;
+                    while(resources.hasMoreElements()) {
+                        var resource=resources.nextElement();
+                        if(!resource.getProtocol().equals("jar")) continue;
+                        try(var raw=resource.openStream()){original=raw.readAllBytes();}
+                        origin = resource;
+                        foundRaw=true;break;
+                    }
+                    if(!foundRaw) throw new AssertionError("Pinned raw baked caller missing: "+name);
+                }
+                var node=new ClassNode(); new ClassReader(original).accept(node,0);
+                if(name.equals(prefix+"NclSkinsMenuPanel")) {
+                    node.methods.removeIf(method -> !method.name.equals("supports") && !method.name.equals("topMainAction")
+                            && !method.name.equals("anchor") && !method.name.startsWith("lambda$anchor$")
+                            && !method.name.startsWith("lambda$topMainAction$") && !method.name.equals("<clinit>"));
+                } else if(name.equals(prefix+"NclSkinsMenuPanel$PlayerPreviewUnderlay") || name.equals(prefix+"NclSkinsMenuPanel$State")) {
+                    node.interfaces.clear();node.interfaces.add("java/lang/AutoCloseable");
+                    node.methods.removeIf(method -> !java.util.Set.of("extractRenderState","render","updateLayout","close").contains(method.name)
+                            && !method.name.startsWith("lambda$updateLayout$") && !method.name.startsWith("lambda$render$"));
+                }
                 if (pip && physical) for (var method : node.methods) for (var instruction : method.instructions) {
                     if (instruction instanceof org.objectweb.asm.tree.MethodInsnNode call && call.owner.equals("com/mojang/blaze3d/systems/GpuDevice") && call.itf) interfaceDevice = true;
                 }
@@ -3410,7 +3718,7 @@ public final class CpmBakedDisplayProbe {
                 } else if(name.equals(main) && live) {
                     submissionTerminals(node);
                 } else if(name.equals(main)) {
-                    node.methods.removeIf(m -> !java.util.Set.of("render","body","prepareBody", "renderPrepared", "prepareImage", "prepareGalleryImage","observeBody","renderFallback","onLiveRenderFailure","clearAccessoryInspection","accessoryObserverFor","observeAccessories",
+                    node.methods.removeIf(m -> !java.util.Set.of("render","body","prepareBody", "retireBody", "modelFitApplicable", "prepareModelFit", "suppressModelFit", "renderPrepared", "prepareImage", "prepareGalleryImage","observeBody","renderFallback","onLiveRenderFailure","clearAccessoryInspection","accessoryObserverFor","observeAccessories",
                             "saveGallerySlot","retireGallerySlots","selectGallerySlot", "selectGallerySession","prepareGalleryBody","confirmGalleryBody","renderGallery", "transformRetained", "renderRetained", "retainedTextures","galleryAccessories","close").contains(m.name) && !m.name.startsWith("lambda$"));
                     CpmExtractionBodyProbe.init(node);
                     var method=CpmExtractionBodyProbe.method(node,"accessories","(Lcom/naocraftlab/skins/client/PreviewRenderer$PreviewRequest;)Lcom/naocraftlab/skins/client/PreviewAccessories;");
@@ -3444,7 +3752,12 @@ public final class CpmBakedDisplayProbe {
                 }
                 node.innerClasses.clear();
                 var writer=new ClassWriter(0);node.accept(new ClassRemapper(writer,new Remapper(Opcodes.ASM9){ @Override public String map(String internal){var mapped=types.get(internal);return mapped==null?internal:Type.getInternalName(mapped);}}));
-                byte[] bytes=writer.toByteArray();System.out.println("Baked class "+name+" original="+sha(original)+" headless="+sha(bytes));found=defineClass(name,bytes,0,bytes.length);
+                byte[] bytes=writer.toByteArray();
+                var boundNode = new ClassNode(); new ClassReader(bytes).accept(boundNode, 0);
+                definitions.add(Map.of("class", name, "origin", origin.toString(), "original", sha(original),
+                        "bound", sha(bytes), "members", boundNode.methods.stream().map(m -> m.name + m.desc).toList()));
+                boundDefinitions.put(name, bytes);
+                System.out.println("Baked class "+name+" original="+sha(original)+" headless="+sha(bytes));found=defineClass(name,bytes,0,bytes.length);
             } catch(java.io.IOException failure){throw new ClassNotFoundException(name,failure);}
             if(resolve)resolveClass(found);return found;
         }
@@ -3531,6 +3844,29 @@ public final class CpmBakedDisplayProbe {
         public void submitSkinRenderState(Model model,Identifier texture,float scale,float pitch,float yaw,float pivot,int x0,int y0,int x1,int y1){enqueue.accept(this);}
         public void skin(Model model,Identifier texture,float scale,float pitch,float yaw,float pivot,int x0,int y0,int x1,int y1){enqueue.accept(this);}
     }
+    public static class MenuWidget {
+        public boolean visible=true;
+        public int getX(){return 327;}public int getY(){return 142;}public int getWidth(){return 200;}public int getHeight(){return 20;}
+        public int getRight(){return getX()+getWidth();}public int getBottom(){return getY()+getHeight();}
+    }
+    public static final class MenuAction extends MenuWidget {
+        java.util.Optional<com.naocraftlab.skins.runtime.Bounds> bounds=java.util.Optional.empty();
+        public boolean isFocused(){return false;}
+        public void applyBounds(java.util.Optional<com.naocraftlab.skins.runtime.Bounds> value){bounds=value;}
+        public void apply(java.util.Optional<com.naocraftlab.skins.runtime.Bounds> value){bounds=value;}
+    }
+    public static class MenuScreen {
+        public int width=854,height=480;
+        boolean anchor = true;
+        public java.util.List<MenuWidget> children(){return anchor ? java.util.List.of(new MenuWidget()) : java.util.List.of();}
+    }
+    public static final class TitleMenu extends MenuScreen {}
+    public static final class PauseMenu extends MenuScreen {}
+    public static final class MenuRuntime {
+        static com.naocraftlab.skins.runtime.ClientRuntime current;
+        public static boolean closed(){return false;}
+        public static com.naocraftlab.skins.runtime.ClientRuntime runtime(){return java.util.Objects.requireNonNull(current);}
+    }
     public static final class Client {
         static Client current; public static Client getInstance(){return current;}
         public CpmPreviewScopeProbe.Level level;public CpmPreviewScopeProbe.Avatar player;
@@ -3605,10 +3941,6 @@ public final class CpmBakedDisplayProbe {
     }
     public static final class RenderType {Identifier texture;CpmPreviewScopeProbe.Location immediateTexture;public static RenderType entityTranslucent(Identifier id){var type=new RenderType();type.texture=id;return type;}public static RenderType entityTranslucent(CpmPreviewScopeProbe.Location id){var type=new RenderType();type.immediateTexture=id;return type;}
         public static RenderType armorCutoutNoCull(CpmPreviewScopeProbe.Location id){return entityTranslucent(id);}
-    }
-    public static final class ImmediateMatrices {
-        public org.joml.Matrix4f pose() { return new org.joml.Matrix4f(); }
-        public org.joml.Matrix3f normal() { return new org.joml.Matrix3f(); }
     }
     public static final class ImmediateLighting {
         public static void setupForEntityInInventory(){}

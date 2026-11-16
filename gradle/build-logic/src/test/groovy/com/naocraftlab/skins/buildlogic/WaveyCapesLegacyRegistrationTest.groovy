@@ -217,4 +217,60 @@ class WaveyCapesLegacyRegistrationTest {
         }
         assertThrows(IllegalArgumentException) { WaveyLegacyComposition.safeProvider(input + [jvmArgs: ['-DaccessToken=not-a-secret']]) }
     }
+
+    @Test
+    void legacyClaimsMatchPhysicalResourcePathsAndDeduplicateAliasesInOrder() {
+        File cache = new File(temporary, 'native cache')
+        cache.mkdirs()
+        File alias = new File(temporary, 'cache-alias')
+        java.nio.file.Files.createSymbolicLink(alias.toPath(), cache.toPath())
+        File nativeJar = new File(cache, 'native.jar')
+        nativeJar.bytes = [1, 2, 3] as byte[]
+        File aliasJar = new File(alias, nativeJar.name)
+        File other = new File(temporary, 'other café.jar')
+        other.bytes = [4] as byte[]
+        File distinctCandidate = new File(temporary, 'normal-discovery/native.jar')
+        distinctCandidate.parentFile.mkdirs()
+        distinctCandidate.bytes = nativeJar.bytes
+        File provider = new File(temporary, 'provider-classpath.txt')
+        provider.setText([aliasJar.absolutePath, nativeJar.absolutePath, other.absolutePath].join('\n') + '\n', 'UTF-8')
+        File output = new File(temporary, 'legacy-classpath.txt')
+
+        WaveyLegacyComposition.writeLegacyClasspath(provider, output, [aliasJar, nativeJar, distinctCandidate])
+
+        assertEquals([nativeJar, other, distinctCandidate].collect { it.toPath().toRealPath().toString() }, output.readLines('UTF-8'))
+        List<java.nio.file.Path> claims = output.readLines('UTF-8').collect { java.nio.file.Paths.get(it) }
+        assertTrue(claims.contains(nativeJar.toPath().toRealPath()), 'types=' + claims.collect { it.getClass().name } + '; actual=' + claims + '; expected=' + nativeJar.toPath().toRealPath())
+        assertTrue(claims.contains(distinctCandidate.toPath().toRealPath()))
+    }
+
+    @Test
+    void anAliasOnlyLegacyClaimStillMatchesTheSystemResourcePhysicalPath() {
+        File cache = new File(temporary, 'cache')
+        cache.mkdirs()
+        File alias = new File(temporary, 'alias')
+        java.nio.file.Files.createSymbolicLink(alias.toPath(), cache.toPath())
+        File archive = new File(cache, 'native.jar')
+        archive.bytes = [1] as byte[]
+        File aliasArchive = new File(alias, archive.name)
+        File provider = new File(temporary, 'provider-classpath.txt')
+        provider.setText(aliasArchive.absolutePath + '\n', 'UTF-8')
+        File output = new File(temporary, 'legacy-classpath.txt')
+
+        WaveyLegacyComposition.writeLegacyClasspath(provider, output, [aliasArchive])
+
+        assertEquals([archive.toPath().toRealPath().toString()], output.readLines('UTF-8'))
+    }
+
+    @Test
+    void missingRuntimeEntriesKeepTheirOriginalAbsoluteFallback() {
+        File missing = new File(temporary, 'missing-runtime.jar')
+        File provider = new File(temporary, 'provider-classpath.txt')
+        provider.setText('', 'UTF-8')
+        File output = new File(temporary, 'assembled-classpath.txt')
+        WaveyLegacyComposition.writeLegacyClasspath(provider, output, [missing, missing])
+        assertEquals([missing.absolutePath], output.readLines('UTF-8'))
+        assertFalse(missing.exists())
+    }
+
 }

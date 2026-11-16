@@ -312,7 +312,9 @@ final class PresetEditorModelTest {
         assertEquals(new Bounds(162, 214, 75, 20), view.widget("editor.cancel").orElseThrow().bounds());
         assertEquals(new Bounds(0, 0, 320, 240), view.previews().get(0).bounds());
         assertEquals(new Bounds(0, 0, 160, 240), view.previews().get(0).anchorBounds());
-        assertEquals(0.6958763F, view.previews().get(0).scale(), 0.000001F);
+        assertEquals(1.0F, view.previews().get(0).scale());
+        assertEquals(0.6958763F, view.previews().get(0).layoutScale(), 0.000001F);
+        assertEquals(0.6958763F, view.previews().get(0).renderedScale(), 0.000001F);
     }
 
     @Test

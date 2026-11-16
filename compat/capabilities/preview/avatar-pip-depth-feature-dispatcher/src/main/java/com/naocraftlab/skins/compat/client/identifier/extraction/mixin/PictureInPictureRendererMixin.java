@@ -8,6 +8,8 @@ import com.naocraftlab.skins.client.PreviewDepthEnvelope;
 import com.naocraftlab.skins.client.PreviewModelFrames;
 import com.naocraftlab.skins.compat.client.identifier.extraction.AvatarPreviewContext;
 import com.naocraftlab.skins.compat.client.identifier.extraction.NclSkinsWideDepthState;
+import com.naocraftlab.skins.compat.client.identifier.extraction.PreviewRenderSystemState;
+import org.joml.Matrix4fStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.renderer.Projection;
@@ -23,6 +25,7 @@ import org.spongepowered.asm.mixin.injection.At;
 abstract class PictureInPictureRendererMixin {
     @Unique private static final ThreadLocal<Float> NCLSKINS_DEPTH_EXTENT =
             ThreadLocal.withInitial(() -> 0.0F);
+    @Unique private static final ThreadLocal<Matrix4fStack[]> NCLSKINS_MODEL_VIEW_SCOPE = new ThreadLocal<>();
 
     @WrapMethod(
             method = "prepare(Lnet/minecraft/client/renderer/state/gui/pip/PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher;I)V",
@@ -46,6 +49,12 @@ abstract class PictureInPictureRendererMixin {
         AvatarPreviewContext.Attempt attempt = null;
         PreviewModelFrames.Body candidate = null;
         boolean completed = false;
+        var previousModelViewScope = NCLSKINS_MODEL_VIEW_SCOPE.get();
+        Matrix4fStack[] modelViewScope = context == null ? null : new Matrix4fStack[1];
+        Runnable restoreOutput = context == null ? null : PreviewRenderSystemState.exceptionalOutputRestore();
+        if (modelViewScope != null) NCLSKINS_MODEL_VIEW_SCOPE.set(modelViewScope);
+        else NCLSKINS_MODEL_VIEW_SCOPE.remove();
+        Throwable primary = null;
         try {
             try (var scope = context == null ? null
                     : context.begin(state, Minecraft.getInstance(), owned.nclskins$layerFailureSink())) {
@@ -54,16 +63,54 @@ abstract class PictureInPictureRendererMixin {
                 if (scope != null) candidate = scope.body();
             }
             completed = true;
+        } catch (RuntimeException | Error failure) {
+            primary = failure;
+            throw failure;
         } finally {
-            boolean restored = false;
+            boolean nativeRestored = false;
             try {
-                nclskins$restoreDepth(previous);
-                restored = true;
+                try {
+                    if (modelViewScope != null && modelViewScope[0] != null) modelViewScope[0].popMatrix();
+                } finally {
+                    if (!completed && restoreOutput != null) restoreOutput.run();
+                }
+                nativeRestored = true;
+            } catch (RuntimeException | Error cleanup) {
+                if (primary != null) primary.addSuppressed(cleanup);
+                else throw cleanup;
             } finally {
-                if (attempt != null) attempt.displayed(completed && restored, candidate);
-                else if (context != null && !completed) context.failed();
+                if (previousModelViewScope == null) NCLSKINS_MODEL_VIEW_SCOPE.remove();
+                else NCLSKINS_MODEL_VIEW_SCOPE.set(previousModelViewScope);
+                boolean restored = false;
+                try {
+                    nclskins$restoreDepth(previous);
+                    restored = true;
+                } finally {
+                    if (attempt != null) attempt.displayed(completed && nativeRestored && restored, candidate);
+                    else if (context != null && !completed) context.failed();
+                }
             }
         }
+    }
+
+    @WrapOperation(method = "prepare", at = @At(value = "INVOKE",
+            target = "Lorg/joml/Matrix4fStack;pushMatrix()Lorg/joml/Matrix4fStack;"),
+            require = 1, expect = 1, allow = 1)
+    private Matrix4fStack nclskins$trackModelViewPush(Matrix4fStack stack, Operation<Matrix4fStack> original) {
+        var result = original.call(stack);
+        var scope = NCLSKINS_MODEL_VIEW_SCOPE.get();
+        if (scope != null) scope[0] = stack;
+        return result;
+    }
+
+    @WrapOperation(method = "prepare", at = @At(value = "INVOKE",
+            target = "Lorg/joml/Matrix4fStack;popMatrix()Lorg/joml/Matrix4fStack;"),
+            require = 1, expect = 1, allow = 1)
+    private Matrix4fStack nclskins$trackModelViewPop(Matrix4fStack stack, Operation<Matrix4fStack> original) {
+        var result = original.call(stack);
+        var scope = NCLSKINS_MODEL_VIEW_SCOPE.get();
+        if (scope != null && scope[0] == stack) scope[0] = null;
+        return result;
     }
 
     @WrapOperation(

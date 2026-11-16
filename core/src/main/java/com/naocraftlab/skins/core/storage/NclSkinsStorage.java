@@ -46,6 +46,7 @@ public final class NclSkinsStorage {
     private final PngValidator pngValidator;
     private final Clock clock;
     private final InterProcessLockManager lockManager = new InterProcessLockManager();
+    private final PreviewModelFitStore previewModelFits = new PreviewModelFitStore(this, lockManager);
     private final StoragePreflight storagePreflight;
     private final TransactionObserver transactionObserver;
     private final AccountStateJson stateJson = new AccountStateJson();
@@ -94,6 +95,16 @@ public final class NclSkinsStorage {
     @FunctionalInterface
     interface TransactionObserver {
         void reached(TransactionStage stage) throws IOException;
+    }
+
+    public PreviewModelFitResult loadPreviewModelFit(UUID accountId, String sha256, SkinVariant variant) {
+        return previewModelFits.load(accountId, sha256, variant);
+    }
+
+    public PreviewModelFitResult createPreviewModelFit(UUID accountId, String sha256, SkinVariant variant,
+            com.naocraftlab.skins.core.model.FullPreviewModelFit fit,
+            java.util.function.BooleanSupplier current) {
+        return previewModelFits.create(accountId, sha256, variant, fit, current);
     }
 
     public StorageLayout layout() {

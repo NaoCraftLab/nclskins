@@ -161,7 +161,8 @@ public final class IdentifierTextureRegistry
             this.stagedFile = stagedFile;
             this.lifecycle = lifecycle;
             this.ownership = new NativeTextureRegistration(() -> lifecycle == null
-                    || NativePlayerSkinLifecycle.registration(lifecycle.location()).orElse(null) == lifecycle);
+                    || (lifecycle.state() != NativePlayerSkinLifecycle.State.FAILED
+                    && NativePlayerSkinLifecycle.registration(lifecycle.location()).orElse(null) == lifecycle));
         }
 
         private static NativeTexture loaded(Identifier location, AbstractTexture texture) {

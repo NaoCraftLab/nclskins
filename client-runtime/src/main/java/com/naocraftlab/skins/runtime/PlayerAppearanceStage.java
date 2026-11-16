@@ -27,6 +27,16 @@ final class PlayerAppearanceStage {
                 .withCapeElytra(appearance.capeHasElytra());
     }
 
+    static ViewSpec.Preview presentEditor(String id, int width, int height, Bounds anchor,
+            Appearance appearance, PreviewInteractionModel transform) {
+        return present(id, width, height, anchor, appearance, transform).withLayoutScale(editorLayoutScale(height));
+    }
+
+    private static float editorLayoutScale(int height) {
+        int visibleHeight = Math.max(1, height - 2 * (33 + 6));
+        return Math.max(0.68F, Math.min(2.0F, visibleHeight / (0.97F * Math.max(1, height))));
+    }
+
     static List<ViewSpec.Widget> controls(Bounds anchor, Optional<Control> capeMode, List<Control> outerLayers) {
         var widgets = new ArrayList<ViewSpec.Widget>();
         int x = anchor.x() + 2;

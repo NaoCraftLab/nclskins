@@ -180,6 +180,7 @@ final class GalleryFlow {
 
     long draftGeneration() { return state.draftGeneration; }
     long openingGeneration() { return state.openingGeneration; }
+    long skinSelectionGeneration() { return skinSelectionGeneration; }
     long uiIntent() { return state.uiIntent; }
     void uiIntentChanged() { state.uiIntent++; }
 

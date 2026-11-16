@@ -74,7 +74,130 @@ public final class SubmissionPreviewContract {
                     "SUBMISSION_FRAME_BODY_CHANGED " + method.name + method.desc);
         }
     }
+    private static final String LIVE_STATE = "com/naocraftlab/skins/compat/client/identifier/submission/LivePreviewRenderState";
+    private static final String CONTEXT = "com/naocraftlab/skins/compat/client/identifier/submission/PreviewContext";
+    private static final String PREPARE_TAIL = ";Lnet/minecraft/client/gui/render/state/GuiRenderState;I)V";
+    private static final String TYPED_PREPARE = "(L" + LIVE_STATE + PREPARE_TAIL;
+    private static final String NATIVE_PREPARE = "(Lnet/minecraft/client/gui/render/state/pip/PictureInPictureRenderState" + PREPARE_TAIL;
+    private static MethodNode prepare(ClassNode owner, String descriptor) {
+        var methods = owner.methods.stream().filter(m -> m.name.equals("prepare") && m.desc.equals(descriptor)).toList();
+        check(methods.size() == 1, "LIVE_TARGET_PREPARE_COUNT " + descriptor);
+        return methods.getFirst();
+    }
+    private static List<String> prepareCode(MethodNode method) {
+        check(method.tryCatchBlocks.isEmpty(), "LIVE_TARGET_PREPARE_HANDLERS");
+        return Arrays.stream(method.instructions.toArray()).filter(i -> i.getOpcode() >= 0).map(i -> {
+            String key = Integer.toString(i.getOpcode());
+            if (i instanceof VarInsnNode variable) return key + ":" + variable.var;
+            if (i instanceof MethodInsnNode call) return key + ":" + call.owner + "." + call.name + call.desc + ":" + call.itf;
+            if (i instanceof FieldInsnNode field) return key + ":" + field.owner + "." + field.name + field.desc;
+            if (i instanceof TypeInsnNode type) return key + ":" + type.desc;
+            check(i instanceof InsnNode, "LIVE_TARGET_PREPARE_CONTROL_FLOW");
+            return key;
+        }).toList();
+    }
+    private static void verifyTargetPrepare(ClassNode owner) {
+        check(owner.superName.equals(SubmissionPreviewBindings.PIP), "LIVE_TARGET_PREPARE_SUPER");
+        var typed = prepare(owner, TYPED_PREPARE);
+        check(typed.access == Opcodes.ACC_PUBLIC, "LIVE_TARGET_TYPED_PREPARE_FLAGS");
+        var expected = new MethodNode(Opcodes.ACC_PUBLIC, "prepare", TYPED_PREPARE, null, null);
+        expected.visitVarInsn(Opcodes.ALOAD, 0);
+        expected.visitVarInsn(Opcodes.ALOAD, 1);
+        expected.visitMethodInsn(Opcodes.INVOKEVIRTUAL, LIVE_STATE, "previewContext", "()L" + CONTEXT + ";", false);
+        expected.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CONTEXT, "depthExtent", "()F", false);
+        expected.visitVarInsn(Opcodes.ILOAD, 3);
+        expected.visitInsn(Opcodes.I2F);
+        expected.visitInsn(Opcodes.FMUL);
+        expected.visitFieldInsn(Opcodes.PUTFIELD, owner.name, "depthExtent", "F");
+        expected.visitVarInsn(Opcodes.ALOAD, 0);
+        expected.visitVarInsn(Opcodes.ALOAD, 1);
+        expected.visitVarInsn(Opcodes.ALOAD, 2);
+        expected.visitVarInsn(Opcodes.ILOAD, 3);
+        expected.visitMethodInsn(Opcodes.INVOKESPECIAL, SubmissionPreviewBindings.PIP, "prepare", NATIVE_PREPARE, false);
+        expected.visitInsn(Opcodes.RETURN);
+        check(prepareCode(typed).equals(prepareCode(expected)), "LIVE_TARGET_DEPTH_AND_SUPER_PREPARE");
+        var bridge = prepare(owner, NATIVE_PREPARE);
+        check(bridge.access == (Opcodes.ACC_PUBLIC | Opcodes.ACC_BRIDGE | Opcodes.ACC_SYNTHETIC), "LIVE_TARGET_PREPARE_BRIDGE_FLAGS");
+        var expectedBridge = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_BRIDGE | Opcodes.ACC_SYNTHETIC, "prepare", NATIVE_PREPARE, null, null);
+        expectedBridge.visitVarInsn(Opcodes.ALOAD, 0);
+        expectedBridge.visitVarInsn(Opcodes.ALOAD, 1);
+        expectedBridge.visitTypeInsn(Opcodes.CHECKCAST, LIVE_STATE);
+        expectedBridge.visitVarInsn(Opcodes.ALOAD, 2);
+        expectedBridge.visitVarInsn(Opcodes.ILOAD, 3);
+        expectedBridge.visitMethodInsn(Opcodes.INVOKEVIRTUAL, owner.name, "prepare", TYPED_PREPARE, false);
+        expectedBridge.visitInsn(Opcodes.RETURN);
+        check(prepareCode(bridge).equals(prepareCode(expectedBridge)), "LIVE_TARGET_PREPARE_BRIDGE_DELEGATION");
+    }
+    private static void verifyPrepareMutants(List<Path> inputs) throws Exception {
+        for (String mutation : List.of("removed-super", "wrong-super", "wrong-depth", "wrong-scale", "bridge-bypass")) {
+            var mutant = read(SubmissionPreviewBindings.TARGET, inputs);
+            var method = prepare(mutant, mutation.equals("bridge-bypass") ? NATIVE_PREPARE : TYPED_PREPARE);
+            for (var instruction : method.instructions.toArray()) {
+                if (instruction instanceof MethodInsnNode call && call.name.equals("prepare")) {
+                    if (mutation.equals("removed-super")) {
+                        for (int i = 0; i < 4; i++) method.instructions.insertBefore(call, new InsnNode(Opcodes.POP));
+                        method.instructions.remove(call);
+                    } else if (mutation.equals("wrong-super")) call.setOpcode(Opcodes.INVOKEVIRTUAL);
+                    else if (mutation.equals("bridge-bypass")) {
+                        call.owner = SubmissionPreviewBindings.PIP; call.desc = NATIVE_PREPARE; call.setOpcode(Opcodes.INVOKESPECIAL);
+                    }
+                } else if (mutation.equals("wrong-depth") && instruction.getOpcode() == Opcodes.FMUL)
+                    method.instructions.set(instruction, new InsnNode(Opcodes.FADD));
+                else if (mutation.equals("wrong-scale") && instruction instanceof VarInsnNode variable && variable.getOpcode() == Opcodes.ILOAD)
+                    method.instructions.set(variable, new InsnNode(Opcodes.ICONST_1));
+            }
+            try { verifyTargetPrepare(mutant); throw new IllegalStateException("LIVE_TARGET_PREPARE_MUTANT_ACCEPTED " + mutation); }
+            catch (AssertionError expected) {
+                check(expected.getMessage().equals(mutation.equals("bridge-bypass") ? "LIVE_TARGET_PREPARE_BRIDGE_DELEGATION" : "LIVE_TARGET_DEPTH_AND_SUPER_PREPARE"), "LIVE_TARGET_PREPARE_MUTANT_WRONG_REJECTION " + mutation);
+            }
+        }
+        System.out.println("LIVE_TYPED_PREPARE_MUTANTS_PASS removed-super/wrong-super/wrong-depth/wrong-scale/bridge-bypass");
+    }
+    private static void verifyProjectionAbi(ClassNode projection) {
+        check(projection.interfaces.contains("com/naocraftlab/skins/compat/client/identifier/measurement/PipDepthProjection$Buffer"), "SUBMISSION_PROJECTION_DEPTH_INTERFACE");
+        for (String[] expected : List.of(new String[]{"<init>", "(Ljava/lang/String;FFZ)V"},
+                new String[]{"nclskins$depthExtent", "(F)V"}, new String[]{"getBuffer", "(FF)Lcom/mojang/blaze3d/buffers/GpuBufferSlice;"}, new String[]{"close", "()V"}))
+            check(projection.methods.stream().filter(m -> m.name.equals(expected[0]) && m.desc.equals(expected[1]) && (m.access & Opcodes.ACC_PUBLIC) != 0).count() == 1,
+                    "SUBMISSION_PROJECTION_ABI " + expected[0] + expected[1]);
+        var setter = projection.methods.stream().filter(m -> m.name.equals("nclskins$depthExtent") && m.desc.equals("(F)V")).findFirst().orElseThrow();
+        var code = Arrays.stream(setter.instructions.toArray()).filter(i -> i.getOpcode() >= 0).toList();
+        long writes = 0;
+        for (int i = 1; i < code.size(); i++) if (code.get(i) instanceof FieldInsnNode field && field.getOpcode() == Opcodes.PUTFIELD) {
+            check(field.owner.equals(projection.name) && field.name.equals("depthExtent") && field.desc.equals("F")
+                    && code.get(i - 1) instanceof VarInsnNode input && input.getOpcode() == Opcodes.FLOAD && input.var == 1, "SUBMISSION_PROJECTION_VALUE_FORWARDING");
+            writes++;
+        }
+        check(writes == 1, "SUBMISSION_PROJECTION_VALUE_FORWARDING");
+    }
+    private static Object projectionField(Object receiver, String name) throws Exception {
+        var field = receiver.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(receiver);
+    }
+    private static void verifyProjectionInputs(List<Path> inputs) throws Exception {
+        verifyProjectionAbi(read(PROBE + "SubmissionRawInputs$Projection", inputs));
+        Class<?> type = Class.forName((PROBE + "SubmissionRawInputs$Projection").replace('/', '.'));
+        Class<?> contract = Class.forName("com.naocraftlab.skins.compat.client.identifier.measurement.PipDepthProjection$Buffer");
+        Object projection = type.getConstructor(String.class, float.class, float.class, boolean.class).newInstance("contract", -17.5f, 31.25f, true);
+        check(contract.isInstance(projection), "SUBMISSION_PROJECTION_RUNTIME_INTERFACE");
+        check(projectionField(projection, "near").equals(-17.5f) && projectionField(projection, "far").equals(31.25f)
+                && projectionField(projection, "flip").equals(true), "SUBMISSION_PROJECTION_CONSTRUCTOR_INPUTS");
+        var setter = contract.getMethod("nclskins$depthExtent", float.class);
+        for (float extent : new float[]{0.125f, 16384.5f, 17.75f}) {
+            setter.invoke(projection, extent);
+            check(type.getMethod("getBuffer", float.class, float.class).invoke(projection, 123.5f, 87.25f) == null, "SUBMISSION_PROJECTION_GPU_TERMINAL_CHANGED");
+            check(projectionField(projection, "depthExtent").equals(extent) && projectionField(projection, "consumedDepthExtent").equals(extent)
+                    && projectionField(projection, "width").equals(123.5f) && projectionField(projection, "height").equals(87.25f), "SUBMISSION_PROJECTION_RUNTIME_FORWARDING");
+            for (float invalid : new float[]{0, -1, Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY}) {
+                try { setter.invoke(projection, invalid); throw new AssertionError("SUBMISSION_PROJECTION_INVALID_ACCEPTED"); }
+                catch (java.lang.reflect.InvocationTargetException rejected) { check(rejected.getCause() instanceof IllegalArgumentException, "SUBMISSION_PROJECTION_INVALID_CAUSE"); }
+                check(projectionField(projection, "depthExtent").equals(extent), "SUBMISSION_PROJECTION_INVALID_CHANGED_INPUT");
+            }
+        }
+        type.getMethod("close").invoke(projection);
+        check(projectionField(projection, "closed").equals(true), "SUBMISSION_PROJECTION_CLOSE_INPUT");
+        System.out.println("SUBMISSION_PROJECTION_INPUTS_PASS actual constructor/interface setter/getBuffer input recording/invalid preservation/close; no native matrix/cache/GPU execution");
+    }
     public static void verify(List<Path> inputs) throws Exception {
+        verifyProjectionInputs(inputs);
         ClassNode entry = read(PROBE + "BufferedPreviewCapeProbe", inputs);
         check(entry.methods.stream().flatMap(m -> Arrays.stream(m.instructions.toArray())).anyMatch(i -> i instanceof LdcInsnNode literal
                 && (PROBE + "LivePublicPreviewProbe").replace('/', '.').equals(literal.cst)), "PUBLIC_LIVE_NOT_CANONICALLY_REGISTERED");
@@ -108,13 +231,15 @@ public final class SubmissionPreviewContract {
         check(SubmissionPreviewBindings.apply(dispatcher) == 0, "SUBMISSION_DISPATCHER_WAS_RAW_BOUND");
         var unchangedDispatcher = new ClassWriter(0); dispatcher.accept(unchangedDispatcher);
         check(Arrays.equals(originalDispatcher.toByteArray(), unchangedDispatcher.toByteArray()), "SUBMISSION_DISPATCHER_BYTES_CHANGED");
-        var prepare = dispatcher.methods.stream().filter(m -> m.name.equals("prepare") && m.desc.startsWith("(Lcom/naocraftlab/skins/compat/client/identifier/submission/LivePreviewRenderState;")).findFirst().orElseThrow();
-        for (String[] expected : List.of(new String[]{SubmissionPreviewBindings.TARGET, "prepare", "(Lnet/minecraft/client/gui/render/state/pip/PictureInPictureRenderState;Lnet/minecraft/client/gui/render/state/GuiRenderState;I)V"},
+        var prepare = prepare(dispatcher, TYPED_PREPARE);
+        for (String[] expected : List.of(new String[]{SubmissionPreviewBindings.TARGET, "prepare", TYPED_PREPARE},
                 new String[]{SubmissionPreviewBindings.FRAME, "retain", "(Lcom/naocraftlab/skins/client/ScreenOwnedRenderTarget;)V"}))
             check(Arrays.stream(prepare.instructions.toArray()).filter(i -> i instanceof MethodInsnNode call && call.owner.equals(expected[0]) && call.name.equals(expected[1]) && call.desc.equals(expected[2])).count() == 1, "LIVE_FULL_PREPARE_DELEGATION " + Arrays.toString(expected));
         check(dispatcher.nestMembers.contains(SubmissionPreviewBindings.TARGET), "LIVE_TARGET_NEST_MISSING");
         ClassNode consumer = read(SubmissionPreviewBindings.TARGET, inputs);
         check(consumer.nestHostClass.equals(SubmissionPreviewBindings.LIVE), "LIVE_TARGET_NEST_HOST_MISSING");
+        verifyTargetPrepare(consumer);
+        verifyPrepareMutants(inputs);
         var render = consumer.methods.stream().filter(m -> selected(consumer.name, m)).findFirst().orElseThrow();
         for (String callName : List.of("extractEntity", "configure", "submit", "renderAllFeatures"))
             check(Arrays.stream(render.instructions.toArray()).filter(i -> i instanceof MethodInsnNode call && call.name.equals(callName)).count() == 1, "LIVE_NATIVE_BOUNDARY_MISSING " + callName);
@@ -176,11 +301,16 @@ public final class SubmissionPreviewContract {
         var instructions = driver.methods.stream().flatMap(m -> Arrays.stream(m.instructions.toArray())).toList();
         for (String[] expected : List.of(new String[]{SubmissionPreviewBindings.LIVE, "<init>", "(Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;)V"},
                 new String[]{SubmissionPreviewBindings.LIVE, "prepare", "(Lcom/naocraftlab/skins/compat/client/identifier/submission/LivePreviewRenderState;Lnet/minecraft/client/gui/render/state/GuiRenderState;I)V"},
-                new String[]{SubmissionPreviewBindings.FRAME, "open", "()L" + SubmissionPreviewBindings.FRAME + ";"},
+                new String[]{SubmissionPreviewBindings.FRAME, "open", "(Ljava/lang/Object;)L" + SubmissionPreviewBindings.FRAME + ";"},
                 new String[]{SubmissionPreviewBindings.FRAME, "submitted", "()V"}))
             check(instructions.stream().filter(i -> i instanceof MethodInsnNode call && call.owner.equals(expected[0]) && call.name.equals(expected[1]) && call.desc.equals(expected[2])).count() == 1, "LIVE_DRIVER_FULL_PREPARE_MISSING " + Arrays.toString(expected));
         check(instructions.stream().noneMatch(i -> i instanceof LdcInsnNode literal && "renderToTexture".equals(literal.cst)), "LIVE_DRIVER_DIRECT_TEXTURE_BYPASS");
         System.out.println("PUBLIC_LIVE_EXACT_CONTRACT_PASS raw-operations=" + total + "; wrong/duplicate/unknown/helper ABI/full unrelated method preservation; full native prepare/blit/shared-frame delegation; public live and native enchanted consumer registered; ZERO native body/FML execution");
     }
-    public static void main(String[] args) throws Exception { verify(Arrays.stream(args).map(Path::of).toList()); }
+    public static void main(String[] args) throws Exception {
+        if (args.length == 2 && args[0].equals("--projection-abi")) {
+            var node = new ClassNode(); new ClassReader(Files.readAllBytes(Path.of(args[1]))).accept(node, 0);
+            verifyProjectionAbi(node);
+        } else verify(Arrays.stream(args).map(Path::of).toList());
+    }
 }

@@ -247,7 +247,9 @@ final class ReleaseLogicTest {
         assertTrue(start >= 0 && end > start)
         Binding binding = new Binding([
                 tasks: project.tasks,
-                file: { Object path -> project.file(path) }
+                project: project,
+                file: { Object path -> project.file(path) },
+                fileTree: { Object path, Closure configure -> project.fileTree(path, configure) }
         ])
         new GroovyShell(binding).evaluate('import org.gradle.api.tasks.testing.Test\n' +
                 'import org.gradle.api.tasks.PathSensitivity\n' + build.substring(start, end + 3))

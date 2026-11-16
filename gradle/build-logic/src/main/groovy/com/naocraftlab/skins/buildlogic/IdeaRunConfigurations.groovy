@@ -74,7 +74,9 @@ final class IdeaRunConfigurations {
                     option(name: 'externalProjectPath', value: '$PROJECT_DIR$')
                     option(name: 'externalSystemIdString', value: 'GRADLE')
                     option(name: 'scriptParameters', value: '-PnclskinsDevLogging=true ' +
-                            "-PnclskinsBuildLogicWorkspace=${buildLogicWorkspace(target, minecraftVersion, runKind)}")
+                            "-PnclskinsBuildLogicWorkspace=${buildLogicWorkspace(target, minecraftVersion, runKind)}" +
+                            ' --project-cache-dir "$PROJECT_DIR$/.gradle/workspaces/' +
+                            buildLogicWorkspace(target, minecraftVersion, runKind) + '"')
                     option(name: 'taskDescriptions') { list() }
                     option(name: 'taskNames') { list { option(value: taskName(target, minecraftVersion, runKind)) } }
                     option(name: 'vmOptions', value: '')
@@ -102,7 +104,9 @@ final class IdeaRunConfigurations {
                     option(name: 'externalProjectPath', value: '$PROJECT_DIR$')
                     option(name: 'externalSystemIdString', value: 'GRADLE')
                     option(name: 'scriptParameters', value: '-PnclskinsDevLogging=true ' +
-                            "-PnclskinsBuildLogicWorkspace=${ServerPluginRuntimeSupport.taskName(topology).toLowerCase(Locale.ROOT)}")
+                            "-PnclskinsBuildLogicWorkspace=${ServerPluginRuntimeSupport.taskName(topology).toLowerCase(Locale.ROOT)}" +
+                            ' --project-cache-dir "$PROJECT_DIR$/.gradle/workspaces/' +
+                            ServerPluginRuntimeSupport.taskName(topology).toLowerCase(Locale.ROOT) + '"')
                     option(name: 'taskDescriptions') { list() }
                     option(name: 'taskNames') {
                         list { option(value: ServerPluginRuntimeSupport.taskName(topology)) }

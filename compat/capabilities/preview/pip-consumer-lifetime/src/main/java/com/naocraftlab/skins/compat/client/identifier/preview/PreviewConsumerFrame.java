@@ -7,6 +7,39 @@ import java.util.List;
 
 public final class PreviewConsumerFrame implements AutoCloseable {
     private static final ThreadLocal<PreviewConsumerFrame> FRAME = new ThreadLocal<>();
+    private static final java.util.WeakHashMap<Object, Parent> PARENTS = new java.util.WeakHashMap<>();
+    private final Parent parent;
+
+    private static final class Parent {
+        private boolean closed;
+        private final java.util.Set<AutoCloseable> resources = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    }
+
+    public static void own(AutoCloseable resource) {
+        PreviewConsumerFrame frame = FRAME.get();
+        if (frame == null) return;
+        if (frame.parent.closed) throw new IllegalStateException("GUI context is closed");
+        frame.parent.resources.add(resource);
+    }
+
+    public static void closeOwner(Object owner) {
+        Parent parent = PARENTS.computeIfAbsent(java.util.Objects.requireNonNull(owner), ignored -> new Parent());
+        if (parent.closed) return;
+        parent.closed = true;
+        var retired = new ArrayList<>(parent.resources);
+        parent.resources.clear();
+        Throwable failure = null;
+        for (var resource : retired) {
+            try { resource.close(); }
+            catch (Throwable error) {
+                if (failure == null) failure = error;
+                else if (failure != error) failure.addSuppressed(error);
+            }
+        }
+        if (failure instanceof RuntimeException error) throw error;
+        if (failure instanceof Error error) throw error;
+        if (failure != null) throw new IllegalStateException("Cannot close GUI context", failure);
+    }
     private final PreviewConsumerFrame previous;
     private List<ScreenOwnedRenderTarget.Consumption> consumers = new ArrayList<>();
     private List<Prepared> completions = new ArrayList<>();
@@ -38,8 +71,12 @@ public final class PreviewConsumerFrame implements AutoCloseable {
         };
     }
 
-    private PreviewConsumerFrame() { previous = FRAME.get(); FRAME.set(this); }
-    public static PreviewConsumerFrame open() { return new PreviewConsumerFrame(); }
+    private PreviewConsumerFrame(Object owner) {
+        parent = PARENTS.computeIfAbsent(java.util.Objects.requireNonNull(owner), ignored -> new Parent());
+        if (parent.closed) throw new IllegalStateException("GUI context is closed");
+        previous = FRAME.get(); FRAME.set(this);
+    }
+    public static PreviewConsumerFrame open(Object owner) { return new PreviewConsumerFrame(owner); }
 
     public static void retain(ScreenOwnedRenderTarget target) {
         PreviewConsumerFrame frame = FRAME.get();

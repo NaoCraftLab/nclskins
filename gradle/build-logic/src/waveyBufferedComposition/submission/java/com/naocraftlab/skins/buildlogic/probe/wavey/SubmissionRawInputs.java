@@ -85,10 +85,31 @@ public final class SubmissionRawInputs {
             @Override public com.mojang.blaze3d.textures.GpuSampler getRepeat(com.mojang.blaze3d.textures.FilterMode filter) { return null; }
         };
     }
-    public static final class Projection {
-        public Projection(String label, float near, float far, boolean flip) {}
-        public com.mojang.blaze3d.buffers.GpuBufferSlice getBuffer(float width, float height) { return null; }
-        public void close() {}
+    public static final class Projection implements com.naocraftlab.skins.compat.client.identifier.measurement.PipDepthProjection.Buffer {
+        private final float near;
+        private final float far;
+        private final boolean flip;
+        private float depthExtent = Float.NaN;
+        private float consumedDepthExtent = Float.NaN;
+        private float width;
+        private float height;
+        private boolean closed;
+        public Projection(String label, float near, float far, boolean flip) {
+            this.near = near;
+            this.far = far;
+            this.flip = flip;
+        }
+        @Override public void nclskins$depthExtent(float extent) {
+            if (!Float.isFinite(extent) || extent <= 0) throw new IllegalArgumentException("Invalid preview depth");
+            depthExtent = extent;
+        }
+        public com.mojang.blaze3d.buffers.GpuBufferSlice getBuffer(float width, float height) {
+            this.width = width;
+            this.height = height;
+            consumedDepthExtent = depthExtent;
+            return null;
+        }
+        public void close() { closed = true; }
     }
     public static void setProjectionMatrix(com.mojang.blaze3d.buffers.GpuBufferSlice buffer, com.mojang.blaze3d.ProjectionType type) {}
     public static Object rawPreview(ClientLevel level, GameProfile profile) throws Exception {

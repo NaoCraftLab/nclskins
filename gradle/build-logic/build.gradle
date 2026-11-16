@@ -48,6 +48,10 @@ tasks.withType(Test).configureEach {
         showStackTraces = true
         stackTraceFilters = []
     }
+    inputs.files(fileTree('src/waveyLoaderComposition/terminal') { include '**/*.java' },
+            file('src/waveyLoaderComposition/contract/java/com/naocraftlab/skins/buildlogic/contract/SubmissionPreviewContract.java'))
+            .withPropertyName('submissionProjectionContractSources')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(
             file('../../gradle/version.properties'),
             file('../../gradle/plugin-version.properties'),
@@ -78,6 +82,14 @@ tasks.withType(Test).configureEach {
             .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
+configurations {
+    wardMeasurementTestRuntime {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+}
+
 dependencies {
     implementation 'org.ow2.asm:asm:9.9'
     implementation 'org.ow2.asm:asm-tree:9.9'
@@ -86,4 +98,75 @@ dependencies {
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    def catalog = new groovy.json.JsonSlurper().parse(file('../../gradle/targets.json'))
+    def earsWard = catalog.optionalDependencies.earsWard
+    add('wardMeasurementTestRuntime', "maven.modrinth:${earsWard.projectId}:${earsWard.versions['fabric-1.21.11']}") {
+        transitive = false
+    }
+}
+
+repositories {
+    maven {
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
+}
+
+tasks.named('test', Test).configure {
+    filter {
+        excludeTestsMatching('com.naocraftlab.skins.buildlogic.EarsWardMeasurementBindingTest')
+    }
+}
+
+def wardCatalog = file('../../gradle/targets.json')
+def wardVersion = file('../../gradle/version.properties')
+def wardTarget = providers.provider {
+    Map catalog = new groovy.json.JsonSlurper().parse(wardCatalog) as Map
+    Map target = (catalog.targets as List<Map>).find { it.id == 'fabric-1.21.11' }
+    if (target == null) throw new GradleException('Catalog lacks fabric-1.21.11')
+    Properties version = new Properties()
+    wardVersion.withInputStream { version.load(it) }
+    String name = (target.artifact.file as String).replace('{modVersion}', version.getProperty('modVersion'))
+    file("../../${target.path}/build/libs/${name}")
+}
+def wardBindingTest = file('src/test/groovy/com/naocraftlab/skins/buildlogic/EarsWardMeasurementBindingTest.groovy')
+def wardRuntime = configurations.wardMeasurementTestRuntime
+
+tasks.register('testWardMeasurementArtifact', Test) {
+    description = 'Checks the selected Fabric artifact against the catalog-pinned Ward ABI.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath + wardRuntime
+    filter {
+        includeTestsMatching('com.naocraftlab.skins.buildlogic.EarsWardMeasurementBindingTest')
+        failOnNoMatchingTests = true
+    }
+    reports.junitXml.required = true
+    reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/wardMeasurementArtifact')
+    inputs.files(wardCatalog, wardVersion, wardBindingTest)
+            .withPropertyName('wardMeasurementCatalogAndSource')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(wardTarget)
+            .withPropertyName('wardMeasurementDistributedArtifact')
+            .withPathSensitivity(PathSensitivity.NONE)
+    systemProperty 'nclskins.wardDependencyArtifact', providers.provider { wardRuntime.singleFile.canonicalPath }
+    doFirst {
+        File targetArtifact = wardTarget.get()
+        if (!targetArtifact.isFile() || targetArtifact.length() == 0L) {
+            throw new GradleException("Build the selected canonical artifact before testWardMeasurementArtifact: ${targetArtifact}")
+        }
+        if (!wardCatalog.isFile() || !wardVersion.isFile() || !wardBindingTest.isFile()) {
+            throw new GradleException('Ward artifact test inputs are incomplete')
+        }
+        systemProperty 'nclskins.wardDependencyArtifact', wardRuntime.singleFile.canonicalPath
+    }
+    doLast {
+        File reportDir = reports.junitXml.outputLocation.get().asFile
+        def reportsFound = fileTree(reportDir).matching { include '**/*.xml' }.files
+        int cases = 0
+        reportsFound.each { File report -> cases += report.getText('UTF-8').findAll(/<testcase\b/).size() }
+        if (reportsFound.isEmpty() || cases < 1) {
+            throw new GradleException("Ward artifact test produced no nonempty JUnit report: ${reportDir}")
+        }
+    }
 }

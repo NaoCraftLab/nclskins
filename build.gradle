@@ -486,6 +486,20 @@ tasks.register('verifyRuntimeCompatibility', CompatibilityVerifyTask) {
     targetId.set(requestedTargetId ?: '')
 }
 
+tasks.register('verifyBuiltRuntimeCompatibility', CompatibilityVerifyTask) {
+    group = 'verification'
+    description = 'Resolves declared compatibility runtimes against an already-built production JAR.'
+    doFirst {
+        if (requestedTargetId == null || !compatibilityTargetIds.contains(requestedTargetId)) {
+            throw new GradleException(
+                    "Use -PtargetId=<compatibility target>; available=${compatibilityTargetIds.sort()}")
+        }
+    }
+    repositoryDirectory.set(layout.projectDirectory)
+    delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
+    targetId.set(requestedTargetId ?: '')
+}
+
 ['Client', 'LicensedClient', 'Server'].each { String runKind ->
     tasks.register("runCompatibility${runKind}", CompatibilityRunTask) {
         group = 'application'

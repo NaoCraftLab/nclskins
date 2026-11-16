@@ -19,7 +19,7 @@ final class ProviderRowClippingRegistrationTest {
         File repository = new File('../..').canonicalFile
         String conventions = new File(repository, 'gradle/target-conventions.gradle').text
         String registration = conventions.substring(conventions.indexOf('def providerFrameFamily ='),
-                conventions.indexOf('def cpmIntegrationTask ='))
+                conventions.indexOf('def nativeMeasurementTask ='))
         String checkWiring = conventions.substring(conventions.indexOf("tasks.named('check').configure {"),
                 conventions.indexOf('\npublishing {'))
         [

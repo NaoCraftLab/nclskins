@@ -94,7 +94,8 @@ class WaveyCapesCompositionClasspathTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = ['properties', 'vm', 'precedence', 'absent', 'empty', 'csv', 'adapter', 'identity', 'generated',
             'missing-adapter', 'nested-missing', 'nested-corrupt', 'common-substitute', 'lost-zip', 'jar-only',
-            'wrong-root', 'wrong-namespace', 'empty-maps', 'missing-generated', 'mismatched-generated', 'boot-collateral', 'legacy-claimed'])
+            'wrong-root', 'wrong-namespace', 'empty-maps', 'missing-generated', 'mismatched-generated', 'boot-collateral', 'legacy-claimed',
+            'alias-p', 'alias-long', 'alias-equals'])
     void canonicalLegacyAssemblyPartitionsGameArchivesBeforeBootstrapWithoutLoadingClasses(String carrier) {
         def project = ProjectBuilder.builder().withProjectDir(temporary).build()
         def task = project.tasks.create('legacyAssembly', VerifyWaveyLegacyCompositionTask)
@@ -128,6 +129,16 @@ class WaveyCapesCompositionClasspathTest {
         providerCp.setText(nativeJar.absolutePath + '\n', 'UTF-8')
         Map props = ['legacyClassPath.file': providerCp.absolutePath, mergeModules: 'retained-one.jar,retained-two.jar']
         List vm = ['-p', nativeJar.absolutePath, '--add-modules', 'ALL-MODULE-PATH']
+        boolean aliasCase = carrier.startsWith('alias-')
+        String aliasPath = null, moduleValue = null
+        if (aliasCase) {
+            File alias = new File(temporary, 'alias')
+            java.nio.file.Files.createSymbolicLink(alias.toPath(), temporary.toPath())
+            aliasPath = new File(alias, nativeJar.name).absolutePath
+            moduleValue = [aliasPath, '', 'missing-module.jar', aliasPath].join(File.pathSeparator)
+            vm = carrier == 'alias-equals' ? ['--module-path=' + moduleValue, '--add-modules', 'ALL-MODULE-PATH']
+                    : [carrier == 'alias-p' ? '-p' : '--module-path', moduleValue, '--add-modules', 'ALL-MODULE-PATH']
+        }
         if (carrier in ['properties', 'precedence']) props.ignoreList = 'asm,securejarhandler,inherited-ignore.jar'
         if (carrier in ['vm', 'precedence']) vm += ['-DignoreList=overridden.jar', '-DignoreList=asm,securejarhandler,vm-ignore.jar']
         if (carrier == 'empty') props.ignoreList = ',,'
@@ -202,6 +213,15 @@ class WaveyCapesCompositionClasspathTest {
         WaveyLegacyComposition.verify(task, work, [nativeJar], [own, wavey], sources, receipt, compileOutputs, { })
         List<String> assembled = receipt.loaderInvocations[0].argv
         List<String> actualCp = assembled[assembled.indexOf('-cp') + 1].split(java.util.regex.Pattern.quote(File.pathSeparator)).toList()
+        if (aliasCase) {
+            String actualModule = carrier == 'alias-equals' ? assembled[1].substring('--module-path='.length()) : assembled[2]
+            String physical = nativeJar.toPath().toRealPath().toString()
+            assertEquals([physical, '', 'missing-module.jar', physical], actualModule.split(java.util.regex.Pattern.quote(File.pathSeparator), -1).toList())
+            assertTrue(actualCp.contains(physical))
+            def moduleLocation = java.lang.module.ModuleFinder.of(new File(actualModule.split(java.util.regex.Pattern.quote(File.pathSeparator), -1)[0]).toPath()).findAll().first().location().get()
+            assertEquals(new File(actualCp.find { it == physical }).toPath(), java.nio.file.Paths.get(moduleLocation))
+            assertEquals(vm.drop(carrier == 'alias-equals' ? 1 : 2), assembled.subList(carrier == 'alias-equals' ? 2 : 3, carrier == 'alias-equals' ? 4 : 5))
+        }
         if (carrier == 'csv') assertTrue(actualCp.contains(csv.absolutePath), 'Native CSV ZIP must reach JVM system resources')
         if (carrier == 'identity') assertTrue(assembled[assembled.indexOf('--launchTarget') + 1].contains('dev'), 'Pinned classpath locator requires dev identity')
         if (carrier == 'adapter') {
@@ -238,7 +258,7 @@ class WaveyCapesCompositionClasspathTest {
         if (carrier == 'absent') assertTrue(prefixes.containsAll(['asm', 'securejarhandler']))
         assertFalse(prefixes.contains('overridden.jar'))
         assertTrue(argv.contains('-DmergeModules=retained-one.jar,retained-two.jar'))
-        assertEquals(vm.take(4), argv.subList(1, 5))
+        if (!aliasCase) assertEquals(vm.take(4), argv.subList(1, 5))
         assertEquals((([nativeJar, adapter, wavey, csv, boot, spi])*.absolutePath).join(File.pathSeparator), argv[argv.indexOf('-cp') + 1])
         assertEquals([MCP_MAPPINGS: 'retained-mappings', MOD_CLASSES: 'nclskins%%' + game.absolutePath], receipt.loaderInvocations[0].environment)
         assertEquals(0, receipt.executedFmlContexts)

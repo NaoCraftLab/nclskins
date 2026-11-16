@@ -35,11 +35,14 @@ public final class LivePreviewRenderer extends PictureInPictureRenderer<LivePrev
             com.naocraftlab.skins.compat.client.identifier.preview.PreviewConsumerFrame.retain(target);
             renderer.candidate = null;
             renderer.prepare(state, guiRenderState, guiScale);
+            state.previewContext().captured(renderer.candidate != null && renderer.candidate.status()
+                    != com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED);
             var candidate = renderer.candidate;
             if (candidate != null) state.previewContext().displayed(
                     new com.naocraftlab.skins.client.PreviewModelFrames.Body(candidate.status(),
                             () -> target.owns(this, renderer) && candidate.current().getAsBoolean()));
         } catch (RuntimeException | Error failure) {
+            state.previewContext().captured(false);
             state.previewContext().displayed(new com.naocraftlab.skins.client.PreviewModelFrames.Body(
                     com.naocraftlab.skins.client.PreviewRenderer.BodyStatus.FAILED, () -> true));
             throw failure;
@@ -56,7 +59,15 @@ public final class LivePreviewRenderer extends PictureInPictureRenderer<LivePrev
         targets.clear(); legacyTarget.close(); super.close();
     }
 
-    private static final class TargetRenderer extends PictureInPictureRenderer<LivePreviewRenderState> {
+    private static final class TargetRenderer extends PictureInPictureRenderer<LivePreviewRenderState>
+            implements com.naocraftlab.skins.compat.client.identifier.measurement.PipDepthProjection {
+        private float depthExtent;
+        @Override public float nclskins$depthExtent() { return depthExtent; }
+        @Override public void prepare(LivePreviewRenderState state,
+                net.minecraft.client.gui.render.state.GuiRenderState gui, int guiScale) {
+            depthExtent = state.previewContext().depthExtent() * guiScale;
+            super.prepare(state, gui, guiScale);
+        }
         private com.naocraftlab.skins.client.PreviewModelFrames.Body candidate;
         private TargetRenderer(MultiBufferSource.BufferSource buffers) { super(buffers); }
         @Override public Class<LivePreviewRenderState> getRenderStateClass() { return LivePreviewRenderState.class; }
@@ -85,7 +96,7 @@ public final class LivePreviewRenderer extends PictureInPictureRenderer<LivePrev
                             minecraft.getEntityRenderDispatcher().extractEntity(renderPlayer, partialTick);
                     SubmissionPreviewRenderer.configure(avatarState, state.request());
                     avatarState.ageInTicks = state.previewAge();
-
+                    try (var capture = state.previewContext().capture(avatarState)) {
                     minecraft.gameRenderer.getLighting().setupFor(Lighting.Entry.ENTITY_IN_UI);
                     pose.translate(
                             state.translation().x,
@@ -108,7 +119,9 @@ public final class LivePreviewRenderer extends PictureInPictureRenderer<LivePrev
                             pose,
                             features.getSubmitNodeStorage());
                     features.renderAllFeatures();
+                    bufferSource.endBatch();
                     candidate = scope.body();
+                    }
                 }
                 completed = layersSucceeded[0];
             } catch (RuntimeException failure) {

@@ -91,6 +91,8 @@ abstract class TargetBuildTask extends DefaultTask {
                 wrapper.absolutePath,
                 "-PnclskinsSourceGraph=${sourceGraphFingerprint(root)}".toString(),
                 "-PnclskinsBuildLogicWorkspace=${target.id}".toString(),
+                '--project-cache-dir',
+                new File(root, ".gradle/workspaces/${target.id}").absolutePath,
                 '-p',
                 targetDirectory.absolutePath,
                 '--no-daemon',

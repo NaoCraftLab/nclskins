@@ -46,6 +46,11 @@ final class AtomicFileWriter {
     }
 
     static boolean createImmutable(Path target, byte[] bytes, java.util.function.BooleanSupplier current) throws IOException {
+        return createImmutable(target, bytes, current, () -> true);
+    }
+
+    static boolean createImmutable(Path target, byte[] bytes, java.util.function.BooleanSupplier current,
+            java.util.function.BooleanSupplier cleanupSafe) throws IOException {
         if (!current.getAsBoolean()) throw new IOException("Asset update is no longer current");
         Files.createDirectories(target.getParent());
         if (Files.exists(target)) {
@@ -71,7 +76,7 @@ final class AtomicFileWriter {
                         exception);
             }
         } finally {
-            Files.deleteIfExists(temporary);
+            if (cleanupSafe.getAsBoolean()) Files.deleteIfExists(temporary);
         }
     }
 

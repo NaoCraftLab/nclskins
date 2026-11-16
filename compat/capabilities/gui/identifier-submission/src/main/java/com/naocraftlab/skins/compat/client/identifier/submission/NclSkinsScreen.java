@@ -901,6 +901,7 @@ public final class NclSkinsScreen extends Screen {
         if (candidate.isPresent()) {
             var desired = candidate.orElseThrow();
             var renderer = editorRenderer;
+            runtime.observePreviewModelFitDemand(desired, renderer);
             String source = runtime.previewBodySource(desired);
             var desiredRequest = galleryRequest(desired);
             var shown = current.previews().stream().filter(p -> p.id().equals("gallery.preview")).findFirst();
@@ -908,15 +909,17 @@ public final class NclSkinsScreen extends Screen {
             var shownRequest = shown.flatMap(this::galleryRequest);
             boolean cpm = runtime.waitsForCpmBody(desired);
             if (bodyCapability == null) bodyCapability = renderer::displayKind;
-            var registration = runtime.observePreviewBody(desired, bodyCapability, () -> renderer.confirmGalleryBody(source));
+            var registration = runtime.observePreviewBody(desired, bodyCapability, () -> renderer.confirmGalleryBody(source), renderer::retireBody);
             bodyObserver = registration;
             renderer.observeBody(registration);
             var admission = runtime.galleryPreviewAdmission(desired);
-            boolean imagePolicy = renderer.prepareGalleryImage(source, cpm, admission, runtime.previewBodyLifetime(desired));
-            boolean prepared = imagePolicy || renderer.prepareGalleryBody(source, cpm, admission);
+            boolean imagePolicy = renderer.prepareGalleryImage(source, runtime.previewBodyDemand(desired), cpm, admission, runtime.previewBodyLifetime(desired));
+            boolean prepared = imagePolicy || renderer.prepareGalleryBody(source, runtime.previewBodyDemand(desired), cpm, admission);
             var preparation = previewPreparation(desired);
             if (imagePolicy) renderer.prepareImage(source, preparation.map(PreviewAssetCache.ImageState::startedNanos).orElseGet(System::nanoTime), preparation.isEmpty());
             if (preparation.isPresent()) drawPreviewLoading(graphics, desired.bounds(), preparation.orElseThrow().startedNanos(), 32);
+            if (prepared && admission.getAsBoolean()) desiredRequest.ifPresent(request ->
+                    runtime.preparePreviewModelFit(desired, renderer, request.appearance()));
             var accessoryAdmission = runtime.galleryAccessoryAdmission(desired);
             desiredRequest.ifPresent(request -> {
                 var observer = runtime.observePreviewAccessories(desired,
@@ -926,6 +929,7 @@ public final class NclSkinsScreen extends Screen {
             });
             if (imagePolicy) {
                 if (admission.getAsBoolean()) {
+                    renderer.transformRetained(source, desired.yawDegrees(), desired.pitchDegrees(), desired.renderedScale());
                     if (desiredRequest.isEmpty()) renderer.renderRetained(graphics, source);
                     desiredRequest.ifPresent(request -> renderer.renderGallery(graphics, source, preparation.isPresent() ? request.hidden() : request));
                 }
@@ -953,12 +957,13 @@ public final class NclSkinsScreen extends Screen {
             String imageSource = runtime.previewBodySource(preview);
             boolean retainedImage = false;
             if (ownedBody) {
+                runtime.observePreviewModelFitDemand(preview, editorRenderer);
                 if (bodyCapability == null) bodyCapability = editorRenderer::displayKind;
-                bodyObserver = runtime.observePreviewBody(preview, bodyCapability, () -> editorRenderer.confirmGalleryBody(imageSource));
+                bodyObserver = runtime.observePreviewBody(preview, bodyCapability, () -> editorRenderer.confirmGalleryBody(imageSource), editorRenderer::retireBody);
                 editorRenderer.observeBody(bodyObserver);
-                retainedImage = editorRenderer.prepareGalleryImage(imageSource, runtime.waitsForCpmBody(preview),
+                retainedImage = editorRenderer.prepareGalleryImage(imageSource, runtime.previewBodyDemand(preview), runtime.waitsForCpmBody(preview),
                         runtime.previewBodyAdmission(preview), runtime.previewBodyLifetime(preview));
-                if (!retainedImage) editorRenderer.prepareBody(imageSource, runtime.waitsForCpmBody(preview));
+                if (!retainedImage) editorRenderer.prepareBody(imageSource, runtime.previewBodyDemand(preview), runtime.waitsForCpmBody(preview));
             }
             var preparation = previewPreparation(preview);
             var imageRenderer = ownedBody ? editorRenderer : bakedRenderer("preview:" + preview.id());
@@ -974,17 +979,17 @@ public final class NclSkinsScreen extends Screen {
                 if (indicator) clipped(graphics, current, preview.id(), () -> drawPreviewLoading(graphics, preview.anchorBounds(), preparation.orElseThrow().startedNanos(), 32));
                 projected = projected.map(PreviewRenderer.PreviewRequest::hidden);
             }
-            if (retainedImage) editorRenderer.transformRetained(imageSource, preview.yawDegrees(), preview.pitchDegrees(), preview.scale());
+            if (retainedImage) editorRenderer.transformRetained(imageSource, preview.yawDegrees(), preview.pitchDegrees(), preview.renderedScale());
             if (projected.isEmpty()) {
                 if (retainedImage) editorRenderer.renderRetained(graphics, imageSource);
                 if (ownedBody && preparation.isEmpty()) {
                     releasePreviewAccessories();
-                    releasePreviewBody();
                 }
                 continue;
             }
             PreviewRenderer.PreviewRequest request = projected.orElseThrow();
             boolean renderRetained = retainedImage;
+            if (ownedBody) runtime.preparePreviewModelFit(preview, editorRenderer, request.appearance());
             clipped(graphics, current, preview.id(), () -> {
                 if (ownedBody) {
                     var observer = runtime.observePreviewAccessories(preview, () -> editorRenderer.accessories(request));

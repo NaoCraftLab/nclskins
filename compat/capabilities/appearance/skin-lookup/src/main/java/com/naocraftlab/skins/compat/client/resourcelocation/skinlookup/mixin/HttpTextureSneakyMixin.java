@@ -22,6 +22,9 @@ abstract class HttpTextureSneakyMixin extends SimpleTexture implements Registere
     @Unique private String nclskins$skinLocation;
     @Unique private NativePlayerSkinLifecycle.Registration nclskins$registration;
     @Unique private boolean nclskins$retired;
+    @Unique private boolean nclskins$admitted;
+    @Unique private boolean nclskins$uploaded;
+    @Unique private int[] nclskins$originalPixels;
 
     private HttpTextureSneakyMixin(ResourceLocation location) {
         super(location);
@@ -35,6 +38,7 @@ abstract class HttpTextureSneakyMixin extends SimpleTexture implements Registere
     @Override
     public void close() {
         nclskins$retired = true;
+        nclskins$originalPixels = null;
         super.close();
     }
 
@@ -89,6 +93,32 @@ abstract class HttpTextureSneakyMixin extends SimpleTexture implements Registere
                         | ((abgr & 0x00ff0000) >>> 16) | ((abgr & 0x000000ff) << 16);
             }
         }
-        CapeProjection.skinTextureReady(nclskins$skinLocation, argb, this);
+        nclskins$originalPixels = argb;
+        nclskins$publishOriginalPixels();
+    }
+
+    @Override
+    public void nclskins$admittedSkinTexture() {
+        nclskins$admitted = true;
+        nclskins$publishOriginalPixels();
+    }
+
+    @Override
+    public void nclskins$uploadedSkinTexture() {
+        nclskins$uploaded = true;
+        nclskins$publishOriginalPixels();
+    }
+
+    @Unique
+    private void nclskins$publishOriginalPixels() {
+        if (!nclskins$admitted || nclskins$retired || !nclskins$isCurrent()
+                || nclskins$skinLocation == null
+                || Minecraft.getInstance().getTextureManager().getTexture(ResourceLocation.parse(nclskins$skinLocation), null) != (Object) this) return;
+        int[] pixels = nclskins$originalPixels;
+        nclskins$originalPixels = null;
+        if (pixels != null) CapeProjection.skinTextureReady(nclskins$skinLocation, pixels, this);
+        if (nclskins$uploaded && !nclskins$retired && nclskins$isCurrent()
+                && Minecraft.getInstance().getTextureManager().getTexture(ResourceLocation.parse(nclskins$skinLocation), null) == (Object) this)
+            com.naocraftlab.skins.client.NativeTextureUploadTracker.uploaded(this);
     }
 }

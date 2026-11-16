@@ -53,6 +53,16 @@ public record StorageLayout(
         return accounts.resolve(accountId.toString()).resolve("capes-v1.json");
     }
 
+    public Path previewModelFit(UUID accountId, String sha256, com.naocraftlab.skins.core.model.SkinVariant variant) {
+        Objects.requireNonNull(accountId, "accountId");
+        Objects.requireNonNull(variant, "variant");
+        if (sha256 == null || !sha256.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("sha256 is invalid");
+        }
+        return accounts.resolve(accountId.toString()).resolve("derived").resolve("preview-model-fit-v1")
+                .resolve(sha256 + "-" + variant.apiValue() + ".json");
+    }
+
     public Path accountBackup(UUID accountId) {
         Objects.requireNonNull(accountId, "accountId");
         return backups.resolve(accountId + "-state-v1.json");

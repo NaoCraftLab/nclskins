@@ -437,7 +437,9 @@ public final class TmpProbe {
                 assertEquals('$PROJECT_DIR$', configuration.ExternalSystemSettings.option.find { it.@name == 'externalProjectPath' }.@value.toString())
                 assertEquals(taskName, configuration.ExternalSystemSettings.option.find { it.@name == 'taskNames' }.list.option.@value.toString())
                 assertEquals('-PnclskinsDevLogging=true ' +
-                        "-PnclskinsBuildLogicWorkspace=${IdeaRunConfigurations.buildLogicWorkspace(target, minecraftVersion, runKind)}",
+                        "-PnclskinsBuildLogicWorkspace=${IdeaRunConfigurations.buildLogicWorkspace(target, minecraftVersion, runKind)}" +
+                        ' --project-cache-dir "$PROJECT_DIR$/.gradle/workspaces/' +
+                        IdeaRunConfigurations.buildLogicWorkspace(target, minecraftVersion, runKind) + '"',
                         configuration.ExternalSystemSettings.option
                                 .find { it.@name == 'scriptParameters' }.@value.toString())
                 assertEquals('', configuration.ExternalSystemSettings.option
@@ -461,7 +463,9 @@ public final class TmpProbe {
             assertEquals(taskName, configuration.ExternalSystemSettings.option
                     .find { it.@name == 'taskNames' }.list.option.@value.toString())
             assertEquals('-PnclskinsDevLogging=true ' +
-                    "-PnclskinsBuildLogicWorkspace=${taskName.toLowerCase(Locale.ROOT)}",
+                    "-PnclskinsBuildLogicWorkspace=${taskName.toLowerCase(Locale.ROOT)}" +
+                    ' --project-cache-dir "$PROJECT_DIR$/.gradle/workspaces/' +
+                    taskName.toLowerCase(Locale.ROOT) + '"',
                     configuration.ExternalSystemSettings.option
                             .find { it.@name == 'scriptParameters' }.@value.toString())
             assertEquals('', configuration.ExternalSystemSettings.option
@@ -608,6 +612,10 @@ public final class TmpProbe {
             assertEquals(TargetRuntime.wrapper(repository, catalog, target).absolutePath, client.first())
             assertTrue(client.contains(
                     "-PnclskinsBuildLogicWorkspace=${IdeaRunConfigurations.buildLogicWorkspace(target, target.minecraft.version.toString(), 'Client')}".toString()))
+            assertTrue(client.contains('--project-cache-dir'))
+            assertEquals(new File(repository, '.gradle/workspaces/' +
+                    IdeaRunConfigurations.buildLogicWorkspace(target, target.minecraft.version.toString(), 'Client')).path,
+                    client[client.indexOf('--project-cache-dir') + 1])
             assertTrue(TargetRunTask.command(
                     repository, catalog, target, 'Client', true, true)
                     .contains('-PnclskinsDevLogging=true'))

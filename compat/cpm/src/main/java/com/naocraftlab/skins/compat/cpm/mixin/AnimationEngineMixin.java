@@ -15,6 +15,16 @@ import org.spongepowered.asm.mixin.injection.At;
 @Pseudo
 @Mixin(targets = "com.tom.cpm.shared.animation.AnimationEngine", remap = false)
 abstract class AnimationEngineMixin {
+    @org.spongepowered.asm.mixin.injection.Inject(method = "handleAnimation(Lcom/tom/cpm/shared/animation/AnimationState;Lcom/tom/cpm/shared/config/Player;Lcom/tom/cpm/shared/definition/ModelDefinition;)V",
+            at = @At("HEAD"), cancellable = true, require = 1, expect = 1, allow = 1)
+    private void nclskins$neutral(AnimationState state, Player<?> player, ModelDefinition definition,
+            org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        if (com.naocraftlab.skins.compat.cpm.CpmNeutralBody.neutral(player, definition)) {
+            definition.resetAnimationPos();
+            ci.cancel();
+        }
+    }
+
     @WrapOperation(method = "prepareAnimations(Lcom/tom/cpm/shared/animation/PersistentAnimationState;Lcom/tom/cpm/shared/animation/AnimationState;Lcom/tom/cpm/shared/definition/ModelDefinition;)V",
             at = @At(value = "INVOKE", target = "Lcom/tom/cpm/shared/animation/AnimationEngine;getTime()J"), require = 1, expect = 1, allow = 1)
     private long nclskins$prepareTime(AnimationEngine engine, Operation<Long> original,

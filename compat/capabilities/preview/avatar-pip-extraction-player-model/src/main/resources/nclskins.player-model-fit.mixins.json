@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "com.naocraftlab.skins.compat.client.identifier.measurement.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "LivingEntityRendererMixin",
+    "CapeLayerMixin",
+    "WingsLayerMixin",
+    "BufferSourceMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

@@ -1,0 +1,53 @@
+package com.naocraftlab.skins.buildlogic.probe;
+
+import java.nio.file.*;
+import java.util.*;
+import org.objectweb.asm.*;
+import org.objectweb.asm.tree.*;
+
+public final class ReferenceBodySetup implements Opcodes {
+    static final String B="com/naocraftlab/skins/buildlogic/probe/ReferenceBodyProbe",H="com/naocraftlab/skins/buildlogic/probe/ReferenceBodyHost",F="com/naocraftlab/skins/probe/ReferenceFeatures";
+    public static void main(String[] args)throws Exception{
+        Path out=Path.of(args[0]);PipNativeSetup.main(args);
+        for(String owner:List.of("net/minecraft/client/renderer/StagedVertexBuffer","net/minecraft/client/renderer/rendertype/RenderType","net/minecraft/client/renderer/entity/LivingEntityRenderer","diy/y2k/five/thermite/EarsLayerRenderer")){
+            var node=new ClassNode();new ClassReader(Files.readAllBytes(out.resolve(owner+".class"))).accept(node,0);
+            for(var m:node.methods)for(var ins:m.instructions.toArray())if(ins instanceof MethodInsnNode call){
+                if(call.owner.equals("com/naocraftlab/skins/buildlogic/probe/PipCurrentHost"))call.owner=call.name.equals("mesh")?B:H;
+                if(call.owner.equals("com/naocraftlab/skins/buildlogic/probe/PipMaterialProbe")&&Set.of("enterLayer","leaveLayer","earsEntry").contains(call.name))call.owner=B;
+            }
+            if(owner.endsWith("LivingEntityRenderer")){
+                var matches=node.methods.stream().filter(m->m.name.equals("submit")&&m.desc.equals("(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V")).toList();
+                if(matches.size()!=1)throw new AssertionError("one native pre-camera root observer "+matches.size());
+                var head=new InsnList();head.add(new VarInsnNode(ALOAD,2));head.add(new MethodInsnNode(INVOKESTATIC,B,"root","(Lcom/mojang/blaze3d/vertex/PoseStack;)V",false));matches.get(0).instructions.insert(head);
+            }
+            PipNativeSetup.save(out,node);
+        }
+        var textureManager=PipNativeSetup.load("net/minecraft/client/renderer/texture/TextureManager");
+        textureManager.interfaces.add("diy/y2k/five/thermite/mixin/AccessorTextureManager");
+        var getter=new MethodNode(ACC_PUBLIC,"ears$getTextures","()Ljava/util/Map;",null,null);getter.visitVarInsn(ALOAD,0);getter.visitFieldInsn(GETFIELD,textureManager.name,"byPath","Ljava/util/Map;");getter.visitInsn(ARETURN);textureManager.methods.add(getter);PipNativeSetup.save(out,textureManager);
+        String ears="diy/y2k/five/thermite/EarsLayerRenderer$1";var delegate=PipNativeSetup.load(ears);ClassNode raw=null;
+        var resources=ClassLoader.getSystemResources(ears+".class");while(resources.hasMoreElements()){var u=resources.nextElement();if(u.getProtocol().equals("jar")){raw=new ClassNode();try(var in=u.openStream()){new ClassReader(in).accept(raw,0);}break;}}
+        if(raw==null)throw new AssertionError("pinned original Ears delegate jar");
+        var upload=raw.methods.stream().filter(m->m.name.equals("doUploadAux")&&m.desc.equals("(Lcom/unascribed/ears/common/render/EarsRenderDelegate$TexSource;[B)V")).findFirst().orElseThrow();
+        delegate.methods.removeIf(m->m.name.equals(upload.name)&&m.desc.equals(upload.desc));delegate.methods.add(upload);
+        var features=raw.methods.stream().filter(m->m.name.equals("getEarsFeatures")&&m.desc.equals("()Lcom/unascribed/ears/api/features/EarsFeatures;")).findFirst().orElseThrow();
+        delegate.methods.removeIf(m->m.name.equals(features.name)&&m.desc.equals(features.desc));delegate.methods.add(features);
+        PipNativeSetup.save(out,delegate);
+        for(String owner:List.of("net/minecraft/client/renderer/entity/layers/CapeLayer","net/minecraft/client/renderer/entity/layers/WingsLayer")){
+            var n=PipNativeSetup.load(owner);int count=0;for(var m:n.methods)for(var ins:m.instructions.toArray())if(ins instanceof MethodInsnNode c&&c.owner.equals("com/naocraftlab/skins/probe/EarsJoinBridge")&&c.name.equals("features")){c.owner="diy/y2k/five/thermite/Thermite";c.name="getEarsFeatures";count++;}if(count!=1)throw new AssertionError("exact accessory feature input "+owner);PipNativeSetup.save(out,n);
+            n=PipNativeSetup.load(owner);int submits=0;for(var m:n.methods)if(m.name.equals("submit")&&m.desc.contains(owner.endsWith("CapeLayer")?"Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;FF)":"Lnet/minecraft/client/renderer/entity/state/HumanoidRenderState;FF)")){
+                var head=new InsnList();head.add(new LdcInsnNode(owner.endsWith("CapeLayer")?"CAPE":"ELYTRA"));head.add(new MethodInsnNode(INVOKESTATIC,"com/naocraftlab/skins/buildlogic/probe/ReferenceVertices","enter","(Ljava/lang/String;)V",false));m.instructions.insert(head);for(var ins:m.instructions.toArray())if(ins.getOpcode()==RETURN)m.instructions.insertBefore(ins,new MethodInsnNode(INVOKESTATIC,"com/naocraftlab/skins/buildlogic/probe/ReferenceVertices","leave","()V",false));submits++;
+            }if(submits!=1)throw new AssertionError("one accessory native phase observer "+owner+" "+submits);for(var m:n.methods)for(var ins:m.instructions.toArray())if(ins instanceof MethodInsnNode c&&c.owner.equals("com/naocraftlab/skins/probe/EarsJoinBridge")&&c.name.equals("features"))c.owner=F;PipNativeSetup.save(out,n);
+        }
+        var avatar=PipNativeSetup.load("com/naocraftlab/skins/buildlogic/probe/PipMaterialProbe$Avatar");int variantInputs=0;for(var m:avatar.methods){if(m.name.equals("<init>"))for(var ins:m.instructions.toArray())if(ins instanceof MethodInsnNode c&&c.owner.equals("net/minecraft/client/renderer/entity/player/AvatarRenderer")&&c.name.equals("<init>")&&c.desc.equals("(Lnet/minecraft/client/renderer/entity/EntityRendererProvider$Context;Z)V")){var value=ins.getPrevious();if(value.getOpcode()!=ICONST_0)throw new AssertionError("original classic constructor raw input");m.instructions.set(value,new FieldInsnNode(GETSTATIC,B,"slim","Z"));variantInputs++;}if(m.name.equals("getRenderType")&&m.desc.startsWith("(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;")){var observe=new InsnList();observe.add(new VarInsnNode(ALOAD,1));observe.add(new MethodInsnNode(INVOKESTATIC,B,"materialSelection","(Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;)V",false));m.instructions.insert(observe);}}if(variantInputs!=1)throw new AssertionError("one current constructor variant raw input");PipNativeSetup.save(out,avatar);
+        var model=PipNativeSetup.load("net/minecraft/client/model/Model");int renders=0;for(var m:model.methods)if(m.name.equals("renderToBuffer")&&m.desc.equals("(Lcom/mojang/blaze3d/vertex/PoseStack;Lcom/mojang/blaze3d/vertex/VertexConsumer;III)V")){var head=new InsnList();head.add(new VarInsnNode(ALOAD,0));head.add(new VarInsnNode(ALOAD,2));head.add(new MethodInsnNode(INVOKESTATIC,"com/naocraftlab/skins/buildlogic/probe/ReferenceVertices","wrap","(Lnet/minecraft/client/model/Model;Lcom/mojang/blaze3d/vertex/VertexConsumer;)Lcom/mojang/blaze3d/vertex/VertexConsumer;",false));head.add(new VarInsnNode(ASTORE,2));m.instructions.insert(head);renders++;}if(renders!=1)throw new AssertionError("one genuine native Model vertex observer");PipNativeSetup.save(out,model);
+        var custom=PipNativeSetup.load("com/tom/cpm/client/CustomModelLayer");int captures=0;for(var m:custom.methods)if(m.name.equals("<init>"))for(var ins:m.instructions.toArray())if(ins.getOpcode()==RETURN){var observe=new InsnList();observe.add(new VarInsnNode(ALOAD,0));observe.add(new MethodInsnNode(INVOKESTATIC,"com/naocraftlab/skins/buildlogic/probe/ReferenceVertices","capture","(Lnet/minecraft/client/model/Model;)V",false));m.instructions.insertBefore(ins,observe);captures++;}if(captures!=1)throw new AssertionError("one genuine CPM deferred-record model ctor observer");PipNativeSetup.save(out,custom);
+for(String owner:List.of("net/minecraft/world/item/equipment/Equippable")){
+            var metadata=PipNativeSetup.load(owner);var clinit=metadata.methods.stream().filter(m->m.name.equals("<clinit>")&&m.desc.equals("()V")).findFirst().orElseThrow();clinit.instructions.clear();clinit.tryCatchBlocks.clear();clinit.localVariables=null;clinit.visitInsn(RETURN);PipNativeSetup.save(out,metadata);System.out.println("READONLY_EQUIPMENT_METADATA "+owner+" original constructors/accessors retained; unused codec bootstrap excluded");
+        }
+        var components=PipNativeSetup.load("net/minecraft/core/component/DataComponents");var ci=components.methods.stream().filter(m->m.name.equals("<clinit>")).findFirst().orElseThrow();for(var ins:ci.instructions.toArray())if(ins.getOpcode()==RETURN){var init=new InsnList();init.add(new MethodInsnNode(INVOKESTATIC,"com/naocraftlab/skins/buildlogic/probe/FullRendererPrepare","component","()Lnet/minecraft/core/component/DataComponentType;",false));init.add(new FieldInsnNode(PUTSTATIC,components.name,"ENCHANTMENT_GLINT_OVERRIDE","Lnet/minecraft/core/component/DataComponentType;"));ci.instructions.insertBefore(ins,init);}PipNativeSetup.save(out,components);
+        var stack=PipNativeSetup.load("net/minecraft/world/item/ItemStack");var empty=stack.methods.stream().filter(m->m.name.equals("isEmpty")&&m.desc.equals("()Z")).findFirst().orElseThrow();var guard=new InsnList();var originalEmpty=new LabelNode();guard.add(new VarInsnNode(ALOAD,0));guard.add(new MethodInsnNode(INVOKESTATIC,"com/naocraftlab/skins/buildlogic/probe/ReferenceEquipment","isOwned","(Lnet/minecraft/world/item/ItemStack;)Z",false));guard.add(new JumpInsnNode(IFEQ,originalEmpty));guard.add(new InsnNode(ICONST_0));guard.add(new InsnNode(IRETURN));guard.add(originalEmpty);guard.add(new FrameNode(F_SAME,0,null,0,null));empty.instructions.insert(guard);PipNativeSetup.save(out,stack);
+        var fallback=PipNativeSetup.load("com/tom/cpm/client/VanillaPartLayer");for(var m:fallback.methods)if(m.name.equals("<init>"))for(var ins:m.instructions.toArray())if(ins.getOpcode()==RETURN){var observe=new InsnList();observe.add(new VarInsnNode(ALOAD,0));observe.add(new MethodInsnNode(INVOKESTATIC,"com/naocraftlab/skins/buildlogic/probe/ReferenceVertices","captureFallback","(Lnet/minecraft/client/model/Model;)V",false));m.instructions.insertBefore(ins,observe);}PipNativeSetup.save(out,fallback);
+        System.out.println("REFERENCE_BODY_SETUP genuine aux upload restored; exact native map accessor; root observer; exact feature read=1; all native geometry/material algorithms retained");
+    }
+}

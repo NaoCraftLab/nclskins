@@ -6,12 +6,18 @@
     "AbstractClientPlayerPreviewMixin",
     "AccessibilityOptionsScreenMixin",
     "AvatarPreviewMixin",
+    "BufferSourceFitMixin",
+    "CapeLayerFitMixin",
     "GuiGraphicsPreviewMixin",
     "LivingEntityPreviewMixin",
     "LivingEntityRendererPreviewMixin",
+    "LivingEntityRendererFitMixin",
     "ModelPartPreviewMixin",
     "OptionsScreenMixin",
     "PictureInPictureRendererDepthMixin",
+    "CachedOrthoProjectionDepthMixin",
+    "PlayerModelFitMixin",
+    "WingsLayerFitMixin",
     "ScreenRenderablesAccessor"
   ],
   "injectors": {

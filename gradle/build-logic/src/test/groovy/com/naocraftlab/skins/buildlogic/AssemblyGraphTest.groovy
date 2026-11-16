@@ -134,6 +134,15 @@ gradle.taskGraph.whenReady { graph -> file('executed-graph.json').text = groovy.
     @Test void pluginExportDoesNotPullModuleChecksButBuildStillRunsJvmTests() {
         File root = new File(workspace, 'plugin')
         root.mkdirs()
+        def junitClasses = [
+                'org.junit.jupiter.api.Test', 'org.junit.jupiter.engine.JupiterTestEngine',
+                'org.junit.platform.engine.TestEngine', 'org.junit.platform.launcher.Launcher',
+                'org.junit.platform.commons.JUnitException', 'org.opentest4j.AssertionFailedError'
+        ]
+        def junitFiles = junitClasses.collect {
+            new File(Class.forName(it).protectionDomain.codeSource.location.toURI()).absolutePath
+        }.unique()
+        String junitClasspath = junitFiles.collect { "'" + it.replace('\\', '\\\\').replace("'", "\\'") + "'" }.join(', ')
         List modules = ['server-plugin-common', 'server-plugin-bukkit', 'server-plugin-velocity', 'server-plugin-bungee', 'server-plugin']
         new File(root, 'settings.gradle').text = "rootProject.name = 'plugin-assembly'\ninclude " + modules.collect { "'${it}'" }.join(',') + '\n'
         String original = new File(repository, 'build.gradle').text
@@ -144,17 +153,12 @@ def requestedTargetId = 'server-plugin'
 subprojects {
     apply plugin: 'java'
     java { withSourcesJar() }
-    repositories { mavenCentral() }
-    dependencies {
-        testImplementation platform('org.junit:junit-bom:5.11.4')
-        testImplementation 'org.junit.jupiter:junit-jupiter'
-        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    }
+    dependencies { testImplementation files(JUNIT_CLASSPATH) }
     tasks.withType(Test).configureEach { useJUnitPlatform() }
     tasks.register('shadowJar', Jar) { from sourceSets.main.output; archiveClassifier = 'all' }
     tasks.register('verifyServerPluginArtifact') { dependsOn tasks.named('shadowJar') }
 }
-''' + between(original, "tasks.register('buildServerPlugin')", "tasks.register('affectedTargets'") +
+'''.replace('JUNIT_CLASSPATH', junitClasspath) + between(original, "tasks.register('buildServerPlugin')", "tasks.register('affectedTargets'") +
                 between(original, "tasks.register('exportReleaseComponent',", "tasks.register('assembleRelease',") + '''
 tasks.named('exportReleaseComponent') {
     actions.clear()

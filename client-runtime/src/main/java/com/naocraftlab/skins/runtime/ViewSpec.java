@@ -1185,7 +1185,28 @@ public record ViewSpec(
             Optional<CatalogImage> catalogImage,
             Optional<ExternalImage> externalImage,
             PreviewRenderer.PreviewIntent intent, boolean capeHasElytra, boolean nativeAccessories, boolean ownedPng,
-            Optional<BodySource> bodySource) {
+            Optional<BodySource> bodySource, float layoutScale) {
+        public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
+                SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
+                OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
+                Optional<UUID> presetId, Optional<CatalogImage> catalogImage, Optional<ExternalImage> externalImage,
+                PreviewRenderer.PreviewIntent intent, boolean capeHasElytra, boolean nativeAccessories, boolean ownedPng,
+                Optional<BodySource> bodySource) {
+            this(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode, visibility,
+                    yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent,
+                    capeHasElytra, nativeAccessories, ownedPng, bodySource, 1.0F);
+        }
+
+        public Preview withLayoutScale(float value) {
+            return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
+                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource, value);
+        }
+
+        public float renderedScale() {
+            return layoutScale * scale;
+        }
+
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
                 OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
@@ -1199,7 +1220,7 @@ public record ViewSpec(
         public Preview withBodySource(Optional<BodySource> source) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, ownedPng, source);
+                    intent, capeHasElytra, nativeAccessories, ownedPng, source, layoutScale);
         }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
@@ -1214,12 +1235,12 @@ public record ViewSpec(
         public Preview withOwnedPng(boolean value) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, value, bodySource);
+                    intent, capeHasElytra, nativeAccessories, value, bodySource, layoutScale);
         }
         public Preview withAnchorBounds(Bounds anchor) {
             return new Preview(id, bounds, anchor, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource);
+                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource, layoutScale);
         }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
@@ -1232,7 +1253,7 @@ public record ViewSpec(
         public Preview withNativeAccessories(boolean value, PreviewRenderer.CapeMode mode) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant,
                     value ? Optional.empty() : capeId, mode, outerLayerVisibility, yawDegrees, pitchDegrees,
-                    scale, presetId, catalogImage, externalImage, intent, capeHasElytra, value, ownedPng, bodySource);
+                    scale, presetId, catalogImage, externalImage, intent, capeHasElytra, value, ownedPng, bodySource, layoutScale);
         }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
@@ -1244,7 +1265,7 @@ public record ViewSpec(
         }
         public Preview withCapeElytra(boolean value) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
-                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, value, nativeAccessories, ownedPng, bodySource);
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, value, nativeAccessories, ownedPng, bodySource, layoutScale);
         }
         public Preview(
                 String id,
@@ -1427,7 +1448,9 @@ public record ViewSpec(
             catalogImage = Objects.requireNonNull(catalogImage, "catalogImage");
             externalImage = Objects.requireNonNull(externalImage, "externalImage");
             Objects.requireNonNull(intent, "intent");
-            if (!Float.isFinite(scale) || scale <= 0.0F) {
+            if (!Float.isFinite(scale) || scale <= 0.0F
+                    || !Float.isFinite(layoutScale) || layoutScale <= 0.0F
+                    || !Float.isFinite(layoutScale * scale)) {
                 throw new IllegalArgumentException("preview scale must be finite and positive");
             }
             if (capeId.isEmpty() && !nativeAccessories && capeMode != PreviewRenderer.CapeMode.OFF) {

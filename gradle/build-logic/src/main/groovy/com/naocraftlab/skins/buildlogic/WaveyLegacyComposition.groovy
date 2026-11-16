@@ -44,7 +44,7 @@ final class WaveyLegacyComposition {
                 if (++i == original.size()) throw new IllegalArgumentException('Missing JVM argument value')
                 vm.add(value); vm.add(original[i])
             } else if (value == '-XstartOnFirstThread' || value == '-Djava.net.preferIPv6Addresses=system'
-                    || value.startsWith('--add-opens=') || value.startsWith('--add-exports=') || value.startsWith('--add-modules=')) vm.add(value)
+                    || value.startsWith('--module-path=') || value.startsWith('--add-opens=') || value.startsWith('--add-exports=') || value.startsWith('--add-modules=')) vm.add(value)
             else if (value.startsWith('-DlegacyClassPath.file=') || value.startsWith('-DignoreList=') || value.startsWith('-DmergeModules=') || value.startsWith('-Dfml.modFolders=') || value.startsWith('-Dlog4j2.configurationFile=')
                     || value in ['-Dforge.enableGameTest=true', '-Dneoforge.enableGameTest=true']) vm.add(value)
             else if (!(value ==~ /-Xm[sx][0-9]+[mMgG]/) && !value.startsWith('-Dfile.encoding=')
@@ -90,8 +90,29 @@ final class WaveyLegacyComposition {
         mapping
     }
     static void writeLegacyClasspath(File providerFile, File outputFile, List<File> runtime) {
-        outputFile.setText((java.nio.file.Files.readAllLines(providerFile.toPath()) +
-                runtime.collect { it.absolutePath }).unique().join('\n'), 'UTF-8')
+        outputFile.setText((java.nio.file.Files.readAllLines(providerFile.toPath()).collect { physicalClasspathEntry(new File(it), it) } +
+                runtime.collect { physicalClasspathEntry(it, it.absolutePath) }).unique().join('\n'), 'UTF-8')
+    }
+    private static String physicalClasspathEntry(File input, String unresolved) {
+        input.exists() ? input.toPath().toRealPath().toString() : unresolved
+    }
+    private static String physicalModulePath(String value) {
+        value.split(java.util.regex.Pattern.quote(File.pathSeparator), -1).collect { entry ->
+            entry.isEmpty() ? entry : physicalClasspathEntry(new File(entry), entry)
+        }.join(File.pathSeparator)
+    }
+    private static void normalizeModulePaths(List<String> vm) {
+        for (int i = 0; i < vm.size(); i++) {
+            String value = vm[i]
+            if (value in ['-p', '--module-path']) {
+                if (i + 1 < vm.size()) { i++; vm[i] = physicalModulePath(vm[i]) }
+            } else if (value in ['--add-modules', '--add-opens', '--add-exports']) {
+                i++
+            } else if (value.startsWith('--module-path=')) {
+                String marker = '--module-path='
+                vm[i] = marker + physicalModulePath(value.substring(marker.length()))
+            }
+        }
     }
     private static Map<String, byte[]> archiveEntries(byte[] bytes) {
         Map<String, byte[]> entries = [:]
@@ -287,11 +308,12 @@ final class WaveyLegacyComposition {
         File legacyFile = new File(work, 'legacy-classpath.txt')
         writeLegacyClasspath(new File(legacy), legacyFile, runtime + [gameJar, bootJar, spiJar])
         vm.removeAll { it.startsWith('-DlegacyClassPath.file=') || it.startsWith('-Dfml.modFolders=') }; props['legacyClassPath.file'] = legacyFile.absolutePath
+        normalizeModulePaths(vm)
         List<String> argv = [java] + vm + props.collect { k, v -> '-D' + k + '=' + v } + [
                 '-Djava.awt.headless=true', '-Dfml.modFolders=nclskins%%' + gameJar.absolutePath, '-Dnclskins.wavey.loaderBatch=true', '-Dnclskins.wavey.mode=' + mode,
                 '-Dnclskins.wavey.root=' + root.absolutePath, '-Dnclskins.wavey.definitionProfile=' + (task.guardOnly.get() ? 'guards' : 'positive'),
                 '-Dnclskins.wavey.configs=' + receipt.moduleGrouping.configs.join(','), '-Xmx768m', '-ea',
-                '-cp', (runtime + systemResources + [bootJar, spiJar]).collect { it.absolutePath }.join(File.pathSeparator), provider.mainClass] + args
+                '-cp', (runtime + systemResources + [bootJar, spiJar]).collect { physicalClasspathEntry(it, it.absolutePath) }.unique().join(File.pathSeparator), provider.mainClass] + args
         receipt.runtimeProfile = task.runtimeProfile.get()
         receipt.loaderSources = loader.collectEntries { [(it.absolutePath): hash(it)] }
         receipt.guardOnly = task.guardOnly.get(); receipt.guardRoster = task.guardRoster.get()

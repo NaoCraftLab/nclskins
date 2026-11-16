@@ -55,6 +55,8 @@ public final class CpmRawSourceProbe {
     Object id=location.getMethod("fromNamespaceAndPath",String.class,String.class).invoke(null,"fixture","official");
     Object official=texture.getClass().getConstructor(java.io.File.class,String.class,location,boolean.class,Runnable.class).newInstance(file.toFile(),"nclskins-local://fixture",id,true,(Runnable)()->{});
     bridge.getMethod("nclskins$registeredSkinLocation",location).invoke(official,id);
+    manager.getClass().getMethod("register",location,Class.forName("net.minecraft.client.renderer.texture.AbstractTexture")).invoke(manager,id,official);
+    bridge.getMethod("nclskins$admittedSkinTexture").invoke(official);
     official.getClass().getMethod("loadFixture").invoke(official);
     var officialSource=CapeProjection.effectiveSkin(subject,subject,id.toString(),SkinModel.SLIM,false);
     check(!replacementWorld.active() && officialSource.pixels()!=null,"official source replaces local without stale source reuse");

@@ -13,6 +13,34 @@ public interface PreviewRenderer<C> {
 
     default void observeAccessories(java.util.function.Consumer<PreviewAccessories> observer) {}
 
+    interface ModelFitPreparation extends AutoCloseable {
+        boolean current();
+        default boolean ownerCurrent() { return current(); }
+        java.util.concurrent.CompletableFuture<ModelFitMeasurement> measure();
+        void complete(ModelFitMeasurement fit);
+        @Override void close();
+    }
+
+    record ModelFitMeasurement(double referenceHeight, double referenceCenterX, double referenceCenterY,
+            double referenceCenterZ, PreviewModelNormalization.Fit fit) {
+        public ModelFitMeasurement {
+            Objects.requireNonNull(fit, "fit");
+            if (!Double.isFinite(referenceHeight) || referenceHeight <= 0
+                    || !Double.isFinite(referenceCenterX) || !Double.isFinite(referenceCenterY) || !Double.isFinite(referenceCenterZ)
+                    || fit.representation() != PreviewModelNormalization.Representation.FULL
+                    || fit.normalization() != Math.min(1.0, referenceHeight / fit.bodyHeight()))
+                throw new IllegalArgumentException("Invalid measured full fit");
+        }
+    }
+
+    default boolean modelFitApplicable() { return true; }
+
+    default Optional<ModelFitPreparation> prepareModelFit(String source, PreviewAppearance appearance) {
+        return Optional.empty();
+    }
+
+    default void suppressModelFit(String source) {}
+
     enum BodyStatus { ORDINARY, PENDING, READY, FAILED, BLOCKED, TIMED_OUT }
     enum DisplayKind { UNCONFIRMED, ORDINARY, CPM }
 
@@ -22,7 +50,15 @@ public interface PreviewRenderer<C> {
         prepareImage(source, startedNanos, inputsReady);
     }
     default void prepareBody(String source, boolean cpm) {}
+    default void prepareBody(String source, String demand, boolean cpm) { prepareBody(source, cpm); }
+    default boolean prepareGalleryBody(String source, String demand, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) {
+        return prepareGalleryBody(source, cpm, candidateCurrent);
+    }
     default boolean prepareGalleryBody(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) { return false; }
+    default boolean prepareGalleryImage(String source, String demand, boolean cpm,
+            java.util.function.BooleanSupplier candidateCurrent, java.util.function.BooleanSupplier lifetime) {
+        return prepareGalleryImage(source, cpm, candidateCurrent, lifetime);
+    }
     default boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) { return false; }
     default boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent,
             java.util.function.BooleanSupplier lifetime) { return prepareGalleryImage(source, cpm, candidateCurrent); }
@@ -37,6 +73,7 @@ public interface PreviewRenderer<C> {
         throw new UnsupportedOperationException("Gallery retained display is not implemented by this renderer");
     }
     default void observeBody(java.util.function.Consumer<BodyStatus> observer) {}
+    default void retireBody() {}
     default PreviewModelFrames.Body body() { return new PreviewModelFrames.Body(BodyStatus.ORDINARY, () -> false); }
 
     default DisplayKind displayKind() {

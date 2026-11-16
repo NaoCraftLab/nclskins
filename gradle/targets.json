@@ -370,6 +370,8 @@
     "maximum": "2.14.0"
   },
   "optionalDependencies": {
+    "earsBuzz": {"side": "client", "projectId": "mfzaZK3Z", "versions": {"fabric-1.20.1": "gDca6bvp", "forge-1.20.1": "gDca6bvp", "fabric-1.21.1": "gDca6bvp", "neoforge-1.21.1": "h496H0Wu"}, "predicates": {}, "runtimeTargets": []},
+    "earsWard": {"side": "client", "projectId": "mfzaZK3Z", "versions": {"fabric-1.21.11": "ISYvFnpI", "neoforge-1.21.11": "G4vPnvWh"}, "predicates": {}, "runtimeTargets": []},
     "cpm": {
       "side": "client",
       "projectId": "h1E7sQNL",
@@ -1175,15 +1177,15 @@
     },
     "remote-player-preview": {
       "java": ["compat/capabilities/preview/remote-player/src/main/java"],
-      "resources": [],
+      "resources": ["compat/capabilities/preview/remote-player/src/main/resources"],
       "side": "client",
-      "requires": []
+      "requires": ["avatar-body-capture"]
     },
     "player-skin-preview": {
       "java": ["compat/capabilities/preview/player-skin/src/main/java"],
-      "resources": [],
+      "resources": ["compat/capabilities/preview/player-skin/src/main/resources"],
       "side": "client",
-      "requires": []
+      "requires": ["avatar-body-capture"]
     },
     "pip-consumer-lifetime": {
       "java": ["compat/capabilities/preview/pip-consumer-lifetime/src/main/java"],
@@ -1227,11 +1229,23 @@
       "side": "client",
       "requires": ["avatar-pip-shared"]
     },
+    "avatar-body-capture": {
+      "java": ["compat/capabilities/preview/avatar-body-capture/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "avatar-pip-render-state": {
+      "java": ["compat/capabilities/preview/avatar-pip-render-state/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": ["avatar-pip-shared", "avatar-body-capture"]
+    },
     "avatar-pip-render-state-attack-time": {
       "java": ["compat/capabilities/preview/avatar-pip-render-state-attack-time/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-shared"]
+      "requires": ["avatar-pip-render-state"]
     },
     "avatar-pip-common": {
       "java": [],
@@ -1241,21 +1255,39 @@
     },
     "avatar-pip-extraction-player-model-core": {
       "java": ["compat/capabilities/preview/avatar-pip-extraction-player-model/src/main/java"],
-      "resources": [],
+      "resources": ["compat/capabilities/preview/avatar-pip-extraction-player-model/src/main/resources"],
       "side": "client",
-      "requires": ["avatar-pip-common", "avatar-pip-depth-gui-render-state", "avatar-pip-pose-mul-pose"]
+      "requires": ["avatar-pip-common", "avatar-pip-depth-gui-render-state", "avatar-pip-pose-mul-pose", "avatar-pip-ears-measurement"]
     },
     "avatar-pip-submission-core": {
       "java": ["compat/capabilities/preview/avatar-pip-submission/src/main/java"],
       "resources": ["compat/capabilities/preview/avatar-pip-submission/src/main/resources"],
       "side": "client",
-      "requires": ["pip-consumer-lifetime", "pip-consumer-buffer"]
+      "requires": ["pip-consumer-lifetime", "pip-consumer-buffer", "avatar-body-capture", "avatar-pip-ears-ward-measurement"]
+    },
+    "avatar-pip-ears-ward-measurement": {
+      "java": ["compat/capabilities/preview/avatar-pip-ears-ward-measurement/src/main/java"],
+      "resources": ["compat/capabilities/preview/avatar-pip-ears-ward-measurement/src/main/resources"],
+      "side": "client",
+      "requires": []
+    },
+    "avatar-pip-ears-measurement": {
+      "java": ["compat/capabilities/preview/avatar-pip-ears-measurement/src/main/java"],
+      "resources": ["compat/capabilities/preview/avatar-pip-ears-measurement/src/main/resources"],
+      "side": "client",
+      "requires": ["avatar-pip-shared"]
+    },
+    "avatar-pip-fit-mesh": {
+      "java": ["compat/capabilities/preview/avatar-pip-fit-mesh/src/main/java"],
+      "resources": ["compat/capabilities/preview/avatar-pip-fit-mesh/src/main/resources"],
+      "side": "client",
+      "requires": ["avatar-pip-shared"]
     },
     "avatar-pip-extraction-simple-model-attack-time-core": {
       "java": ["compat/capabilities/preview/avatar-pip-render-simple-model/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-common", "avatar-pip-depth-feature-dispatcher", "avatar-pip-submit-crumbling-overlay", "avatar-pip-pose-mul-pose"]
+      "requires": ["avatar-pip-common", "avatar-pip-depth-feature-dispatcher", "avatar-pip-submit-crumbling-overlay", "avatar-pip-pose-mul-pose", "avatar-pip-fit-mesh", "avatar-pip-ears-measurement"]
     },
     "avatar-pip-submit-crumbling-overlay": {
       "java": ["compat/capabilities/preview/avatar-pip-submit-crumbling-overlay/src/main/java"],
@@ -1267,7 +1299,7 @@
       "java": ["compat/capabilities/preview/avatar-pip-render-state-no-attack-time/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-shared"]
+      "requires": ["avatar-pip-render-state"]
     },
     "avatar-pip-submit-no-crumbling-overlay": {
       "java": ["compat/capabilities/preview/avatar-pip-submit-no-crumbling-overlay/src/main/java"],
@@ -1279,7 +1311,7 @@
       "java": ["compat/capabilities/preview/avatar-pip-render-simple-model/src/main/java"],
       "resources": [],
       "side": "client",
-      "requires": ["avatar-pip-render-state-no-attack-time", "avatar-pip-depth-feature-dispatcher", "avatar-pip-submit-no-crumbling-overlay", "avatar-pip-pose-rotate"]
+      "requires": ["avatar-pip-render-state-no-attack-time", "avatar-pip-depth-feature-dispatcher", "avatar-pip-submit-no-crumbling-overlay", "avatar-pip-pose-rotate", "avatar-pip-fit-mesh", "avatar-pip-ears-measurement"]
     },
     "avatar-pip-submission-fabric": {
       "java": ["loader/fabric/pip-submission/src/main/java"],
@@ -1992,7 +2024,9 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": 15,
-        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json",
+          "nclskins.remote-player-fit.mixins.json",
+          "nclskins.remote-player-ears-fit.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -2064,7 +2098,9 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/forge/client/NclSkinsForgeClientEvents$ForgeBus.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": 15,
-        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.optifine-cape.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-playerinfo.mixins.json", "nclskins.playerinfo-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.optifine-cape.mixins.json", "nclskins.cpm.mixins.json",
+          "nclskins.remote-player-fit.mixins.json",
+          "nclskins.remote-player-ears-fit.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -2134,7 +2170,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": 34,
-        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.player-skin-fit.mixins.json", "nclskins.player-skin-ears-fit.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -2206,7 +2242,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": 34,
-        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.resourcelocation-skinlookup.mixins.json", "nclskins.skinlookup-providers.mixins.json", "nclskins.cape-transparency.mixins.json", "nclskins.cape-pass-immediate.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.player-skin-fit.mixins.json", "nclskins.player-skin-ears-fit.mixins.json"],
         "serverMixins": []
       },
       "artifact": {
@@ -2276,7 +2312,7 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.identifier-submission-fabric.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.preview-consumer.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.ears-ward-measurement.mixins.json", "nclskins.identifier-submission-fabric.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.preview-consumer.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2348,7 +2384,7 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [75, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.preview-consumer.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-buffered.mixins.json", "nclskins.identifier-submission.mixins.json", "nclskins.ears-ward-measurement.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.preview-consumer.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2429,7 +2465,8 @@
           "nclskins.cape-foil-pipeline.mixins.json",
           "nclskins.cape-pass-buffered.mixins.json",
           "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"
-        , "nclskins.preview-consumer.mixins.json"],
+        , "nclskins.preview-consumer.mixins.json",
+          "nclskins.player-model-fit.mixins.json", "nclskins.ears-measurement.mixins.json"],
         "serverMixins": [
           "nclskins.authlib9.mixins.json"
         ]
@@ -2531,7 +2568,8 @@
           "nclskins.cape-foil-pipeline.mixins.json",
           "nclskins.cape-pass-buffered.mixins.json",
           "nclskins.identifier-extraction.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"
-        , "nclskins.preview-consumer.mixins.json"],
+        , "nclskins.preview-consumer.mixins.json",
+          "nclskins.player-model-fit.mixins.json", "nclskins.ears-measurement.mixins.json"],
         "serverMixins": [
           "nclskins.authlib9.mixins.json"
         ]
@@ -2620,7 +2658,8 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [88, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.preview-fit.mixins.json",
+          "nclskins.ears-measurement.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2692,7 +2731,8 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [88, 0],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-pipeline.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json", "nclskins.preview-fit.mixins.json",
+          "nclskins.ears-measurement.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2762,7 +2802,9 @@
         "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
         "accessWidener": "nclskins.accesswidener",
         "packFormat": [97, 1],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json",
+          "nclskins.preview-fit.mixins.json",
+          "nclskins.ears-measurement.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {
@@ -2834,7 +2876,9 @@
         "clientEntrypointClass": "com/naocraftlab/skins/loader/neoforge/NclSkinsNeoForgeClient.class",
         "accessTransformer": "META-INF/accesstransformer.cfg",
         "packFormat": [97, 1],
-        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
+        "mixins": ["nclskins.player-skin-providers.mixins.json", "nclskins.cape-foil-combined.mixins.json", "nclskins.cape-pass-prepared.mixins.json", "nclskins.identifier-extraction.mixins.json", "nclskins.preview-target-lifetime.mixins.json",
+          "nclskins.preview-fit.mixins.json",
+          "nclskins.ears-measurement.mixins.json", "nclskins.keybindings.mixins.json", "nclskins.cpm.mixins.json"],
         "serverMixins": ["nclskins.authlib9.mixins.json"]
       },
       "artifact": {

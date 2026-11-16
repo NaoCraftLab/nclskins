@@ -913,7 +913,7 @@ public final class PresetEditorModel {
 
         Optional<ViewSpec.CatalogImage> previewCatalogImage = catalogOrigin.map(origin ->
                 new ViewSpec.CatalogImage(origin.collectionId(), origin.skinId()));
-        ViewSpec.Preview previewSpec = PlayerAppearanceStage.present("editor.preview", width, height,
+        ViewSpec.Preview previewSpec = PlayerAppearanceStage.presentEditor("editor.preview", width, height,
                 previewBounds, new PlayerAppearanceStage.Appearance(skin,
                         png.map(DraftPng::revision).orElseGet(() -> skin.optionalAssetId()
                                 .map(id -> "asset:" + id).orElse("current-player")),

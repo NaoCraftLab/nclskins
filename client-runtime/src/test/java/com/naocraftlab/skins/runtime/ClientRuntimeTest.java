@@ -892,6 +892,70 @@ final class ClientRuntimeTest {
         public void close() { runtime.close(); operations.evidenceProducer.close(); }
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void editorNativeAccessoryDiscoveryRevokesAuthorityWithoutRetiringItsPreparation(boolean ordinary) {
+        DuplicateFixture fixture = duplicateFixture(true, true);
+        FakeOperations operations = new FakeOperations();
+        operations.providers = new AppearanceProviders(operations.providers.skin(), operations.providers.cape().initializeCpm());
+        operations.account = fixture.account();
+        try (ClientRuntime runtime = runtime(operations, Runnable::run, Optional.empty())) {
+            runtime.useSkinExtensionEnvironmentSource(() -> new com.naocraftlab.skins.client.SkinExtensionEnvironmentSource.Snapshot(1, Map.of(), true));
+            runtime.initialize();
+            runtime.dispatchWidget("gallery.preset." + fixture.source().id() + ".edit");
+            var initial = runtime.view(854, 480, 0, 0).previews().get(0);
+            assertFalse(initial.nativeAccessories());
+            var live = new java.util.concurrent.atomic.AtomicReference<>(
+                    com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING));
+            AtomicInteger retired = new AtomicInteger();
+            AtomicInteger oldReads = new AtomicInteger();
+            AtomicInteger oldAccepted = new AtomicInteger();
+            var oldCallback = runtime.observePreviewBody(initial, () -> {
+                oldReads.incrementAndGet();
+                return ordinary ? PreviewRenderer.DisplayKind.ORDINARY : PreviewRenderer.DisplayKind.UNCONFIRMED;
+            }, oldAccepted::incrementAndGet, () -> {
+                retired.incrementAndGet();
+                live.set(com.naocraftlab.skins.client.PreviewAccessories.unavailable(PreviewRenderer.LiveReason.LOADING));
+            });
+            oldCallback.accept(ordinary ? PreviewRenderer.BodyStatus.ORDINARY : PreviewRenderer.BodyStatus.PENDING);
+            var accessoryCallback = runtime.observePreviewAccessories(initial, live::get);
+            live.set(new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 919), 1,
+                    com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED,
+                    true, true, PreviewRenderer.LiveReason.AVAILABLE));
+            accessoryCallback.accept(live.get());
+            int reads = oldReads.get();
+            int accepted = oldAccepted.get();
+            var changed = runtime.view(854, 480, 0, 0);
+            assertEquals(0, retired.get(), "derived accessory discovery must not destroy its own native preparation");
+            var desired = changed.previews().get(0);
+            assertTrue(desired.nativeAccessories());
+            assertFalse(runtime.previewBodyAdmission(initial).getAsBoolean());
+            assertTrue(changed.widgets().stream().filter(w -> w.id().startsWith("editor.outer_layer."))
+                    .noneMatch(ViewSpec.Widget::activationEnabled));
+            oldCallback.accept(PreviewRenderer.BodyStatus.ORDINARY);
+            assertEquals(reads, oldReads.get(), "old composition authority must not be queried");
+            assertEquals(accepted, oldAccepted.get(), "old composition must not receive a new ACK");
+            for (int frame = 0; frame < 3; frame++) {
+                assertTrue(runtime.view(854, 480, 0, 0).previews().get(0).nativeAccessories());
+                assertEquals(0, retired.get());
+            }
+            AtomicInteger nextAccepted = new AtomicInteger();
+            AtomicInteger nextRetired = new AtomicInteger();
+            var nextKind = new java.util.concurrent.atomic.AtomicReference<>(PreviewRenderer.DisplayKind.UNCONFIRMED);
+            var nextCallback = runtime.observePreviewBody(desired, nextKind::get,
+                    nextAccepted::incrementAndGet, nextRetired::incrementAndGet);
+            assertTrue(runtime.previewBodyAdmission(desired).getAsBoolean());
+            nextCallback.accept(PreviewRenderer.BodyStatus.PENDING);
+            assertEquals(0, nextAccepted.get());
+            nextKind.set(PreviewRenderer.DisplayKind.CPM);
+            nextCallback.accept(PreviewRenderer.BodyStatus.READY);
+            assertTrue(nextAccepted.get() > 0);
+            assertTrue(runtime.view(854, 480, 0, 0).previews().get(0).nativeAccessories());
+            runtime.closeScreen();
+            assertEquals(1, nextRetired.get(), "closing the actual scope must still retire the current native owner");
+        }
+    }
+
     @Test
     void cpmEmbeddedInspectionIsTransientAndRejectsLiveLossAndLateCallbacks() {
         DuplicateFixture fixture = duplicateFixture(true, true);

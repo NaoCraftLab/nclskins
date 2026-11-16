@@ -119,6 +119,182 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                 }
             };
 
+    private NativeFit nativeFit;
+    private long bodyPreparationGeneration;
+
+    @Override public boolean modelFitApplicable() {
+        return !closed && minecraft.level != null && minecraft.player != null;
+    }
+
+    @Override public void suppressModelFit(String source) { session.suppressFit(source); }
+
+    @Override public java.util.Optional<ModelFitPreparation> prepareModelFit(String source, PreviewAppearance appearance) {
+        if (!modelFitApplicable()) return java.util.Optional.empty();
+        if (nativeFit != null && nativeFit.source.equals(source) && nativeFit.matches(appearance)
+                && nativeFit.ownerCurrent()) return java.util.Optional.of(nativeFit);
+        var owner = session;
+        long generation = bodyPreparationGeneration;
+        var previous = nativeFit;
+        nativeFit = null;
+        if (previous != null) previous.close();
+        if (closed || session != owner || nativeFit != null || bodyPreparationGeneration != generation) return java.util.Optional.empty();
+        var admission = owner.prepareFit();
+        if (closed || session != owner || nativeFit != null || bodyPreparationGeneration != generation) return java.util.Optional.empty();
+        nativeFit = new NativeFit(source, appearance, owner, admission);
+        return java.util.Optional.of(nativeFit);
+    }
+
+    private final class NativeFit implements ModelFitPreparation {
+        private final String source;
+        private final PreviewAppearance appearance;
+        private final EditorPreviewSession owner;
+        private final EditorPreviewSession.FitPreparation admission;
+        private final ClientLevel world = minecraft.level;
+        private final LocalPlayer local = minecraft.player;
+        private final java.util.Optional<NativePlayerSkinLifecycle.Registration> texture;
+        private final java.util.concurrent.CompletableFuture<ModelFitMeasurement> result = new java.util.concurrent.CompletableFuture<>();
+        private boolean retired, requested, eligible;
+        private com.naocraftlab.skins.runtime.EffectiveSkinSource selectedSource;
+        private com.naocraftlab.skins.client.PreviewModelFrames.Body cpmBody;
+        private com.naocraftlab.skins.client.PreviewModelFrames.NeutralBody neutral;
+        private RemotePlayerEarsFitMode.EarsBody ears;
+        private ModelFitMeasurement reference, measured;
+        private PreviewPlayer subject;
+
+        private NativeFit(String source, PreviewAppearance appearance, EditorPreviewSession owner,
+                EditorPreviewSession.FitPreparation admission) {
+            this.source = source; this.appearance = appearance; this.owner = owner; this.admission = admission;
+            texture = NativePlayerSkinLifecycle.registration(appearance.skin().location());
+        }
+
+        private boolean matches(PreviewAppearance value) {
+            return appearance.skin().equals(value.skin()) && appearance.model() == value.model();
+        }
+
+        @Override public boolean ownerCurrent() {
+            return !retired && !closed && admission.ownerCurrent() && minecraft.level == world && minecraft.player == local
+                    && (gallery == null ? session == owner : gallerySlots.values().stream().anyMatch(slot -> slot.session() == owner))
+                    && NativePlayerSkinLifecycle.registration(appearance.skin().location()).equals(texture)
+                    && (selectedSource == null || selectedSource.active());
+        }
+
+        @Override public boolean current() {
+            return ownerCurrent() && admission.current()
+                    && texture.map(value -> value.state() != NativePlayerSkinLifecycle.State.FAILED
+                            && value.state() != NativePlayerSkinLifecycle.State.RETIRED).orElse(true)
+                    && (cpmBody == null || cpmBody.current().getAsBoolean())
+                    && (ears == null || ears.current());
+        }
+
+        @Override public java.util.concurrent.CompletableFuture<ModelFitMeasurement> measure() {
+            requested = true;
+            return result;
+        }
+
+        @Override public void complete(ModelFitMeasurement value) {
+            if (!current()) return;
+            measured = Objects.requireNonNull(value);
+            if (eligible) {
+                admission.complete();
+                releaseNeutral();
+            }
+        }
+
+        private void releaseNeutral() {
+            if (neutral != null) { neutral.close(); neutral = null; }
+            subject = null;
+        }
+
+        @Override public void close() {
+            if (!closed && measured != null && gallery != null && gallery.displays(owner)) return;
+            if (retired) return;
+            retired = true;
+            admission.close();
+            releaseNeutral();
+            result.complete(null);
+        }
+
+        private void decline() {
+            eligible = false;
+            result.complete(null);
+            owner.declineFit();
+            releaseNeutral();
+        }
+
+        private boolean prepare(GuiGraphics graphics) {
+            selectedSource = CapeProjection.skinSource(previewProfile.getId());
+            var requirements = CapeProjection.previewBodyRequirements(previewProfile.getId());
+            eligible = false;
+            if (!current()) return false;
+            if (!requirements.admitted()) {
+                decline();
+                return false;
+            }
+            boolean custom = requirements.cpm() == com.naocraftlab.skins.client.PreviewModelFrames.Requirement.REQUIRED;
+            boolean requiredEars = requirements.ears() == com.naocraftlab.skins.client.PreviewModelFrames.Requirement.REQUIRED;
+            if (requiredEars) {
+                if (!RemotePlayerEarsFitMode.available()) { decline(); return false; }
+                if (ears == null) ears = RemotePlayerEarsFitMode.prepare(selectedSource);
+                if (ears == null) return owner.waitsForBody();
+                if (!ears.current()) { decline(); return false; }
+            }
+            if (custom) {
+                var body = com.naocraftlab.skins.client.PreviewModelFrames.prepare(previewProfile, appearance);
+                if (body.status() == BodyStatus.PENDING) return owner.waitsForBody();
+                if (body.status() != BodyStatus.READY || !body.current().getAsBoolean()) { decline(); return false; }
+                cpmBody = body;
+                if (measured == null && requested && !result.isDone()) {
+                    if (neutral == null) neutral = com.naocraftlab.skins.client.PreviewModelFrames.neutral(previewProfile, appearance);
+                    if (neutral == null || neutral.body().status() == BodyStatus.PENDING) return owner.waitsForBody();
+                    if (neutral.body().status() != BodyStatus.READY || !neutral.body().current().getAsBoolean()) {
+                        decline(); return false;
+                    }
+                }
+            }
+            eligible = true;
+            if (measured != null) { admission.complete(); return false; }
+            if (!requested || result.isDone()) return false;
+            boolean extended = custom || requiredEars;
+            boolean referencePass = extended && reference == null;
+            var captureAppearance = new PreviewAppearance(appearance.skin(), appearance.model(), java.util.Optional.empty(),
+                    CapeMode.OFF, com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(), false, false);
+            if (subject == null) {
+                subject = new PreviewPlayer(world, previewProfile);
+                subject.setId(nextPreviewId());
+                subject.setAppearance(captureAppearance);
+                subject.setPreviewModelParts(previewModelParts(captureAppearance));
+                subject.setOnGround(true);
+                subject.setPose(Pose.STANDING);
+            }
+            graphics.flush();
+            var pose = new PoseStack();
+            var capture = new com.naocraftlab.skins.compat.client.identifier.measurement.AvatarBodyCapture(subject, this::current);
+            try (var scope = PreviewScope.open(minecraft, subject, captureAppearance);
+                    var neutralScope = neutral == null ? null : neutral.open(referencePass);
+                    var earsScope = ears == null ? null : ears.open(subject, referencePass);
+                    capture) {
+                com.naocraftlab.skins.compat.client.identifier.measurement.AvatarBodyCapture.root(subject, pose.last().pose());
+                try {
+                    minecraft.getEntityRenderDispatcher().render(subject, 0, 0, 0, 0, 0, pose,
+                            graphics.bufferSource(), FULL_BRIGHT);
+                } finally {
+                    graphics.bufferSource().endBatch();
+                }
+            }
+            var value = capture.ordinary();
+            if (value == null) decline();
+            else if (referencePass) reference = value;
+            else if (extended) {
+                var fit = value.fit();
+                result.complete(new ModelFitMeasurement(reference.referenceHeight(), reference.referenceCenterX(),
+                        reference.referenceCenterY(), reference.referenceCenterZ(),
+                        com.naocraftlab.skins.client.PreviewModelNormalization.full(reference.referenceHeight(), fit.bodyHeight(),
+                                fit.centerX(), fit.centerY(), fit.centerZ(), fit.halfWidth(), fit.halfDepth())));
+            } else result.complete(value);
+            return true;
+        }
+    }
+
     private final Minecraft minecraft;
     private final DiagnosticSink diagnostics;
     private EditorPreviewSession session = new EditorPreviewSession();
@@ -129,18 +305,18 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
     private java.util.function.Consumer<BodyStatus> bodyObserver = value -> {};
 
     private record NativeSlot(EditorPreviewSession session, GameProfile profile, PreviewPlayer player,
-            ClientLevel level, EditorPreviewClock clock, EditorPreviewTickGate tickGate) {}
+            ClientLevel level, EditorPreviewClock clock, EditorPreviewTickGate tickGate, NativeFit fit) {}
 
     private void saveGallerySlot() {
         if (activeGallerySource != null && gallerySlots.containsKey(activeGallerySource))
             gallerySlots.put(activeGallerySource, new NativeSlot(session, previewProfile, previewPlayer,
-                    previewLevel, previewClock, previewTickGate));
+                    previewLevel, previewClock, previewTickGate, nativeFit));
     }
 
     private void selectGallerySession(EditorPreviewSession candidate) {
         gallerySlots.computeIfAbsent(candidate, ignored -> new NativeSlot(candidate,
                 new GameProfile(UUID.randomUUID(), "NCLSkinPreview"), null, null,
-                new EditorPreviewClock(), new EditorPreviewTickGate()));
+                new EditorPreviewClock(), new EditorPreviewTickGate(), null));
         if (renderDepth == 0) selectGallerySlot(candidate);
     }
 
@@ -149,32 +325,51 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
         var slot = gallerySlots.get(source);
         activeGallerySource = source;
         session = slot.session(); previewProfile = slot.profile(); previewPlayer = slot.player();
-        previewLevel = slot.level(); previewClock = slot.clock(); previewTickGate = slot.tickGate();
+        previewLevel = slot.level(); previewClock = slot.clock(); previewTickGate = slot.tickGate(); nativeFit = slot.fit();
     }
 
     private void retireGallerySlots() {
         saveGallerySlot();
         if (renderDepth != 0) return;
-        gallerySlots.entrySet().removeIf(entry -> {
-            if (!closed && gallery != null && gallery.retains(entry.getValue().session())) return false;
-            CapeProjection.retireSkin(entry.getValue().profile().getId());
-            return true;
-        });
+        var retired = new java.util.ArrayList<NativeSlot>();
+        for (var entry : new java.util.LinkedHashMap<>(gallerySlots).entrySet()) {
+            var slot = entry.getValue();
+            if (!closed && gallery != null && gallery.retains(slot.session())) continue;
+            if (gallerySlots.remove(entry.getKey(), slot)) retired.add(slot);
+        }
+        for (var slot : retired) {
+            if (slot.fit() != null) slot.fit().close();
+            CapeProjection.retireSkin(slot.profile().getId());
+        }
     }
 
     @Override public boolean prepareGalleryBody(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) {
-        if (closed || !candidateCurrent.getAsBoolean() || closed) return false;
+        return prepareGalleryBody(source, source, cpm, candidateCurrent);
+    }
+
+    @Override public boolean prepareGalleryBody(String source, String demand, boolean cpm, java.util.function.BooleanSupplier candidateCurrent) {
+        long generation = ++bodyPreparationGeneration;
+        if (closed || !candidateCurrent.getAsBoolean() || closed || bodyPreparationGeneration != generation) return false;
         if (gallery == null) {
-            session.invalidateDisplayedBody();
-            if (closed) return false;
+            var previousSession = session;
+            var previousFit = nativeFit;
+            nativeFit = null;
+            previousSession.retireBody();
+            if (previousFit != null) previousFit.close();
+            if (!candidateCurrent.getAsBoolean() || closed || session != previousSession
+                    || gallery != null || nativeFit != null || bodyPreparationGeneration != generation) return false;
             CapeProjection.retireSkin(previewProfile.getId());
+            if (!candidateCurrent.getAsBoolean() || closed || session != previousSession
+                    || gallery != null || nativeFit != null || bodyPreparationGeneration != generation) return false;
             gallery = new EditorPreviewSession.Gallery();
             gallery.observeBody(status -> { retireGallerySlots(); bodyObserver.accept(status); });
         }
-        var candidate = gallery.prepare(source, cpm, minecraft.level != null && minecraft.player != null, candidateCurrent);
-        if (candidate == null || closed || gallery == null) return false;
+        var owner = gallery;
+        var candidate = owner.prepare(source, demand, cpm, minecraft.level != null && minecraft.player != null, candidateCurrent);
+        if (candidate == null || closed || gallery != owner || bodyPreparationGeneration != generation) return false;
         retireGallerySlots();
-        if (closed || !gallery.retains(candidate)) return false;
+        if (closed || gallery != owner || !owner.retains(candidate) || closed || gallery != owner
+                || bodyPreparationGeneration != generation) return false;
         selectGallerySession(candidate);
         accessoryPreparation = candidate;
         return true;
@@ -189,6 +384,14 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
     @Override public boolean prepareGalleryImage(String source, boolean cpm, java.util.function.BooleanSupplier candidateCurrent,
             java.util.function.BooleanSupplier lifetime) {
         if (!prepareGalleryImage(source, cpm, candidateCurrent)) return false;
+        gallery.lifetime(source, lifetime);
+        return true;
+    }
+
+    @Override public boolean prepareGalleryImage(String source, String demand, boolean cpm,
+            java.util.function.BooleanSupplier candidateCurrent, java.util.function.BooleanSupplier lifetime) {
+        if (!prepareGalleryBody(source, demand, cpm, candidateCurrent)) return false;
+        if (!session.imageTracked()) session.beginImage(source);
         gallery.lifetime(source, lifetime);
         return true;
     }
@@ -322,20 +525,27 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
         if (gallery == null) session.observeBody(observer);
     }
 
-    @Override public void prepareBody(String source, boolean cpm) {
+    @Override public void prepareBody(String source, boolean cpm) { prepareBody(source, source, cpm); }
+
+    @Override public void prepareBody(String source, String demand, boolean cpm) {
         if (closed) return;
+        long generation = ++bodyPreparationGeneration;
         if (gallery != null) {
-            gallery.close(); retireGallerySlots(); gallery = null; activeGallerySource = null;
-            if (closed) return;
+            saveGallerySlot();
+            var retired = gallery;
+            gallery = null; activeGallerySource = null;
+            nativeFit = null;
             session = new EditorPreviewSession(); session.observeBody(bodyObserver);
             previewProfile = new GameProfile(UUID.randomUUID(), "NCLSkinPreview");
             previewPlayer = null; previewLevel = null;
             previewClock = new EditorPreviewClock(); previewTickGate = new EditorPreviewTickGate();
+            retired.close(); retireGallerySlots();
+            if (closed || bodyPreparationGeneration != generation) return;
         }
         var client = minecraft;
         accessoryObserverSession = null;
         accessoryPreparation = session;
-        session.beginBody(source, cpm, !closed && client.level != null && client.player != null);
+        session.beginBody(source, demand, cpm, !closed && client.level != null && client.player != null);
     }
 
     @Override
@@ -406,6 +616,10 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
             return;
         }
 
+        var fitting = nativeFit;
+        if (fitting != null && fitting.matches(request.appearance()) && fitting.current()
+                && (fitting.requested || fitting.measured != null) && fitting.prepare(graphics)) return;
+        if (closed || this.session != session) return;
         try {
             if (session.waitsForBody()) {
                 session.body(com.naocraftlab.skins.client.PreviewModelFrames.prepare(previewProfile, request.appearance()));
@@ -421,12 +635,15 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
         var frameWorld = minecraft.level;
         var frameTexture = NativePlayerSkinLifecycle.registration(request.appearance().skin().location());
         var frameCurrent = session.frame();
-        var completeBody = session.displayBody(() -> !closed && minecraft.level == frameWorld
+        boolean ordinaryFit = session.fitSuppressed() || fitting != null && fitting.matches(request.appearance())
+                && (!fitting.current() || !fitting.eligible || fitting.measured == null);
+        java.util.function.BooleanSupplier displayCurrent = () -> !closed && minecraft.level == frameWorld
                 && minecraft.player == localPlayer
                 && (gallery == null ? previewPlayer == player && previewLevel == frameWorld : gallery.retains(session))
                 && NativePlayerSkinLifecycle.isReady(request.appearance().skin().location())
                 && NativePlayerSkinLifecycle.registration(request.appearance().skin().location()).equals(frameTexture)
-                && frameCurrent.getAsBoolean());
+                && frameCurrent.getAsBoolean();
+        var completeBody = ordinaryFit ? session.ordinaryDisplay(displayCurrent) : session.displayBody(displayCurrent);
         var candidate = new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.ORDINARY, () -> true);
         boolean completed = false;
         boolean[] layersSucceeded = {true};
@@ -435,6 +652,7 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                     minecraft, player, request.appearance())) {
                 configureEntity(player, request);
                 PoseStack pose = graphics.pose();
+                var incomingPose = pose.last();
                 pose.pushPose();
                 try {
                 CenteredPlayerPreviewGeometry.Layout layout =
@@ -460,7 +678,18 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                         .rotateZ((float) Math.PI)
                         .mul(cameraPitch);
 
-                try (EditorPreviewLayerGuard ignoredLayers =
+                var measurement = fitting != null && fitting.matches(request.appearance()) && fitting.current()
+                        && fitting.eligible ? fitting.measured : null;
+                if (measurement != null && measurement.fit().normalization() < 1) {
+                    float factor = (float) measurement.fit().normalization();
+                    pose.translate(Math.round(layout.centerX()), legacyAnchorY, 50);
+                    pose.scale(factor, factor, factor);
+                    pose.translate(-Math.round(layout.centerX()), -legacyAnchorY, -50);
+                }
+
+                try (var projection = measurement == null ? null : RemotePlayerProjection.open(measurement, request,
+                            layout.scale() * (float) measurement.fit().normalization());
+                        EditorPreviewLayerGuard ignoredLayers =
                         EditorPreviewLayerGuard.open(failure -> {
                             layersSucceeded[0] = false;
                             onLiveLayerFailure(failure);
@@ -475,7 +704,7 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                             player);
                 }
                 } finally {
-                    pose.popPose();
+                    while (pose.last() != incomingPose) pose.popPose();
                 }
                 candidate = scope.body();
             }
@@ -489,6 +718,8 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
                         () -> DiagnosticDetails.failure(failure));
             }
         } finally {
+            if (ordinaryFit && candidate.status() == BodyStatus.READY)
+                candidate = new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.ORDINARY, candidate.current());
             completeBody.accept(completed ? candidate
                     : new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
         }
@@ -862,8 +1093,25 @@ public final class RemotePlayerPreviewRenderer implements PreviewRenderer<GuiGra
             return team;
         }
     }
+    @Override public void retireBody() {
+        bodyPreparationGeneration++;
+        var previousSession = session;
+        var previous = nativeFit;
+        var retiredGallery = gallery;
+        nativeFit = null;
+        gallery = null;
+        activeGallerySource = null;
+        if (previous != null) previousSession.suppressFit(previous.source);
+        previousSession.retireBody();
+        if (retiredGallery != null) retiredGallery.close();
+        retireGallerySlots();
+        if (previous != null) previous.close();
+    }
+
     @Override public void close() {
         closed = true;
+        bodyPreparationGeneration++;
+        if (nativeFit != null) nativeFit.close();
         session.invalidateDisplayedBody();
         if (gallery != null) gallery.close();
         retireGallerySlots();

@@ -544,6 +544,48 @@ def providerRowClippingTask = tasks.register('verifyProviderRowClipping', JavaEx
     }
 }
 
+def nativeMeasurementTask = null
+if (resolvedBundleIds.contains('player-skin-preview') || resolvedBundleIds.contains('remote-player-preview')) {
+    def ears = catalog.optionalDependencies.earsBuzz
+    def earsCompile = dependencies.create("maven.modrinth:${ears.projectId}:${ears.versions[targetId]}")
+    earsCompile.transitive = false
+    dependencies.add(abiSourceSet.compileOnlyConfigurationName, earsCompile)
+}
+if (resolvedBundleIds.contains('avatar-pip-ears-ward-measurement')) {
+    def ears = catalog.optionalDependencies.earsWard
+    def earsCompile = dependencies.create("maven.modrinth:${ears.projectId}:${ears.versions[targetId]}")
+    earsCompile.transitive = false
+    dependencies.add(abiSourceSet.compileOnlyConfigurationName, earsCompile)
+}
+if (resolvedBundleIds.contains('avatar-pip-ears-measurement')) {
+    def earsCompile = dependencies.create('maven.modrinth:mfzaZK3Z:Tdfeeflh')
+    earsCompile.transitive = false
+    dependencies.add(abiSourceSet.compileOnlyConfigurationName, earsCompile)
+}
+if (spec.minecraft.version in ['26.1', '26.2', '26.3']) {
+    def nativeRuntime = configurations.create('cpmNativeMeasurementRuntime') { transitive = false }
+    dependencies.add(nativeRuntime.name, 'maven.modrinth:mfzaZK3Z:Tdfeeflh')
+    def nativeOs = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+    def nativeArm = System.getProperty('os.arch') in ['aarch64', 'arm64']
+    def nativeClassifier = nativeOs.contains('mac') ? (nativeArm ? 'natives-macos-arm64' : 'natives-macos')
+            : nativeOs.contains('win') ? (nativeArm ? 'natives-windows-arm64' : 'natives-windows')
+            : (nativeArm ? 'natives-linux-arm64' : 'natives-linux')
+    def nativeLwjglVersion = spec.minecraft.version == '26.3' ? '3.4.3' : '3.4.1'
+    ['lwjgl', 'lwjgl-stb', 'lwjgl-jemalloc'].each {
+        dependencies.add(nativeRuntime.name, "org.lwjgl:${it}:${nativeLwjglVersion}:${nativeClassifier}")
+    }
+    nativeMeasurementTask = tasks.register('verifyCpmNativeMeasurement', nclskinsVerifyCpmNativeMeasurementTaskType) {
+        group = 'verification'
+        dependsOn tasks.named(abiSourceSet.classesTaskName), tasks.named('processResources')
+        delegate.resolutionClasspath.from(abiSourceSet.output, sourceSets.main.output, abiSourceSet.compileClasspath)
+        delegate.probeClasspath.from(configurations.cpmCompositionRuntime, nativeRuntime)
+        delegate.probeDirectory.set(repositoryRoot.dir('gradle/build-logic/src/cpmComposition'))
+        delegate.carrierFixtures.set(repositoryRoot.dir('core/src/test/resources/cpm'))
+        delegate.loaderFamily.set(spec.loader.id)
+        delegate.nativeProfile.set(spec.minecraft.version == '26.1' ? (spec.loader.id == 'neoforge' ? 'immediate-26.1-neoforge' : 'immediate-26.1') : (spec.minecraft.version == '26.3' ? 'staged-26.3-'+spec.loader.id : 'staged'))
+        delegate.workDirectory.set(layout.buildDirectory.dir('verification/cpm-native-measurement'))
+    }
+}
 def cpmIntegrationTask = tasks.register('verifyCpmIntegration', nclskinsVerifyCpmIntegrationTaskType) {
     group = 'verification'
     dependsOn tasks.named(abiSourceSet.classesTaskName), tasks.named('processResources')
@@ -553,6 +595,12 @@ def cpmIntegrationTask = tasks.register('verifyCpmIntegration', nclskinsVerifyCp
     delegate.probeDirectory.set(repositoryRoot.dir('gradle/build-logic/src/cpmComposition'))
     delegate.carrierFixtures.set(repositoryRoot.dir('core/src/test/resources/cpm'))
     delegate.workDirectory.set(layout.buildDirectory.dir('verification/cpm-composition'))
+    if (nativeMeasurementTask != null) {
+        dependsOn nativeMeasurementTask
+        delegate.nativeBodyProof.set(nativeMeasurementTask.flatMap { it.workDirectory.file('result.json') })
+        delegate.nativeBodyProfile.set(nativeMeasurementTask.flatMap { it.nativeProfile })
+        delegate.nativeBodyLoader.set(nativeMeasurementTask.flatMap { it.loaderFamily })
+    }
 }
 
 def isolationTask = tasks.register('verifyDedicatedServerIsolation') {

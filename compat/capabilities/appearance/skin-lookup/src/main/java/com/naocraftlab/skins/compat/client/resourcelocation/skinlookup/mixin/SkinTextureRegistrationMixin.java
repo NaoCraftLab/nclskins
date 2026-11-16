@@ -20,5 +20,6 @@ abstract class SkinTextureRegistrationMixin {
             registered.nclskins$registeredSkinLocation(location);
         }
         original.call(manager, location, texture);
+        if (texture instanceof RegisteredSkinTexture registered) registered.nclskins$admittedSkinTexture();
     }
 }

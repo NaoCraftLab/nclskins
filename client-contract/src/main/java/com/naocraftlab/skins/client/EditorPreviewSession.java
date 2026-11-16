@@ -30,13 +30,24 @@ public final class EditorPreviewSession {
 
         public EditorPreviewSession prepare(String source, boolean cpm, boolean world,
                 java.util.function.BooleanSupplier candidateCurrent) {
+            return prepare(source, source, cpm, world, candidateCurrent);
+        }
+
+        public EditorPreviewSession prepare(String source, String demand, boolean cpm, boolean world,
+                java.util.function.BooleanSupplier candidateCurrent) {
             Objects.requireNonNull(candidateCurrent);
             if (closed || !candidateCurrent.getAsBoolean() || closed) return null;
             if (desired == null || !desired.source().equals(source)) {
-                if (desired != null && desired != displayed) desired.session().invalidateDisplayedBody();
+                if (desired != null && desired != displayed) desired.session().retireBody();
                 if (closed || !candidateCurrent.getAsBoolean() || closed) return null;
                 var next = displayed != null && displayed.source().equals(source) && displayed.lifetime.getAsBoolean()
+                        && Objects.equals(displayed.session().bodyDemand, demand)
+                        && displayed.session().bodyWorld == world && displayed.session().bodyExpected == (cpm && world)
                         ? displayed : new Slot(Objects.requireNonNull(source), new EditorPreviewSession(clock), candidateCurrent);
+                if (next != displayed && desired != null && Objects.equals(desired.session().bodyDemand, demand)) {
+                    next.session().bodyDemand = demand;
+                    next.session().bodyStarted = desired.session().bodyStarted;
+                }
                 desired = next;
                 next.session().observeBody(status -> {
                     if (closed || desired != next || !next.current().getAsBoolean() || closed || desired != next) return;
@@ -45,7 +56,7 @@ public final class EditorPreviewSession {
             }
             var selected = desired;
             selected.current = candidateCurrent;
-            selected.session().beginBody(source, cpm, world);
+            selected.session().beginBody(source, demand, cpm, world);
             return !closed && desired == selected && candidateCurrent.getAsBoolean() && !closed && desired == selected
                     ? selected.session() : null;
         }
@@ -66,7 +77,10 @@ public final class EditorPreviewSession {
             if (displayedReady && (!Objects.equals(selected.session().imageIdentity, identity) || !inputsReady)) {
                 var next = new Slot(selected.source(), new EditorPreviewSession(clock), selected.current());
                 next.lifetime = selected.lifetime;
-                next.session().beginBody(next.source(), selected.session().bodyExpected, selected.session().bodyWorld);
+                next.session().bodyDemand = selected.session().bodyDemand;
+                next.session().bodyStarted = selected.session().bodyStarted;
+                next.session().beginBody(next.source(), selected.session().bodyDemand,
+                        selected.session().bodyExpected, selected.session().bodyWorld);
                 desired = next;
                 next.session().observeBody(status -> {
                     if (!closed && desired == next && next.current().getAsBoolean() && !closed && desired == next) observer.accept(status);
@@ -144,7 +158,7 @@ public final class EditorPreviewSession {
                     || closed || desired != selected) return;
             var previous = displayed;
             displayed = selected;
-            if (previous != null && previous != selected) previous.session().invalidateDisplayedBody();
+            if (previous != null && previous != selected) previous.session().retireBody();
         }
 
         public void observeBody(java.util.function.Consumer<PreviewRenderer.BodyStatus> observer) {
@@ -168,14 +182,18 @@ public final class EditorPreviewSession {
                     && !closed && desired == selected;
         }
 
+        public boolean displays(EditorPreviewSession session) {
+            return !closed && displayed != null && displayed.session() == session;
+        }
+
         @Override public void close() {
             closed = true;
             var oldDesired = desired;
             var oldDisplayed = displayed;
             desired = null;
             displayed = null;
-            if (oldDesired != null) oldDesired.session().invalidateDisplayedBody();
-            if (oldDisplayed != null && oldDisplayed != oldDesired) oldDisplayed.session().invalidateDisplayedBody();
+            if (oldDesired != null) oldDesired.session().retireBody();
+            if (oldDisplayed != null && oldDisplayed != oldDesired) oldDisplayed.session().retireBody();
         }
     }
 
@@ -187,6 +205,7 @@ public final class EditorPreviewSession {
     private float greatestAge;
     private final java.util.function.LongSupplier nanoTime;
     private String bodySource;
+    private String bodyDemand;
     private long bodyStarted;
     private long bodyGeneration;
     private PreviewRenderer.BodyStatus bodyStatus = PreviewRenderer.BodyStatus.ORDINARY;
@@ -286,18 +305,88 @@ public final class EditorPreviewSession {
     public EditorPreviewSession() { this(System::nanoTime); }
     public EditorPreviewSession(java.util.function.LongSupplier nanoTime) { this.nanoTime = Objects.requireNonNull(nanoTime); }
 
+    private FitPreparation fitPreparation;
+    private boolean fitSuppressed;
+    private long fitOwnerGeneration;
+
+    public void suppressFit(String source) {
+        if (!Objects.equals(bodySource, source) || fitSuppressed) return;
+        fitSuppressed = true;
+        declineFit();
+        if (displayedBody != null) invalidateDisplayedBody(false);
+    }
+
+    public boolean fitSuppressed() { return fitSuppressed; }
+
+    public final class FitPreparation implements AutoCloseable {
+        private final java.util.concurrent.atomic.AtomicBoolean active = new java.util.concurrent.atomic.AtomicBoolean(true);
+        private final long generation = fitOwnerGeneration;
+        private final long started = bodyStarted;
+        private final boolean bounded = bodyExpected;
+        private volatile boolean joined;
+        private boolean ready;
+
+        public boolean ownerCurrent() { return generation == fitOwnerGeneration; }
+
+        public boolean current() {
+            if (bounded && !joined && nanoTime.getAsLong() - started >= java.time.Duration.ofSeconds(60).toNanos())
+                active.set(false);
+            return active.get();
+        }
+
+        public void complete() {
+            expireBody();
+            if (fitPreparation != this || !current() || terminalBody()) return;
+            ready = true;
+            if (readyBody != null) body(readyBody);
+        }
+
+        @Override public void close() { active.set(false); }
+    }
+
+    public FitPreparation prepareFit() {
+        if (fitPreparation == null) {
+            fitPreparation = new FitPreparation();
+            if (bodyExpected && bodyStatus == PreviewRenderer.BodyStatus.READY) {
+                bodyStatus = PreviewRenderer.BodyStatus.PENDING;
+                if (displayedBody != null) invalidateDisplayedBody(false);
+            }
+        }
+        return fitPreparation;
+    }
+
+    public void declineFit() {
+        if (fitPreparation == null) return;
+        fitPreparation.close();
+        fitPreparation = null;
+        if (readyBody != null) body(readyBody);
+    }
+
     public void observeBody(java.util.function.Consumer<PreviewRenderer.BodyStatus> observer) {
         bodyObserver = Objects.requireNonNull(observer);
     }
 
     public void beginBody(String source, boolean expected, boolean world) {
-        boolean sourceChanged = !Objects.equals(bodySource, source);
+        beginBody(source, source, expected, world);
+    }
+
+    public void beginBody(String source, String demand, boolean expected, boolean world) {
+        boolean sourceChanged = !Objects.equals(bodySource, source) || !Objects.equals(bodyDemand, demand);
         boolean scopeChanged = sourceChanged || bodyWorld != world || bodyExpected != (expected && world);
+        if (scopeChanged) fitOwnerGeneration++;
+        if (scopeChanged && fitPreparation != null) {
+            fitPreparation.close();
+            fitPreparation = null;
+        }
         var previous = bodyStatus;
         bodyWorld = world;
         if (sourceChanged) {
+            fitSuppressed = false;
             bodySource = Objects.requireNonNull(source);
-            bodyStarted = nanoTime.getAsLong();
+            if (!Objects.equals(bodyDemand, demand)) {
+                bodyDemand = Objects.requireNonNull(demand);
+                bodyStarted = nanoTime.getAsLong();
+            }
             bodyGeneration++;
             readyBody = null;
             bodyStatus = PreviewRenderer.BodyStatus.ORDINARY;
@@ -407,6 +496,12 @@ public final class EditorPreviewSession {
         return display == displayGeneration && (ordinaryOnly || frameCurrent(prepared, display, selected));
     }
 
+    public void retireBody() {
+        fitOwnerGeneration++;
+        if (fitPreparation != null) fitPreparation.close();
+        invalidateDisplayedBody();
+    }
+
     public void invalidateDisplayedBody() { invalidateDisplayedBody(true); }
 
     private void invalidateDisplayedBody(boolean invalidateImage) {
@@ -436,7 +531,14 @@ public final class EditorPreviewSession {
                 ? PreviewRenderer.BodyStatus.FAILED : result.status();
         readyBody = bodyStatus == PreviewRenderer.BodyStatus.READY
                 ? readyBody != null && readyBody.current().getAsBoolean() ? readyBody : result : null;
-        if (terminalBody()) invalidateDisplayedBody(false);
+        if (bodyStatus == PreviewRenderer.BodyStatus.READY && fitPreparation != null) {
+            if (!fitPreparation.ready || !fitPreparation.current()) bodyStatus = PreviewRenderer.BodyStatus.PENDING;
+            else fitPreparation.joined = true;
+        }
+        if (terminalBody()) {
+            if (fitPreparation != null) fitPreparation.close();
+            invalidateDisplayedBody(false);
+        }
         bodyObserver.accept(bodyStatus);
     }
 
@@ -463,6 +565,7 @@ public final class EditorPreviewSession {
         if (bodyExpected && bodyStatus == PreviewRenderer.BodyStatus.PENDING
                 && nanoTime.getAsLong() - bodyStarted >= java.time.Duration.ofSeconds(60).toNanos()) {
             bodyStatus = PreviewRenderer.BodyStatus.TIMED_OUT;
+            if (fitPreparation != null) fitPreparation.close();
             invalidateDisplayedBody(false);
             readyBody = null;
             bodyObserver.accept(bodyStatus);
@@ -495,6 +598,7 @@ public final class EditorPreviewSession {
             return false;
         }
         liveDisabled = true;
+        if (fitPreparation != null) fitPreparation.close();
         if (bodyExpected) {
             bodyStatus = PreviewRenderer.BodyStatus.FAILED;
             readyBody = null;

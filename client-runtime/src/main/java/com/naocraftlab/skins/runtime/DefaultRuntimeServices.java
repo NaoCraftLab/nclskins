@@ -9,8 +9,16 @@ import java.util.function.Consumer;
 import java.util.function.BiConsumer;
 
 public final class DefaultRuntimeServices implements RuntimeServices {
+    private final PreviewModelFitStore previewModelFitStore;
+
+    public DefaultRuntimeServices() { this(null); }
+
+    public DefaultRuntimeServices(PreviewModelFitStore previewModelFitStore) {
+        this.previewModelFitStore = previewModelFitStore;
+    }
+
     public PreviewAssets previewAssets(ClientExecutor client, Executor worker, DiagnosticSink diagnostics) {
-        return new PreviewAssetLoader(client, worker, diagnostics);
+        return new PreviewAssetLoader(client, worker, diagnostics, previewModelFitStore);
     }
     public AccountReconciliation reconciliation(AccountReconciliationPort operations, Executor worker,
             Consumer<Runnable> client, AccountReconciliation.Completion completion, Runnable idle,

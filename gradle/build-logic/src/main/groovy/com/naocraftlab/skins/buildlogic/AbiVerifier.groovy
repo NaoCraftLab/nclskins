@@ -225,7 +225,7 @@ final class AbiVerifier {
     }
 
     static String normalize(String output) {
-        output.replace('\r\n', '\n').readLines().collect { it.trim().replaceAll('\\s+', ' ') }.findAll { !it.isBlank() && !it.startsWith('Compiled from ') }.join('\n') + '\n'
+        output.replace('\r\n', '\n').readLines().findAll { !it.startsWith('Picked up JAVA_TOOL_OPTIONS: ') }.collect { it.trim().replaceAll('\\s+', ' ') }.findAll { !it.isBlank() && !it.startsWith('Compiled from ') }.join('\n') + '\n'
     }
 
     static String nestedAccess(String output, String binaryName) {

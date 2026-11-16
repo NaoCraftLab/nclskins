@@ -90,7 +90,8 @@ public final class ClientCompositionRoot {
                             resolver,
                             capabilities.appearanceInstall(), diagnostics);
             resources.add(refresh::close);
-            ClientRuntime runtime = new ClientRuntime(new com.naocraftlab.skins.runtime.DefaultRuntimeServices(), graph.operations(), capabilities.clientExecutor(),
+            ClientRuntime runtime = new ClientRuntime(new DefaultRuntimeServices(
+                    new com.naocraftlab.skins.runtime.infrastructure.PreviewModelFitStorageAdapter(storage)), graph.operations(), capabilities.clientExecutor(),
                     capabilities.nativeFileDialog(), worker.executor(), worker.ownedExecutor(),
                     reconciliation.executor(), reconciliation.ownedExecutor(),
                     session.executor(), session.ownedExecutor(), textResolver,

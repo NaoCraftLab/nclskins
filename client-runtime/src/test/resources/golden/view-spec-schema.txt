@@ -8,7 +8,7 @@ IconDecoration:id,bounds,icon,ownerWidgetId,idleOpacity,activeOpacity,providerTe
 MarqueeActivation:hoverBounds,focusWidgetIds,movingClip
 NavigationNode:id,bounds,surfaceId,documentOrder,tabOrder,enabled,pattern,activationActionId
 Panel:id,bounds,style
-Preview:id,bounds,anchorBounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,externalImage,intent,capeHasElytra,nativeAccessories,ownedPng,bodySource
+Preview:id,bounds,anchorBounds,skin,imageRevision,variant,capeId,capeMode,outerLayerVisibility,yawDegrees,pitchDegrees,scale,presetId,catalogImage,externalImage,intent,capeHasElytra,nativeAccessories,ownedPng,bodySource,layoutScale
 ProgressDecoration:id,ownerWidgetId,fraction,color,height,leftInset,bottomInset
 ProviderTexture:cacheKey,skin,overlay,capeGlint
 ScrollSurface:id,viewport,orientation,offsetPixels,maximumPixels,wheelStepPixels

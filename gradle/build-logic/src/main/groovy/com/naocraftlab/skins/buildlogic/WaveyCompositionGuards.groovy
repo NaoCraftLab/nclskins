@@ -83,6 +83,8 @@ final class WaveyCompositionGuards {
         fileBinding([path: proof.classInit, sha256: proof.classInitSha256], 'ABI class-init binding')
         require(!new File(proof.classInit).readLines('UTF-8').any { it ==~ /.*Initializing '(net\/minecraft\/|com\/mojang\/|net\/neoforged\/|org\/lwjgl\/).*/ }, 'ABI engine initialized')
         List<String> lines = new File(command.log).readLines('UTF-8')
+        if (!lines.isEmpty() && lines.first().startsWith('Picked up JAVA_TOOL_OPTIONS: ')) lines = lines.drop(1)
+        require(!lines.isEmpty(), 'ABI receipt ordering')
         require(lines.findAll { it.startsWith('ABI_BINDING_PASS ') } == ['ABI_BINDING_PASS ' + proof.binding]
                 && lines.count('ISOLATED_PRODUCTION_ABI_CLOSED_PASS') == 1, 'ABI binding/close marker')
         ['ABI_CELL_PASS ', 'ABI_CELL_CLEANUP_PASS ', 'ABI_CELL_CLOSED '].each { prefix ->

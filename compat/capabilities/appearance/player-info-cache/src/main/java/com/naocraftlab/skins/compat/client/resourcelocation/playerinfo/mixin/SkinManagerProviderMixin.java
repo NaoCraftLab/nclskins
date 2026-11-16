@@ -25,6 +25,8 @@ abstract class SkinManagerProviderMixin {
                 registered.nclskins$registeredSkinLocation(location);
             }
             original.call(manager, location, texture);
+            if (type == MinecraftProfileTexture.Type.SKIN && texture instanceof RegisteredSkinTexture registered)
+                registered.nclskins$admittedSkinTexture();
         }
     }
 }

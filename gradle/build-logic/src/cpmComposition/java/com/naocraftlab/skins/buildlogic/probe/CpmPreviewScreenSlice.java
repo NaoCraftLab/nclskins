@@ -47,6 +47,18 @@ final class CpmPreviewScreenSlice {
 
     static Class<?> loadNative(String owner, Class<?> renderer) throws Exception { return load(owner, false, renderer); }
 
+    static Class<?> loadNative(String owner, Class<?> renderer, Class<?> graphics, Class<?> baked) throws Exception {
+        return load(owner, false, renderer, false, false, false, Map.of(
+                "net/minecraft/client/gui/GuiGraphicsExtractor", internal(graphics),
+                owner.substring(0, owner.lastIndexOf('.') + 1).replace('.', '/') + "AvatarPipPreviewRenderer", internal(baked)));
+    }
+
+    static Class<?> loadSubmissionNative(String owner, Class<?> renderer, Class<?> graphics, Class<?> baked) throws Exception {
+        return load(owner, false, renderer, false, false, false, Map.of(
+                "net/minecraft/client/gui/GuiGraphics", internal(graphics),
+                owner.substring(0, owner.lastIndexOf('.') + 1).replace('.', '/') + "SimplePreviewRenderer", internal(baked)));
+    }
+
     static Class<?> loadInput(String owner) throws Exception { return load(owner, false, null, true); }
     static Class<?> loadFocus(String owner) throws Exception { return load(owner, true, null, true); }
     static Class<?> loadRootPaint(String owner) throws Exception { return load(owner, true, null, false, false, true); }
@@ -68,6 +80,10 @@ final class CpmPreviewScreenSlice {
     }
 
     private static Class<?> load(String owner, boolean textConsumers, Class<?> rendererType, boolean inputConsumers, boolean lifecycleConsumers, boolean rootPaint) throws Exception {
+        return load(owner, textConsumers, rendererType, inputConsumers, lifecycleConsumers, rootPaint, Map.of());
+    }
+
+    private static Class<?> load(String owner, boolean textConsumers, Class<?> rendererType, boolean inputConsumers, boolean lifecycleConsumers, boolean rootPaint, Map<String,String> terminals) throws Exception {
         String internalOwner = owner.replace('.', '/');
         String namespace = internalOwner.substring(0, internalOwner.lastIndexOf('/') + 1);
         Map<String, String> names = new HashMap<>();
@@ -175,6 +191,7 @@ final class CpmPreviewScreenSlice {
                 names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmBakedDisplayProbe.Graphics.class));
             }
         }
+        names.putAll(terminals);
         ClassLoader loader = new ClassLoader(rendererType == null ? CpmPreviewScreenSlice.class.getClassLoader() : rendererType.getClassLoader()) {
             @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
                 boolean components = textConsumers && (name.equals(namespace.replace('/', '.') + "SubmissionComponents")

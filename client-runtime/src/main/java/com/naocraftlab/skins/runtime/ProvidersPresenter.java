@@ -233,7 +233,7 @@ public final class ProvidersPresenter {
         texts.add(new ViewSpec.Text("providers.title", new Bounds(0, 12, width, 10), UiMessage.info(adding ? "nclskins.providers.add" : "nclskins.providers.title"), ViewSpec.Text.Alignment.CENTER));
         String revision = skin.map(s -> "provider:skin:" + s.sha256()).orElse("provider:default");
         SkinReference reference = skin.map(s -> SkinReference.asset(UUID.nameUUIDFromBytes(s.sha256().getBytes(StandardCharsets.US_ASCII)))).orElse(SkinReference.accountDefault());
-        var preview = PlayerAppearanceStage.present("editor.preview", width, height, new Bounds(0, 0, divider, height),
+        var preview = PlayerAppearanceStage.presentEditor("editor.preview", width, height, new Bounds(0, 0, divider, height),
                 new PlayerAppearanceStage.Appearance(reference, revision, skin.map(ProviderSkin::variant).orElse(defaultVariant),
                         cape.map(c -> c.textureCacheKey() == null ? c.id() : "provider:cape:" + c.textureCacheKey()),
                         Optional.empty(), Optional.empty(), cape.map(value -> !Boolean.FALSE.equals(value.hasElytra())).orElse(true),

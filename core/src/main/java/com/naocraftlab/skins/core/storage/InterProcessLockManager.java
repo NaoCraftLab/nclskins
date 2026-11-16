@@ -14,6 +14,11 @@ final class InterProcessLockManager {
     private static final ConcurrentMap<Path, ReentrantLock> JVM_LOCKS = new ConcurrentHashMap<>();
 
     ProcessFileLock acquire(Path path) throws IOException {
+        return acquire(path, null);
+    }
+
+    ProcessFileLock acquire(Path path, java.util.function.BooleanSupplier admission) throws IOException {
+        if (admission != null && !admission.getAsBoolean()) throw new IOException("Lock admission retired");
         Path normalized = path.toAbsolutePath().normalize();
         Files.createDirectories(normalized.getParent());
         ReentrantLock jvmLock = JVM_LOCKS.computeIfAbsent(normalized, ignored -> new ReentrantLock(true));
@@ -21,7 +26,11 @@ final class InterProcessLockManager {
         FileChannel channel = null;
         FileLock fileLock = null;
         try {
-            channel = FileChannel.open(normalized, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            if (admission != null && !admission.getAsBoolean()) throw new IOException("Lock admission retired");
+            channel = admission == null
+                    ? FileChannel.open(normalized, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
+                    : FileChannel.open(normalized, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                            java.nio.file.LinkOption.NOFOLLOW_LINKS);
             fileLock = channel.lock();
             FileChannel acquiredChannel = channel;
             FileLock acquiredFileLock = fileLock;

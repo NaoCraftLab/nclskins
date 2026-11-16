@@ -150,6 +150,7 @@ public final class ResourceLocationTextureRegistry
             ((RegisteredSkinTexture) texture).nclskins$skinRegistration(registration);
             ((RegisteredSkinTexture) texture).nclskins$registeredSkinLocation(location);
             Minecraft.getInstance().getTextureManager().register(location, texture);
+            ((RegisteredSkinTexture) texture).nclskins$admittedSkinTexture();
         } catch (RuntimeException failure) {
             texture.close();
             registration.failed();

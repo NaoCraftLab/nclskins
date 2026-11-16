@@ -38,10 +38,95 @@ final class PreviewAssetLoader implements PreviewAssets {
         @Override public byte[] bytes() { return bytes.clone(); }
     }
 
+    private final PreviewModelFitStore previewModelFitStore;
+
     PreviewAssetLoader(ClientExecutor clientExecutor, Executor worker, DiagnosticSink diagnostics) {
+        this(clientExecutor, worker, diagnostics, null);
+    }
+
+    PreviewAssetLoader(ClientExecutor clientExecutor, Executor worker, DiagnosticSink diagnostics,
+            PreviewModelFitStore previewModelFitStore) {
         this.clientExecutor = Objects.requireNonNull(clientExecutor, "clientExecutor");
         this.worker = Objects.requireNonNull(worker, "worker");
         this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
+        this.previewModelFitStore = previewModelFitStore;
+    }
+
+    @Override public CompletableFuture<NumericFitResult> prepareModelFit(java.util.UUID accountId,
+            com.naocraftlab.skins.core.model.SkinVariant variant, byte[] content,
+            java.util.function.BooleanSupplier current,
+            java.util.function.Supplier<CompletableFuture<PreviewModelFitStore.Value>> measurement) {
+        var result = new CompletableFuture<NumericFitResult>();
+        if (previewModelFitStore == null) {
+            result.complete(new NumericFitResult(NumericFitStatus.UNAVAILABLE, null));
+            return result;
+        }
+        byte[] input = content.clone();
+        executeModelFit(result, current, () -> {
+            String hash;
+            try {
+                hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(input));
+            } catch (java.security.NoSuchAlgorithmException unavailable) {
+                throw new IllegalStateException(unavailable);
+            }
+            var key = new PreviewModelFitStore.Key(accountId, hash, variant);
+            var loaded = previewModelFitStore.load(key);
+            onClient(() -> {
+                if (!modelFitCurrent(current)) { completeModelFit(result, current, NumericFitStatus.RETIRED, null); return; }
+                switch (loaded.status()) {
+                    case PRESENT -> completeModelFit(result, current, NumericFitStatus.STORED, loaded.value());
+                    case UNAVAILABLE -> completeModelFit(result, current, NumericFitStatus.UNAVAILABLE, null);
+                    case ABSENT -> measureModelFit(result, key, current, measurement);
+                }
+            });
+        });
+        return result;
+    }
+
+    private void measureModelFit(CompletableFuture<NumericFitResult> result, PreviewModelFitStore.Key key,
+            java.util.function.BooleanSupplier current,
+            java.util.function.Supplier<CompletableFuture<PreviewModelFitStore.Value>> measurement) {
+        try {
+            Objects.requireNonNull(measurement.get(), "measurement result").whenComplete((value, failure) -> onClient(() -> {
+                if (!modelFitCurrent(current)) { completeModelFit(result, current, NumericFitStatus.RETIRED, null); return; }
+                if (failure != null || value == null) {
+                    completeModelFit(result, current, NumericFitStatus.UNAVAILABLE, null);
+                    return;
+                }
+                executeModelFit(result, current, () -> {
+                    var committed = previewModelFitStore.create(key, value, () -> modelFitCurrent(current));
+                    onClient(() -> completeModelFit(result, current,
+                            committed.status() == PreviewModelFitStore.Status.PRESENT ? NumericFitStatus.STORED : NumericFitStatus.TRANSIENT,
+                            committed.status() == PreviewModelFitStore.Status.PRESENT ? committed.value() : value));
+                });
+            }));
+        } catch (RuntimeException unavailable) {
+            completeModelFit(result, current, NumericFitStatus.UNAVAILABLE, null);
+        }
+    }
+
+    private void executeModelFit(CompletableFuture<NumericFitResult> result,
+            java.util.function.BooleanSupplier current, Runnable action) {
+        try {
+            worker.execute(() -> {
+                if (!modelFitCurrent(current)) { onClient(() -> completeModelFit(result, current, NumericFitStatus.RETIRED, null)); return; }
+                try { action.run(); }
+                catch (RuntimeException unavailable) {
+                    onClient(() -> completeModelFit(result, current, NumericFitStatus.UNAVAILABLE, null));
+                }
+            });
+        } catch (RuntimeException unavailable) {
+            completeModelFit(result, current, NumericFitStatus.UNAVAILABLE, null);
+        }
+    }
+
+    private boolean modelFitCurrent(java.util.function.BooleanSupplier current) {
+        return !disposed && current.getAsBoolean();
+    }
+
+    private void completeModelFit(CompletableFuture<NumericFitResult> result, java.util.function.BooleanSupplier current,
+            NumericFitStatus status, PreviewModelFitStore.Value value) {
+        result.complete(modelFitCurrent(current) ? new NumericFitResult(status, value) : new NumericFitResult(NumericFitStatus.RETIRED, null));
     }
 
     public long catalogEpoch() { return catalogPreviewEpoch; }

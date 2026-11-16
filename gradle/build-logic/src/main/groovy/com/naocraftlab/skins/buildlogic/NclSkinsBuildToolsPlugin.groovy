@@ -45,6 +45,7 @@ final class NclSkinsBuildToolsPlugin implements Plugin<Project> {
             project.dependencies.add(cpmProbe.name, it)
         }
         project.extensions.extraProperties.set('nclskinsVerifyCpmIntegrationTaskType', VerifyCpmIntegrationTask)
+        project.extensions.extraProperties.set('nclskinsVerifyCpmNativeMeasurementTaskType', VerifyCpmNativeMeasurementTask)
         project.extensions.extraProperties.set('nclskinsCatalogTools', CatalogTools)
         project.extensions.extraProperties.set('nclskinsNativeModelTests', NativeModelTests)
         project.extensions.extraProperties.set('nclskinsMetadataRenderer', MetadataRenderer)

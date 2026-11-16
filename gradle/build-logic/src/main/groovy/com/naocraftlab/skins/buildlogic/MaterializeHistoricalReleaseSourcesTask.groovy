@@ -116,6 +116,7 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
                 }
                 runGradle(worktree, taggedCatalog.serverPlugin.packaging.buildJdk as int,
                         ['-PnclskinsBuildLogicWorkspace=historical-plugin',
+                         '--project-cache-dir', new File(worktree, '.gradle/workspaces/historical-plugin').absolutePath,
                          ':server-plugin:sourcesJar'])
                 copied.add(copySource(
                         new File(worktree, "server-plugin/build/libs/${taggedSourceName}"),
@@ -147,6 +148,7 @@ abstract class MaterializeHistoricalReleaseSourcesTask extends DefaultTask {
         List<String> arguments = [
                 "-PnclskinsSourceGraph=${TargetBuildTask.sourceGraphFingerprint(worktree)}".toString(),
                 "-PnclskinsBuildLogicWorkspace=historical-${target.id}".toString(),
+                '--project-cache-dir', new File(worktree, ".gradle/workspaces/historical-${target.id}").absolutePath,
                 '-p', targetDirectory.absolutePath
         ] + TargetBuildTask.assemblyTasks(target)
         runProcess([wrapper.absolutePath] + arguments, worktree, javaHome,

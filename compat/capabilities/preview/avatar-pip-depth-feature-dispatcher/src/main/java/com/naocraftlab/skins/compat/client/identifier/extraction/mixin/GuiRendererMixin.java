@@ -10,9 +10,23 @@ import org.spongepowered.asm.mixin.injection.At;
 
 @Mixin(GuiRenderer.class)
 abstract class GuiRendererMixin {
+    @WrapMethod(method = "close()V", require = 1, expect = 1, allow = 1)
+    private void nclskins$closeOwner(Operation<Void> original) {
+        Throwable cleanup = null;
+        try { PreviewConsumerFrame.closeOwner(this); }
+        catch (RuntimeException | Error failure) { cleanup = failure; }
+        try { original.call(); }
+        catch (RuntimeException | Error failure) {
+            if (cleanup != null && cleanup != failure) failure.addSuppressed(cleanup);
+            throw failure;
+        }
+        if (cleanup instanceof RuntimeException failure) throw failure;
+        if (cleanup instanceof Error failure) throw failure;
+    }
+
     @WrapMethod(method = "render()V", require = 1, expect = 1, allow = 1)
     private void nclskins$withConsumerFrame(Operation<Void> original) {
-        try (var frame = PreviewConsumerFrame.open()) { original.call(); }
+        try (var frame = PreviewConsumerFrame.open(this)) { original.call(); }
     }
 
     @WrapOperation(method = "render()V", at = @At(value = "INVOKE",

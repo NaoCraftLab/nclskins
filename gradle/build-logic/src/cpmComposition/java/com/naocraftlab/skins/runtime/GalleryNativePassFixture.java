@@ -26,7 +26,17 @@ public final class GalleryNativePassFixture implements AutoCloseable {
     public OuterLayerVisibilityController layerController;
     public UUID sessionAccount = ACCOUNT;
     public Runnable verifyTeardown;
+    public int numericLoads, numericCreates, numericPublicationChecks;
+    public Runnable beforeNumericPublication;
+    public PreviewModelFitStore.Key numericKey;
+
+    public PreviewModelFitStore.Result durableNumericFit() {
+        if (numericKey == null) throw new AssertionError("No actual numeric lookup key");
+        return new com.naocraftlab.skins.runtime.infrastructure.PreviewModelFitStorageAdapter(
+                new NclSkinsStorage(directory, new PngValidator(), Clock.systemUTC())).load(numericKey);
+    }
     private final Deque<Runnable> workers = new ArrayDeque<>();
+    private final Deque<Runnable> previewWorkers = new ArrayDeque<>();
     private final PreviewRenderer.PreviewAppearance fixtureAppearance;
     private final byte[] fixtureSkin;
     private final CapeProviderCoordinator coordinator;
@@ -42,13 +52,39 @@ public final class GalleryNativePassFixture implements AutoCloseable {
 
     public GalleryNativePassFixture freshOwned() throws Exception { return new GalleryNativePassFixture(fixtureAppearance, fixtureSkin, coordinator, true); }
     public GalleryNativePassFixture freshOwnedCpm() throws Exception { return new GalleryNativePassFixture(fixtureAppearance, fixtureSkin, coordinator, true, true); }
-    public void drainWorkers() { while (!workers.isEmpty()) workers.remove().run(); }
+    public GalleryNativePassFixture freshOwnedCpm(byte[] content) throws Exception { return new GalleryNativePassFixture(fixtureAppearance, content, coordinator, true, true); }
+    public void drainWorkers() {
+        while (!workers.isEmpty() || !previewWorkers.isEmpty()) {
+            while (!workers.isEmpty()) workers.remove().run();
+            if (!previewWorkers.isEmpty()) previewWorkers.remove().run();
+        }
+    }
+    public void worldChanged() { runtime.importWorldChanged(); }
     public boolean runNextWorker() {
         if (workers.isEmpty()) return false;
         workers.remove().run(); return true;
     }
     public byte[] ownedBytes(ViewSpec.Preview preview) { return ownedSkins.get(preview.presetId().orElseThrow()).clone(); }
     public void selectB() { runtime.dispatchWidget("gallery.card." + B); }
+
+    public void retainedSources(byte[] second, byte[] third) throws Exception {
+        var clock = Clock.systemUTC();
+        var adapter = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
+        var library = new com.naocraftlab.skins.core.service.LibraryService(adapter,adapter,clock);
+        var b = library.importSkin(ACCOUNT,"Retained B",SkinVariant.CLASSIC,SkinSource.IMPORTED,second).asset();
+        var c = library.importSkin(ACCOUNT,"Retained C",SkinVariant.CLASSIC,SkinSource.IMPORTED,third).asset();
+        UUID last = new UUID(0,804);
+        storage.updateAccount(ACCOUNT,old -> new AccountState(old.schemaVersion(),old.accountId(),old.skinAssets(),old.personalSkins(),
+                List.of(old.presets().stream().filter(p -> p.id().equals(B)).findFirst().orElseThrow(),
+                        new AppearancePreset(C,"B",SkinReference.asset(b.id()),null,clock.instant(),clock.instant()),
+                        new AppearancePreset(last,"C",SkinReference.asset(c.id()),null,clock.instant(),clock.instant())),old.updatedAt(),old.personalCapes()));
+        ownedSkins.put(C,second.clone()); ownedSkins.put(last,third.clone());
+        var accept=ClientRuntime.class.getDeclaredMethod("acceptInitialData",ClientOperations.InitialData.class,boolean.class);
+        accept.setAccessible(true); accept.invoke(runtime,operations.initializeForRuntime(),false);
+        runtime.dispatchWidget("gallery.reset"); drainWorkers();
+    }
+
+    public void selectLast() { runtime.dispatchWidget("gallery.card." + new UUID(0,804)); }
 
     public void enableCpmCape() throws Exception {
         operations.useCpmPresence(() -> true);
@@ -66,10 +102,81 @@ public final class GalleryNativePassFixture implements AutoCloseable {
         this(appearance, bundledSkin, sharedCoordinator, owned, false);
     }
 
+    private static CapeProviderCoordinator numericCoordinator;
+    public static void closeNumericCoordinator() {
+        if (numericCoordinator != null) numericCoordinator.close();
+        numericCoordinator = null;
+    }
+    public static GalleryNativePassFixture numeric(PreviewRenderer.PreviewAppearance appearance, byte[] content, Path root) throws Exception {
+        return numeric(appearance,content,root,false);
+    }
+    public static GalleryNativePassFixture numeric(PreviewRenderer.PreviewAppearance appearance, byte[] content, Path root, boolean holdPreviewAssets) throws Exception {
+        var fixture = new GalleryNativePassFixture(appearance, content, numericCoordinator, true, true, root, holdPreviewAssets);
+        numericCoordinator = fixture.coordinator;
+        return fixture;
+    }
+
+    public static GalleryNativePassFixture cards(PreviewRenderer.PreviewAppearance appearance, byte[] content, Path root,
+            SkinCatalogSource catalog) throws Exception {
+        var fixture = new GalleryNativePassFixture(appearance, content, numericCoordinator, true, true, root, true, catalog);
+        var adapter=new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(fixture.storage);
+        var library=new com.naocraftlab.skins.core.service.LibraryService(adapter,adapter,Clock.systemUTC());
+        library.savePresetWithPersonalSkin(ACCOUNT,Optional.of(B),"B","Owned personal",SkinVariant.CLASSIC,PersonalSkinSource.FILE,content,null);
+        numericCoordinator = fixture.coordinator;
+        return fixture;
+    }
+
+    public List<SkinCatalogSource.CollectionDescriptor> cardCollections() throws Exception { return operations.catalogCollections(); }
+
+    public List<Map<String,Object>> cardLayoutRoundTrip() {
+        var rows=new ArrayList<Map<String,Object>>();
+        for(String owner:List.of("editor","providers")) {
+            if(owner.equals("editor")) {
+                var selected=runtime.snapshot().selectedPresetId().orElseThrow();
+                runtime.dispatchWidget("gallery.preset."+selected+".more");runtime.dispatchWidget("gallery.preset."+selected+".edit");
+            } else runtime.dispatchWidget("gallery.providers");
+            drainWorkers();
+            var view=runtime.view(854,720,0,0);
+            var preview=view.previews().stream().filter(p->p.id().equals("editor.preview")).findFirst().orElseThrow();
+            if(preview.layoutScale()==1 || preview.scale()!=1)throw new AssertionError("real nondefault layout / initial logical one "+owner);
+            var anchor=preview.anchorBounds();
+            runtime.pointerScrolled(anchor.x()+anchor.width()/2.0,anchor.y()+anchor.height()/2.0,0,1);
+            var changed=runtime.view(854,720,0,0).previews().stream().filter(p->p.id().equals("editor.preview")).findFirst().orElseThrow();
+            if(changed.scale()<=1 || changed.layoutScale()!=preview.layoutScale())throw new AssertionError("real Editor/Providers zoom preserves layout");
+            rows.add(Map.of("owner",owner,"height",720,"layoutScale",changed.layoutScale(),"userZoom",changed.scale(),"screen",view.screenId()));
+            runtime.dispatchWidget(owner.equals("editor")?"editor.cancel":"providers.back");drainWorkers();
+            if(!runtime.view(854,480,0,0).screenId().equals("gallery"))throw new AssertionError("actual return to cards "+owner);
+        }
+        return rows;
+    }
+
+    public ExternalImportModel cardImport(Path root) throws Exception {
+        var review=operations.prepareExternalAppearances(com.naocraftlab.skins.core.importing.ExternalImportSource.SKIN_SHUFFLE,Optional.of(root));
+        var model=ExternalImportModel.open(ExternalImportModel.Category.MOD).withReview(review);
+        var flowField=ClientRuntime.class.getDeclaredField("catalogImportFlow");flowField.setAccessible(true);
+        Object flow=flowField.get(runtime);
+        var stateField=flow.getClass().getDeclaredField("state");stateField.setAccessible(true);
+        Object state=stateField.get(flow);
+        var field=state.getClass().getDeclaredField("externalImport");field.setAccessible(true);field.set(state,model);
+        return model;
+    }
+
     private GalleryNativePassFixture(PreviewRenderer.PreviewAppearance appearance, byte[] bundledSkin, CapeProviderCoordinator sharedCoordinator, boolean owned, boolean cpm) throws Exception {
+        this(appearance, bundledSkin, sharedCoordinator, owned, cpm, null);
+    }
+
+    private GalleryNativePassFixture(PreviewRenderer.PreviewAppearance appearance, byte[] bundledSkin, CapeProviderCoordinator sharedCoordinator, boolean owned, boolean cpm, Path root) throws Exception {
+        this(appearance,bundledSkin,sharedCoordinator,owned,cpm,root,false);
+    }
+
+    private GalleryNativePassFixture(PreviewRenderer.PreviewAppearance appearance, byte[] bundledSkin, CapeProviderCoordinator sharedCoordinator, boolean owned, boolean cpm, Path root, boolean holdPreviewAssets) throws Exception {
+        this(appearance,bundledSkin,sharedCoordinator,owned,cpm,root,holdPreviewAssets,null);
+    }
+
+    private GalleryNativePassFixture(PreviewRenderer.PreviewAppearance appearance, byte[] bundledSkin, CapeProviderCoordinator sharedCoordinator, boolean owned, boolean cpm, Path root, boolean holdPreviewAssets, SkinCatalogSource catalog) throws Exception {
         fixtureAppearance = appearance;
         fixtureSkin = bundledSkin.clone();
-        directory = Files.createTempDirectory("gallery-native-pass-");
+        directory = root == null ? Files.createTempDirectory("gallery-native-pass-") : Files.createDirectories(root).toRealPath();
         Clock clock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), java.time.ZoneOffset.UTC);
         storage = new NclSkinsStorage(directory, new PngValidator(), clock);
         storage.initialize();
@@ -83,7 +190,8 @@ public final class GalleryNativePassFixture implements AutoCloseable {
             byte[] png = cpm && i == 0 ? bundledSkin.clone() : bytes.toByteArray();
             var adapter = new com.naocraftlab.skins.core.storage.LibraryStorageAdapter(storage);
             var library = new com.naocraftlab.skins.core.service.LibraryService(adapter,adapter,clock);
-            var asset = library.importSkin(ACCOUNT,"Owned " + i, i == 0 ? SkinVariant.CLASSIC : SkinVariant.SLIM, SkinSource.IMPORTED,png).asset();
+            var variant = root != null && i == 0 && appearance.model() == SkinModel.SLIM ? SkinVariant.SLIM : i == 0 ? SkinVariant.CLASSIC : SkinVariant.SLIM;
+            var asset = library.importSkin(ACCOUNT,"Owned " + i, variant, SkinSource.IMPORTED,png).asset();
             references.add(SkinReference.asset(asset.id())); ownedSkins.put(i == 0 ? B : C,png);
         }
         storage.updateAccount(ACCOUNT, old -> new AccountState(old.schemaVersion(), ACCOUNT, old.skinAssets(), List.of(
@@ -98,7 +206,7 @@ public final class GalleryNativePassFixture implements AutoCloseable {
             throw new AssertionError("Unexpected HTTP: " + m.getName());
         });
         var graph = ClientCompositionRoot.operations(tokens, api, storage,
-                (BundledSkinSource) model -> bundledSkin, clock, null);
+                catalog == null ? (BundledSkinSource) model -> bundledSkin : catalog, clock, null);
         operations = graph.operations();
         if (cpm) {
             operations.useCpmPresence(() -> true);
@@ -115,14 +223,54 @@ public final class GalleryNativePassFixture implements AutoCloseable {
                 new OptifineCapeReader(directory.resolve("optifine-staging")), new SkinMcCapeReader(directory.resolve("skinmc-staging")),
                 operations::verifiedOfficialCapeUri) : sharedCoordinator;
         operations.attachCapeProviders(coordinator, null);
-        var runtimeOperations = sharedCoordinator == null ? operations : (ClientOperations) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{ClientOperations.class}, (proxy, method, args) -> {
+        var runtimeOperations = sharedCoordinator == null && root == null ? operations : (ClientOperations) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{ClientOperations.class}, (proxy, method, args) -> {
             if (method.getName().equals("close")) return null;
             try { return method.invoke(operations, args); }
             catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
         });
         CurrentPlayerAppearanceSource current = () -> new CurrentPlayerAppearanceSource.PlayerAppearance(
                 appearance.skin(), appearance.model(), appearance.cape());
-        runtime = new ClientRuntime(new DefaultRuntimeServices(), runtimeOperations, client,
+        var numericStore = new com.naocraftlab.skins.runtime.infrastructure.PreviewModelFitStorageAdapter(storage);
+        var services = new DefaultRuntimeServices(cpm ? new PreviewModelFitStore() {
+                    public Result load(Key key) { numericLoads++; numericKey=key; return numericStore.load(key); }
+                    public Result create(Key key, Value value, java.util.function.BooleanSupplier current) {
+                        numericCreates++;
+                        return numericStore.create(key,value,() -> {
+                            if (beforeNumericPublication != null && StackWalker.getInstance().walk(frames -> frames.anyMatch(frame ->
+                                    frame.getClassName().equals("com.naocraftlab.skins.core.storage.AtomicFileWriter")
+                                            && frame.getMethodName().equals("createImmutable")))) {
+                                numericPublicationChecks++;
+                                if (numericPublicationChecks == 2) {
+                                    var action=beforeNumericPublication;
+                                    beforeNumericPublication=null;
+                                    action.run();
+                                }
+                            }
+                            return current.getAsBoolean();
+                        });
+                    }
+                } : null);
+        var runtimeServices = !holdPreviewAssets ? services : (RuntimeServices) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{RuntimeServices.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("previewAssets")) {
+                        args[1] = (java.util.concurrent.Executor) previewWorkers::add;
+                        var assets=(PreviewAssets)method.invoke(services,args);
+                        return Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{PreviewAssets.class},(ignored,assetMethod,assetArgs)-> {
+                            if(assetMethod.getName().equals("installWarmed")) {
+                                previewWorkers.add(()-> {
+                                    try { assetMethod.invoke(assets,assetArgs); }
+                                    catch(ReflectiveOperationException failure) { throw new AssertionError(failure); }
+                                });
+                                return null;
+                            }
+                            try { return assetMethod.invoke(assets,assetArgs); }
+                            catch(java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+                        });
+                    }
+                    try { return method.invoke(services,args); }
+                    catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+                });
+        runtime = new ClientRuntime(runtimeServices, runtimeOperations, client,
                 () -> CompletableFuture.completedFuture(Optional.empty()), workers::add, UiMessage::key,
                 Optional.of(current), Optional.empty(), Optional.of(new OuterLayerVisibilityController() {
                     public OuterLayerVisibility current() { return layerController == null ? OuterLayerVisibility.allVisible() : layerController.current(); }
@@ -142,6 +290,25 @@ public final class GalleryNativePassFixture implements AutoCloseable {
                     + ", accountMatches=" + runtime.snapshot().account().map(a -> a.accountId().equals(ACCOUNT)).orElse(false)
                     + ", runtime=" + ClientRuntime.class.getProtectionDomain().getCodeSource().getLocation());
         }
+    }
+
+    public ClientRuntime coldMenu() {
+        var menuOperations = (ClientOperations)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{ClientOperations.class},(proxy,method,args)-> {
+            if(method.getName().equals("close"))return null;
+            try{return method.invoke(operations,args);}catch(java.lang.reflect.InvocationTargetException failure){throw failure.getCause();}
+        });
+        var store = new PreviewModelFitStore() {
+            public Result load(Key key){throw new AssertionError("cold menu numeric lookup");}
+            public Result create(Key key,Value value,java.util.function.BooleanSupplier current){throw new AssertionError("cold menu full first-create");}
+        };
+        return new ClientRuntime(new DefaultRuntimeServices(store),menuOperations,new ClientExecutor() {
+            public boolean isClientThread(){return true;}public void execute(Runnable action){action.run();}
+        },()->CompletableFuture.completedFuture(Optional.empty()),action->{throw new AssertionError("cold menu model worker demand");},UiMessage::key,
+                Optional.of(()->new CurrentPlayerAppearanceSource.PlayerAppearance(fixtureAppearance.skin(),fixtureAppearance.model(),fixtureAppearance.cape())),
+                Optional.empty(),Optional.of(new OuterLayerVisibilityController() {
+                    public OuterLayerVisibility current(){return OuterLayerVisibility.allVisible();}
+                    public void applyDurable(OuterLayerVisibility value){throw new AssertionError("cold menu durable write");}
+                }),Optional.empty(),DiagnosticSinks.discarding());
     }
 
     public ViewSpec.Preview preview() {
@@ -167,7 +334,7 @@ public final class GalleryNativePassFixture implements AutoCloseable {
 
     public java.util.function.Consumer<PreviewRenderer.BodyStatus> observeBody(ViewSpec.Preview preview, PreviewRenderer<?> renderer) {
         String source = runtime.previewBodySource(preview);
-        return runtime.observePreviewBody(preview, renderer::displayKind, () -> renderer.confirmGalleryBody(source));
+        return runtime.observePreviewBody(preview, renderer::displayKind, () -> renderer.confirmGalleryBody(source), renderer::retireBody);
     }
 
     public void selectC() { runtime.dispatchWidget("gallery.card." + C); }

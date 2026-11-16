@@ -1911,11 +1911,12 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         String imageSource = runtime.previewBodySource(preview);
         boolean retainedImage = false;
         if (slot.editor) {
-            slot.bodyObserver = runtime.observePreviewBody(preview, slot.bodyCapability, () -> slot.renderer.confirmGalleryBody(imageSource));
+            runtime.observePreviewModelFitDemand(preview, slot.renderer);
+            slot.bodyObserver = runtime.observePreviewBody(preview, slot.bodyCapability, () -> slot.renderer.confirmGalleryBody(imageSource), slot.renderer::retireBody);
             slot.renderer.observeBody(slot.bodyObserver);
-            retainedImage = slot.renderer.prepareGalleryImage(imageSource, runtime.waitsForCpmBody(preview),
+            retainedImage = slot.renderer.prepareGalleryImage(imageSource, runtime.previewBodyDemand(preview), runtime.waitsForCpmBody(preview),
                     runtime.previewBodyAdmission(preview), runtime.previewBodyLifetime(preview));
-            if (!retainedImage) slot.renderer.prepareBody(imageSource, runtime.waitsForCpmBody(preview));
+            if (!retainedImage) slot.renderer.prepareBody(imageSource, runtime.previewBodyDemand(preview), runtime.waitsForCpmBody(preview));
         }
         var preparation = previewPreparation(preview);
         boolean indicator = slot.imageIndicator;
@@ -1930,14 +1931,16 @@ public abstract class NclSkinsImmediateScreen extends Screen {
             if (indicator) drawPreviewLoading(graphics, preview.anchorBounds(), preparation.orElseThrow().startedNanos(), 32);
             projected = projected.map(PreviewRenderer.PreviewRequest::hidden);
         }
-        if (retainedImage) slot.renderer.transformRetained(imageSource, preview.yawDegrees(), preview.pitchDegrees(), preview.scale());
+        if (retainedImage) slot.renderer.transformRetained(imageSource, preview.yawDegrees(), preview.pitchDegrees(), preview.renderedScale());
         if (projected.isEmpty()) {
             if (retainedImage) slot.renderer.renderRetained(graphics, imageSource);
-            if (preparation.isEmpty()) { slot.releaseAccessories(); slot.releaseBody(); }
+            slot.releaseAccessories();
+            if (!slot.editor) slot.releaseBody();
             return;
         }
         PreviewRenderer.PreviewRequest request = projected.orElseThrow();
         if (slot.editor) {
+            runtime.preparePreviewModelFit(preview, slot.renderer, request.appearance());
             var observer = runtime.observePreviewAccessories(preview, () -> slot.renderer.accessories(request));
             slot.accessoryObserver = observer;
             slot.renderer.observeAccessories(observer);
@@ -2008,15 +2011,18 @@ public abstract class NclSkinsImmediateScreen extends Screen {
         var desiredRequest = galleryRequest(desired);
         var shownRequest = galleryRequest(shown);
         boolean cpm = runtime.waitsForCpmBody(desired);
-        var registration = runtime.observePreviewBody(desired, slot.bodyCapability, () -> renderer.confirmGalleryBody(source));
+        runtime.observePreviewModelFitDemand(desired, renderer);
+        var registration = runtime.observePreviewBody(desired, slot.bodyCapability, () -> renderer.confirmGalleryBody(source), renderer::retireBody);
         slot.bodyObserver = registration;
         renderer.observeBody(registration);
         var admission = runtime.galleryPreviewAdmission(desired);
-        boolean imagePolicy = renderer.prepareGalleryImage(source, cpm, admission, runtime.previewBodyLifetime(desired));
-        boolean prepared = imagePolicy || renderer.prepareGalleryBody(source, cpm, admission);
+        boolean imagePolicy = renderer.prepareGalleryImage(source, runtime.previewBodyDemand(desired), cpm, admission, runtime.previewBodyLifetime(desired));
+        boolean prepared = imagePolicy || renderer.prepareGalleryBody(source, runtime.previewBodyDemand(desired), cpm, admission);
         var preparation = previewPreparation(desired);
         if (imagePolicy) renderer.prepareImage(source, preparation.map(PreviewAssetCache.ImageState::startedNanos).orElseGet(System::nanoTime), preparation.isEmpty());
         if (preparation.isPresent()) drawPreviewLoading(graphics, desired.bounds(), preparation.orElseThrow().startedNanos(), 32);
+        if (prepared && admission.getAsBoolean()) desiredRequest.ifPresent(request ->
+                runtime.preparePreviewModelFit(desired, renderer, request.appearance()));
         var accessoryAdmission = runtime.galleryAccessoryAdmission(desired);
         desiredRequest.ifPresent(request -> {
             slot.accessoryObserver = runtime.observePreviewAccessories(desired,
