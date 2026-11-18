@@ -1,5 +1,13 @@
 ## 1.4.0-beta.3
 
+## 1.3.1
+
+### Added
+
+- **Official Minecraft Dungeons and Minecraft Dungeons II skins in the built-in resource pack**
+    - 13 from Minecraft Dungeons
+    - 21 from Minecraft Dungeons II
+
 ## 1.4.0-beta.2
 
 ### Added
