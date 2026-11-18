@@ -609,6 +609,7 @@ class CapeProviderCoordinatorTest {
 
     @Test
     void animatedProviderFrameLocationRemainsLiveAcrossWorldAndMenuTimelineWrap() throws Exception {
+        AtomicLong now = new AtomicLong();
         Fixture fixture = fixture();
         fixture.coordinator.close();
         UUID self = fixture.session.identity.profileId();
@@ -643,20 +644,22 @@ class CapeProviderCoordinatorTest {
         fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), sink, new ImmediateClient(), worker,
                 fixture.reader(), new SkinMcCapeReader(fixture.storage.layout().root()
-                        .resolve("timeline-skinmc-staging")), reader, (id, capeId) -> Optional.empty());
+                        .resolve("timeline-skinmc-staging")), reader, (id, capeId) -> Optional.empty(), now::get);
         fixture.coordinator.start();
         drainHeld(worker);
         String first = CapeProjection.resolveSelf(self, "Self").orElseThrow().capeLocation();
         assertTrue(sink.live(first));
         assertTrue(CapeProjection.resolveSelf(self, "Self").orElseThrow().capeGlint());
 
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
-        while (sink.rawLocations.size() < 3 && System.nanoTime() < deadline) {
+        for (int frame = 1; frame <= 2; frame++) {
+            now.set(TimeUnit.MILLISECONDS.toNanos(frame * 100L));
             CapeProjection.resolveSelf(self, "Self");
+            assertFalse(worker.jobs.isEmpty());
             drainHeld(worker);
-            Thread.sleep(15L);
+            assertEquals(frame + 1, sink.rawLocations.size());
         }
         assertEquals(3, sink.rawLocations.size(), "three distinct native frames must be installed");
+        assertEquals(3, Set.copyOf(sink.rawLocations).size());
         assertFalse(sink.live(first), "the native registry retires frame zero after frame two");
         String third = sink.rawLocations.get(2);
         assertNotEquals(first, third);
@@ -666,12 +669,14 @@ class CapeProviderCoordinatorTest {
         assertTrue(CapeProjection.resolve(self, "Self", null, null, true).capeGlint());
         assertTrue(sink.live(third), "both world and menu must see an installed frame");
 
-        while (sink.rawLocations.size() < 5 && System.nanoTime() < deadline) {
+        for (int frame = 3; frame <= 4; frame++) {
+            now.set(TimeUnit.MILLISECONDS.toNanos(frame * 100L));
             CapeProjection.resolveSelf(self, "Self");
             drainHeld(worker);
-            Thread.sleep(15L);
         }
         assertEquals(5, sink.rawLocations.size(), "animation must wrap and continue");
+        assertEquals(first, sink.rawLocations.get(3));
+        assertEquals(sink.rawLocations.get(1), sink.rawLocations.get(4));
         String fifth = sink.rawLocations.get(4);
         assertEquals(fifth, CapeProjection.resolveSelf(self, "Self").orElseThrow().capeLocation());
         assertEquals(fifth, CapeProjection.resolve(self, "Self", null, null, true).capeLocation());
@@ -682,13 +687,24 @@ class CapeProviderCoordinatorTest {
         sink.registry.close();
     }
 
-    @Test
-    void otherObservedAnimatedProvidersPublishEachInstalledFrame() throws Exception {
-        assertObservedAnimatedProviderPublishesFrames(BuiltinProvider.OPTIFINE);
-        assertObservedAnimatedProviderPublishesFrames(BuiltinProvider.SKINMC);
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = BuiltinProvider.class,
+            names = {"OPTIFINE", "SKINMC"})
+    void otherObservedAnimatedProvidersPublishEachInstalledFrame(BuiltinProvider provider) throws Exception {
+        assertObservedAnimatedProviderPublishesFrames(provider, false);
     }
 
-    private void assertObservedAnimatedProviderPublishesFrames(BuiltinProvider provider) throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = BuiltinProvider.class,
+            names = {"OPTIFINE", "SKINMC"})
+    void otherObservedAnimatedProvidersSkipHistoricalFramesOnCurrentTimeline(BuiltinProvider provider)
+            throws Exception {
+        assertObservedAnimatedProviderPublishesFrames(provider, true);
+    }
+
+    private void assertObservedAnimatedProviderPublishesFrames(BuiltinProvider provider, boolean skipped)
+            throws Exception {
+        AtomicLong now = new AtomicLong();
         Fixture fixture = fixture();
         fixture.coordinator.close();
         UUID self = fixture.session.identity.profileId();
@@ -713,19 +729,40 @@ class CapeProviderCoordinatorTest {
                         Map.of("Content-Type", List.of("image/png"))), Clock.systemUTC());
         fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), sink, new ImmediateClient(), worker,
-                fixture.reader(), skinMc, (id, capeId) -> Optional.empty());
+                fixture.reader(), skinMc, null, (id, capeId) -> Optional.empty(), now::get);
         fixture.coordinator.start();
         drainHeld(worker);
         String first = CapeProjection.resolveSelf(self, "Self").orElseThrow().capeLocation();
         assertTrue(sink.live(first), provider.name());
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
-        while (sink.rawLocations.size() < 3 && System.nanoTime() < deadline) {
-            CapeProjection.resolveSelf(self, "Self");
-            drainHeld(worker);
-            Thread.sleep(15L);
+        if (skipped) {
+            for (long millis : new long[]{200L, 300L}) {
+                now.set(TimeUnit.MILLISECONDS.toNanos(millis));
+                CapeProjection.resolveSelf(self, "Self");
+                assertFalse(worker.jobs.isEmpty(), provider.name());
+                drainHeld(worker);
+            }
+            assertEquals(3, sink.rawLocations.size(), provider.name());
+            assertEquals(first, sink.rawLocations.get(2), provider.name());
+            assertEquals(2, Set.copyOf(sink.rawLocations).size(), provider.name());
+            assertTrue(sink.live(first), "three registrations are frames zero, two, zero");
         }
-        assertEquals(3, sink.rawLocations.size(), provider.name());
-        String third = sink.rawLocations.get(2);
+        long cycleStart = skipped ? 300L : 0L;
+        int beforeFrames = sink.rawLocations.size();
+        for (int frame = 1; frame <= 2; frame++) {
+            String predecessor = sink.rawLocations.get(sink.rawLocations.size() - 1);
+            now.set(TimeUnit.MILLISECONDS.toNanos(cycleStart + frame * 100L));
+            assertEquals(predecessor, CapeProjection.resolveSelf(self, "Self").orElseThrow().capeLocation(),
+                    "the installed predecessor stays published while the next frame is queued");
+            assertFalse(worker.jobs.isEmpty(), provider.name());
+            drainHeld(worker);
+            assertEquals(beforeFrames + frame, sink.rawLocations.size(), provider.name());
+            String ready = sink.rawLocations.get(sink.rawLocations.size() - 1);
+            assertEquals(ready, CapeProjection.resolveSelf(self, "Self").orElseThrow().capeLocation());
+            assertTrue(sink.live(ready), provider.name());
+        }
+        String second = sink.rawLocations.get(beforeFrames);
+        String third = sink.rawLocations.get(beforeFrames + 1);
+        assertEquals(3, Set.copyOf(List.of(first, second, third)).size(), provider.name());
         assertFalse(sink.live(first), provider.name());
         assertEquals(third, CapeProjection.resolveSelf(self, "Self").orElseThrow().capeLocation(),
                 provider.name());
@@ -777,6 +814,7 @@ class CapeProviderCoordinatorTest {
 
     @Test
     void minecraftCapesGlintOnlyRefreshKeepsHandleAndReplacementInstallsBeforeRelease() throws Exception {
+        AtomicLong now = new AtomicLong();
         Fixture fixture = fixture();
         fixture.coordinator.close();
         UUID self = fixture.session.identity.profileId();
@@ -818,7 +856,8 @@ class CapeProviderCoordinatorTest {
                 new SecureRandom(), directory.resolve("mc-scratch"));
         fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), Runnable::run,
-                fixture.reader(), new SkinMcCapeReader(fixture.storage.layout().root().resolve("test-skinmc-staging")), reader, (id, capeId) -> Optional.empty());
+                fixture.reader(), new SkinMcCapeReader(fixture.storage.layout().root().resolve("test-skinmc-staging")),
+                reader, (id, capeId) -> Optional.empty(), now::get);
         fixture.coordinator.start();
         int registrations = fixture.sink.registrations;
         String location = "nclskins:minecraftcapes/" + self;
@@ -831,7 +870,7 @@ class CapeProviderCoordinatorTest {
                 "material-only refresh must reuse the current native handle");
         assertTrue(CapeProjection.resolveSelf(self, "Self").orElseThrow().capeGlint());
         int beforeNextFrame = fixture.sink.rawRegistrations;
-        Thread.sleep(140);
+        now.set(TimeUnit.MILLISECONDS.toNanos(100));
         assertTrue(CapeProjection.resolveSelf(self, "Self").orElseThrow().capeGlint());
         assertEquals(beforeNextFrame + 1, fixture.sink.rawRegistrations,
                 "material-only refresh must keep the animated frame source active");
@@ -855,6 +894,7 @@ class CapeProviderCoordinatorTest {
 
     @Test
     void offlineAnimatedDescriptorPlaysAfterSourceRemovalAndRestart() throws Exception {
+        AtomicLong now = new AtomicLong();
         Fixture fixture = fixture();
         fixture.coordinator.close();
         UUID self = fixture.session.identity.profileId();
@@ -876,14 +916,15 @@ class CapeProviderCoordinatorTest {
 
         fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), Runnable::run,
-                fixture.reader());
+                fixture.reader(), new SkinMcCapeReader(fixture.storage.layout().root().resolve("test-skinmc-staging")),
+                null, (id, capeId) -> Optional.empty(), now::get);
         fixture.coordinator.start();
         String location = "nclskins:offline/" + self;
         byte[] first = fixture.sink.registered.get(location);
         assertNotNull(first);
         assertEquals(BuiltinProvider.OFFLINE,
                 CapeProjection.resolveSelf(self, "Self").orElseThrow().provider());
-        Thread.sleep(120L);
+        now.set(TimeUnit.MILLISECONDS.toNanos(100));
         CapeProjection.resolveSelf(self, "Self");
         byte[] second = fixture.sink.registered.get(location);
         assertNotNull(second);
@@ -893,7 +934,8 @@ class CapeProviderCoordinatorTest {
         assertFalse(fixture.sink.registered.containsKey(location));
         fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), Runnable::run,
-                fixture.reader());
+                fixture.reader(), new SkinMcCapeReader(fixture.storage.layout().root().resolve("test-skinmc-staging")),
+                null, (id, capeId) -> Optional.empty(), now::get);
         fixture.coordinator.start();
         assertArrayEquals(first, fixture.sink.registered.get(location),
                 "durable descriptor restores frame zero without the source file");
