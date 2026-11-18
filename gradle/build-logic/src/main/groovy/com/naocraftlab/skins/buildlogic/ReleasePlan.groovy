@@ -22,7 +22,12 @@ final class ReleasePlan {
             throw new IllegalStateException('Invalid release plan server plugin state')
         }
         if (state.schemaVersion == 2) {
-            Map selection = ServerPluginVersion.select(plan.version.toString(), state.modVersion.toString(), state.pluginVersion.toString())
+            Map selection
+            try {
+                selection = ServerPluginVersion.select(plan.version.toString(), state.modVersion.toString(), state.pluginVersion.toString())
+            } catch (IllegalArgumentException error) {
+                throw new IllegalStateException('Invalid release plan server plugin state', error)
+            }
             if (state.requestedVersion != plan.version || state.componentKind != selection.kind ||
                     state.reason != selection.kind || state.activeVersion != selection.baseline ||
                     state.publish != (selection.kind != 'mod-only') || pluginOnly != (selection.kind == 'plugin-only')) {

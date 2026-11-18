@@ -2017,7 +2017,8 @@ public final class TmpProbe {
                            'Velocity Paper', 'BungeeCord Paper'],
                 '26.2': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
                          'Velocity Paper', 'BungeeCord Paper'],
-                 '26.3': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Velocity Paper', 'BungeeCord Paper']
+                '26.3': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
+                         'Velocity Paper', 'BungeeCord Paper']
         ]
         expectedNames.each { String version, List<String> names ->
             List<Map<String, String>> entries = RunDirectorySupport.serverEntries(catalog, version)
