@@ -3333,8 +3333,8 @@ public final class TmpProbe {
             stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }
                     .forEach { pngs.add(it) }
         }
-        assertEquals(68, pngs.size())
-        assertEquals(68, pngs.count { it.toString().contains(File.separator + 'assets' + File.separator) })
+        assertEquals(102, pngs.size())
+        assertEquals(102, pngs.count { it.toString().contains(File.separator + 'assets' + File.separator) })
         assertEquals([], pngs.findAll { !it.toString().contains(File.separator + 'assets' + File.separator) })
 
         assertEquals([], nestedPackIconErrors(repository, catalog, canonical))
