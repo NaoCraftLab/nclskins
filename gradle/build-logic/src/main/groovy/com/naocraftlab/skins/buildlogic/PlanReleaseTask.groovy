@@ -55,7 +55,6 @@ abstract class PlanReleaseTask extends DefaultTask {
         File output = outputDirectory.get().asFile
         if (output.exists() && !output.deleteDir()) throw new IllegalStateException('Cannot reset release plan output')
         Files.createDirectories(new File(output, 'assets').toPath())
-        // Historical mod backfills retain their tag-derived state and legacy recovery semantics.
         boolean modOnly = !pluginOnly && commit == tagCommit &&
                 ServerPluginVersion.parts(ServerPluginVersion.load(repository)).base != version &&
                 !existing?.assets?.any { it.name?.toString()?.startsWith('nclskins-plugin-') }
