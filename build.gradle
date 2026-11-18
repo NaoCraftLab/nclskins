@@ -723,7 +723,9 @@ def validateRelease = tasks.register('validateRelease', ValidateReleaseTask) {
     repositoryDirectory.set(layout.projectDirectory)
     delegate.catalogFile.set(layout.projectDirectory.file('gradle/targets.json'))
     delegate.versionFile.set(layout.projectDirectory.file('gradle/version.properties'))
-    changelogFile.set(layout.projectDirectory.file('CHANGELOG.md'))
+    if (!ServerPluginVersion.isFullVersion(requestedReleaseTag)) {
+        changelogFile.set(layout.projectDirectory.file('CHANGELOG.md'))
+    }
     pluginChangelogFile.set(layout.projectDirectory.file('PLUGIN_CHANGELOG.md'))
     serverPluginStateFile.set(computeServerPluginReleaseState.flatMap { it.stateFile })
     releaseTag.set(requestedReleaseTag ?: '')

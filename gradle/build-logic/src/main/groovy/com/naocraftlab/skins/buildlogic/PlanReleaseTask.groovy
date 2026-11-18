@@ -26,17 +26,20 @@ abstract class PlanReleaseTask extends DefaultTask {
         Map catalog = CatalogTools.loadCatalog(repository)
         CatalogTools.validate(repository, catalog)
         String version = releaseTag.get()
-        Map release = ReleaseMetadata.validate(new File(repository, 'gradle/version.properties'),
+        boolean pluginOnly = ServerPluginVersion.isFullVersion(version)
+        Map release = pluginOnly ? ReleaseMetadata.pluginOnly(repository, version) :
+                ReleaseMetadata.validate(new File(repository, 'gradle/version.properties'),
                 new File(repository, 'CHANGELOG.md'), version)
+        String releaseTag = pluginOnly ? ServerPluginVersion.parts(version).base : version
         String commit = ReleaseSelection.git(repository, ['rev-parse', 'HEAD']).trim()
-        String tagCommit = ReleaseSelection.git(repository, ['rev-parse', "refs/tags/${version}^{commit}"]).trim()
+        String tagCommit = ReleaseSelection.git(repository, ['rev-parse', "refs/tags/${releaseTag}^{commit}"]).trim()
         ReleaseSelection.git(repository, ['merge-base', '--is-ancestor', tagCommit, commit])
         PublishPlatformsTask platforms = project.tasks.getByName('preflightReleasePlatforms') as PublishPlatformsTask
         PublishGithubReleaseTask github = project.tasks.getByName('preflightGithubRelease') as PublishGithubReleaseTask
         String githubToken = github.requireEnvironment('GITHUB_TOKEN')
         String repositoryName = github.requireRepository()
         Map tagReference = github.json(github.request('GET',
-                "${github.apiBase()}/repos/${repositoryName}/git/ref/tags/${version}",
+                "${github.apiBase()}/repos/${repositoryName}/git/ref/tags/${releaseTag}",
                 github.headers(githubToken), null, null, [200] as Set<Integer>, githubToken)) as Map
         String remoteTagCommit = PublishGithubReleaseTask.resolveTagCommit(tagReference) { String object ->
             github.json(github.request('GET', "${github.apiBase()}/repos/${repositoryName}/git/tags/${object}",
@@ -46,13 +49,20 @@ abstract class PlanReleaseTask extends DefaultTask {
         String modrinthToken = platforms.requireSecret('MODRINTH_TOKEN')
         String curseKey = platforms.requireSecret('CURSEFORGE_API_KEY')
         String curseUploadToken = platforms.requireSecret('CURSEFORGE_UPLOAD_TOKEN')
-        Map existing = github.findRelease(github.apiBase(), repositoryName, version, githubToken)
+        Map existing = github.findRelease(github.apiBase(), repositoryName, releaseTag, githubToken)
+        if (pluginOnly && existing == null) throw new IllegalStateException('Plugin-only requires an existing GitHub Release')
+        if (existing == null && commit != tagCommit) throw new IllegalStateException('New mod release requires the exact tag checkout')
         File output = outputDirectory.get().asFile
         if (output.exists() && !output.deleteDir()) throw new IllegalStateException('Cannot reset release plan output')
         Files.createDirectories(new File(output, 'assets').toPath())
-        Map state = pluginState(repository, catalog, version)
-        String pluginNotes = pluginReleaseNotes(repository, state)
-        List<Map> components = CatalogTools.releaseTargets(catalog).collect { Map target ->
+        // Historical mod backfills retain their tag-derived state and legacy recovery semantics.
+        boolean modOnly = !pluginOnly && commit == tagCommit &&
+                ServerPluginVersion.parts(ServerPluginVersion.load(repository)).base != version &&
+                !existing?.assets?.any { it.name?.toString()?.startsWith('nclskins-plugin-') }
+        Map state = pluginOnly || existing == null || modOnly ? ServerPluginReleaseState.selected(repository, catalog, version, commit) :
+                pluginState(repository, catalog, version)
+        String pluginNotes = state.reason == 'mod-only' ? '' : pluginReleaseNotes(repository, state)
+        List<Map> components = (pluginOnly ? [] : CatalogTools.releaseTargets(catalog)).collect { Map target ->
             AssembleReleaseTask.publicationTarget(catalog, target, release,
                     ReleasePlan.placeholder(AssembleReleaseTask.artifactName(target, version), 'mod', target.id.toString()),
                     ReleasePlan.placeholder(AssembleReleaseTask.sourceArtifactName(target, version), 'mod-sources', target.id.toString()))
@@ -85,11 +95,19 @@ abstract class PlanReleaseTask extends DefaultTask {
         Set<String> matchedGithubNames = githubByComponent.values().findAll { it != null }
                 .collect { it.name.toString() } as Set<String>
         if (replacement != null) matchedGithubNames.add(replacement.file.toString())
+        List<Map> preservedGithub = []
+        if (pluginOnly) {
+            githubAssets.findAll { ReleasePlan.historicalModAsset(it.name, releaseTag) }.each { Map asset ->
+                String name = asset.name.toString()
+                matchedGithubNames.add(name)
+                preservedGithub.add([file: name, id: asset.id,
+                        sha256: github.remoteSha256(github.apiBase(), repositoryName, asset, githubToken)])
+            }
+        }
         if (matchedGithubNames.size() != githubAssets.size() ||
                 githubAssets.collect { it.name }.toSet().size() != githubAssets.size()) {
             throw new IllegalStateException('Unknown or duplicate existing GitHub asset')
         }
-        List<Map> preservedGithub = []
         components.each { Map component ->
             Map remote = [modrinth: inventories.modrinth[component.id], curseforge: inventories.curseforge[component.id]]
             Map githubAsset = githubByComponent[component.id]
@@ -113,7 +131,8 @@ abstract class PlanReleaseTask extends DefaultTask {
             }
         }
         verifyAvailability(platforms, components.findAll { !it.preserve }, modrinthToken, curseUploadToken)
-        Map plan = ReleasePlan.seal([schemaVersion: 1, version: version,
+        Map identity = pluginOnly ? [componentKind: 'plugin-only', githubTag: releaseTag] : [:]
+        Map plan = ReleasePlan.seal(identity + [schemaVersion: 1, version: version,
                 mode: existing == null ? 'tag' : 'backfill', sourceCommit: commit, tagCommit: tagCommit,
                 catalogCommit: commit, release: release, serverState: state, pluginNotes: pluginNotes,
                 platforms: catalog.mod.platforms, existingRelease: existing == null ? null :

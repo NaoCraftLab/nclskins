@@ -7,7 +7,21 @@ import java.nio.file.Files
 
 
 final class ServerPluginReleaseState {
+    static Map selected(File repository, Map catalog, String version, String commit) {
+        String plugin = ServerPluginVersion.load(repository)
+        String mod = CatalogTools.loadVersion(repository)
+        Map selection = ServerPluginVersion.select(version, mod, plugin)
+        [schemaVersion: 2, sealed: true, currentVersion: version, requestedVersion: version, pluginVersion: plugin,
+         modVersion: mod, componentKind: selection.kind, publish: selection.kind != 'mod-only', reason: selection.kind,
+         activeVersion: selection.baseline, sourceCommit: commit,
+         protocolIds: catalog.serverPlugin.protocols, matrixId: catalog.serverPlugin.matrixId]
+    }
+
     static Map compute(File repository, Map currentCatalog, String currentVersion) {
+        if (ServerPluginVersion.isFullVersion(currentVersion)) {
+            return selected(repository, currentCatalog, currentVersion,
+                    ReleaseSelection.git(repository, ['rev-parse', 'HEAD']).trim())
+        }
         if (!CatalogTools.VERSION_PATTERN.matcher(currentVersion).matches()) {
             throw new IllegalArgumentException("Invalid current plugin version ${currentVersion}")
         }

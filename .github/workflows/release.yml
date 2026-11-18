@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Exact release version to create or extend
+        description: Exact mod version or full plugin build version (for example 1.2.0.2)
         required: true
         type: string
       resume_run:
@@ -39,6 +39,7 @@ jobs:
       resumed: ${{ steps.plan.outputs.resumed }}
       baseline: ${{ steps.plan.outputs.baseline }}
       digest: ${{ steps.plan.outputs.digest }}
+      plugin_only: ${{ steps.plan.outputs.plugin_only }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -64,13 +65,33 @@ jobs:
           EVENT_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]
+          plugin_only=false
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.[1-9][0-9]*(-(alpha|beta)\.[1-9][0-9]*)?$ ]]; then
+            [[ "$EVENT_NAME" == workflow_dispatch ]]
+            plugin_only=true
+          else
+            [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-(alpha|beta)\.[1-9][0-9]*)?$ ]]
+          fi
+          line="${BASH_REMATCH[1]}"
+          lane=main
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
-            [[ "$EVENT_REF" == refs/heads/main ]]
+            if [[ "$EVENT_REF" != refs/heads/main ]]; then
+              [[ "$VERSION" == *-* && "$EVENT_REF" == "refs/heads/release/$line" ]]
+              lane="release/$line"
+            fi
+          else
+            [[ "$EVENT_NAME" == push && "$EVENT_REF" == "refs/tags/$VERSION" && -z "$RESUME_RUN" ]]
           fi
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          git merge-base --is-ancestor HEAD origin/main
+          if [[ "$lane" != main ]]; then
+            git fetch --no-tags origin "+refs/heads/$lane:refs/remotes/origin/$lane"
+          elif [[ "$EVENT_NAME" == push && "$VERSION" == *-* ]] && ! git merge-base --is-ancestor HEAD origin/main; then
+            lane="release/$line"
+            git fetch --no-tags origin "+refs/heads/$lane:refs/remotes/origin/$lane"
+          fi
+          git merge-base --is-ancestor HEAD "origin/$lane"
           printf 'catalog=%s\n' "$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          printf 'plugin_only=%s\n' "$plugin_only" >> "$GITHUB_OUTPUT"
           if [[ -n "$RESUME_RUN" ]]; then
             [[ "$RESUME_RUN" =~ ^[0-9]+$ ]]
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RESUME_RUN" > source-run.json
@@ -83,7 +104,8 @@ jobs:
             [[ -f release-bundle/release-plan.json ]]
             source="$(jq -r '.sourceCommit' release-bundle/release-manifest.json)"
             [[ "$source" =~ ^[0-9a-f]{40}$ ]]
-            git merge-base --is-ancestor "$source" origin/main
+            [[ "$source" == "$(jq -r '.head_sha' source-run.json)" ]]
+            git merge-base --is-ancestor "$source" "origin/$lane"
             printf 'source=%s\nresumed=true\nbuild=false\nmatrix={"include":[]}\n' "$source" >> "$GITHUB_OUTPUT"
           else
             ./gradlew planRelease -PreleaseTag="$VERSION" --no-daemon --console=plain
@@ -118,7 +140,7 @@ jobs:
   checks:
     name: Shared release checks
     needs: plan
-    if: needs.plan.outputs.resumed != 'true'
+    if: needs.plan.outputs.resumed != 'true' && needs.plan.outputs.plugin_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -204,7 +226,8 @@ jobs:
     needs: [plan, checks, components]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' &&
-      needs.plan.outputs.resumed != 'true' && needs.checks.result == 'success' &&
+      needs.plan.outputs.resumed != 'true' &&
+      (needs.checks.result == 'success' || (needs.plan.outputs.plugin_only == 'true' && needs.checks.result == 'skipped')) &&
       (needs.components.result == 'success' || needs.components.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 10

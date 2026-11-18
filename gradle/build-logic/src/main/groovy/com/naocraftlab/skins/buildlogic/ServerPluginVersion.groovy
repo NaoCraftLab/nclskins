@@ -43,5 +43,30 @@ final class ServerPluginVersion {
         base != 0 ? base : a.build <=> b.build
     }
 
+    static boolean isFullVersion(String version) {
+        version != null && version ==~ /\d+\.\d+\.\d+\.[1-9][0-9]*(?:-(?:alpha|beta)\.[1-9][0-9]*)?/
+    }
+
+    static Map select(String requested, String mod, String plugin) {
+        if (mod == null || !CatalogTools.VERSION_PATTERN.matcher(mod).matches()) {
+            throw new IllegalArgumentException('Invalid configured mod version')
+        }
+        Map configured = parts(plugin)
+        if (isFullVersion(requested)) {
+            if (requested != plugin || configured.build <= 1) {
+                throw new IllegalArgumentException('Plugin-only release requires the exact configured plugin version with build > 1')
+            }
+            return [kind: 'plugin-only', tag: configured.base, baseline: configured.base]
+        }
+        if (requested != mod) {
+            throw new IllegalArgumentException('Requested mod version must match modVersion')
+        }
+        int order = ServerPluginReleaseState.compareVersions(configured.base.toString(), mod)
+        if (order > 0 || (order == 0 && configured.build != 1)) {
+            throw new IllegalArgumentException('Joint release requires a matching plugin functional version and build 1')
+        }
+        [kind: order == 0 ? 'joint' : 'mod-only', tag: requested, baseline: configured.base]
+    }
+
     private ServerPluginVersion() {}
 }

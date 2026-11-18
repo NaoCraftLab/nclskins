@@ -18,6 +18,7 @@ abstract class ValidateReleaseTask extends DefaultTask {
     abstract RegularFileProperty getVersionFile()
 
     @InputFile
+    @Optional
     abstract RegularFileProperty getChangelogFile()
 
     @InputFile
@@ -34,7 +35,8 @@ abstract class ValidateReleaseTask extends DefaultTask {
 
     @TaskAction
     void validateRelease() {
-        Map metadata = ReleaseMetadata.validate(
+        Map metadata = ServerPluginVersion.isFullVersion(releaseTag.get()) ?
+                ReleaseMetadata.pluginOnly(repositoryDirectory.get().asFile, releaseTag.get()) : ReleaseMetadata.validate(
                 versionFile.get().asFile,
                 changelogFile.get().asFile,
                 releaseTag.get())

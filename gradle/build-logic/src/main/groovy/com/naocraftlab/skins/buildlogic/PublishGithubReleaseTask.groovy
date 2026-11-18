@@ -40,8 +40,9 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         String token = requireEnvironment('GITHUB_TOKEN')
         String repository = requireRepository()
         String api = apiBase()
+        String releaseTag = (manifest.githubTag ?: manifest.version).toString()
         Map tagReference = json(request(
-                'GET', "${api}/repos/${repository}/git/ref/tags/${encodePath(manifest.version.toString())}",
+                'GET', "${api}/repos/${repository}/git/ref/tags/${encodePath(releaseTag)}",
                 headers(token), null, null, [200] as Set<Integer>, token)) as Map
         String remoteTagCommit = resolveTagCommit(tagReference) { String tagObject ->
             json(request(
@@ -53,7 +54,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                     "Remote tag commit ${remoteTagCommit} differs from verified release tag " +
                             manifest.tagCommit)
         }
-        Map release = findRelease(api, repository, manifest.version.toString(), token)
+        Map release = findRelease(api, repository, releaseTag, token)
         if (manifest.mode in ['moved-tag', 'backfill', 'reconcile-tag'] && release == null) {
             throw new IllegalStateException(
                     'moved-tag/backfill/reconcile-tag requires an existing GitHub Release')
@@ -93,8 +94,8 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                     'POST', "${api}/repos/${repository}/releases", headers(token),
                     JsonOutput.toJson(metadata).getBytes(StandardCharsets.UTF_8),
                     'application/json', [201] as Set<Integer>, token)) as Map
-        } else if (manifest.existingRelease == null ||
-                release.body != metadata.body) {
+        } else if (manifest.componentKind != 'plugin-only' &&
+                (manifest.existingRelease == null || release.body != metadata.body)) {
             Map update = manifest.existingRelease == null ? new LinkedHashMap(metadata) : [body: metadata.body]
             update.remove('tag_name')
             release = json(request(
@@ -115,7 +116,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         }
 
         if (manifest.pluginReplacement != null) {
-            Map afterUpload = findRelease(api, repository, manifest.version.toString(), token)
+            Map afterUpload = findRelease(api, repository, releaseTag, token)
             Map cleanup = GithubReleaseSupport.plan(manifest, afterUpload.assets as List<Map>,
                     { Map asset -> remoteSha256(api, repository, asset, token) })
             requireNoConflicts(cleanup)
@@ -129,7 +130,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
             }
         }
 
-        Map finalRelease = findRelease(api, repository, manifest.version.toString(), token)
+        Map finalRelease = findRelease(api, repository, releaseTag, token)
         if (finalRelease == null) throw new IllegalStateException('GitHub Release disappeared after publication')
         Map finalPlan = GithubReleaseSupport.plan(
                 manifest, finalRelease.assets as List<Map>,
@@ -144,6 +145,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
 
     static String releaseBody(Map manifest) {
         if (manifest.existingRelease != null) {
+            if (manifest.componentKind == 'plugin-only') return manifest.existingRelease.body as String
             String existing = (manifest.existingRelease.body ?: '').toString()
             boolean existingPlugin = manifest.pluginReplacement != null ||
                     (manifest.preservedGithub ?: []).any { it.file.toString().startsWith('nclskins-plugin-') }

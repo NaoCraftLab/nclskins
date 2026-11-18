@@ -13,10 +13,12 @@ final class PublicationSupport {
             throw new IllegalStateException('release-manifest.json is missing or unsafe')
         }
         Object parsed = new JsonSlurper().parse(manifestFile)
+        boolean pluginOnly = parsed instanceof Map && parsed.componentKind == 'plugin-only'
         if (!(parsed instanceof Map) || parsed.schemaVersion != 4 ||
                 !(parsed.mode in ['tag', 'moved-tag', 'backfill', 'reconcile-tag']) ||
                 !(parsed.version instanceof String) ||
-                !CatalogTools.VERSION_PATTERN.matcher(parsed.version as String).matches() ||
+                (pluginOnly ? !ServerPluginVersion.isFullVersion(parsed.version) :
+                    !CatalogTools.VERSION_PATTERN.matcher(parsed.version as String).matches()) ||
                 !(parsed.sourceCommit instanceof String) ||
                 !(parsed.sourceCommit ==~ /[0-9a-f]{40}/) ||
                 !(parsed.tagCommit instanceof String) ||
@@ -29,6 +31,14 @@ final class PublicationSupport {
             throw new IllegalStateException('unsupported release manifest')
         }
         Map manifest = CatalogTools.materialize(parsed) as Map
+        if (pluginOnly && (manifest.releasePlanDigest == null || manifest.mode != 'backfill' ||
+                manifest.existingRelease?.id == null || manifest.githubTag != ServerPluginVersion.parts(manifest.version.toString()).base ||
+                manifest.targets != [] || manifest.serverPlugin.publish != true || manifest.releaseNotes.text != '')) {
+            throw new IllegalStateException('Invalid plugin-only release manifest')
+        }
+        if (!pluginOnly && (manifest.githubTag != null || manifest.componentKind != null)) {
+            throw new IllegalStateException('Unexpected release identity')
+        }
         if (manifest.pluginReplacement != null && manifest.releasePlanDigest == null) {
             throw new IllegalStateException('Plugin replacement requires a pinned release plan')
         }
@@ -108,6 +118,7 @@ final class PublicationSupport {
             Map plan = ReleasePlan.load(new File(bundleDirectory, 'release-plan.json'))
             if (plan.digest != manifest.releasePlanDigest || plan.sourceCommit != manifest.sourceCommit ||
                     plan.tagCommit != manifest.tagCommit || plan.version != manifest.version ||
+                    plan.componentKind != manifest.componentKind || plan.githubTag != manifest.githubTag ||
                     plan.components.collect { it.id }.toSet() !=
                     PublishPlatformsTask.publicationTargets(manifest).collect { it.id }.toSet() ||
                     manifest.preservedTargetIds != plan.components.findAll { it.preserve }.collect { it.id } ||
@@ -156,11 +167,12 @@ final class PublicationSupport {
 
     static void validateServerPlugin(Map manifest, Map<String, Map> assets) {
         Map server = manifest.serverPlugin as Map
+        boolean selected = server.reason in ['plugin-only', 'mod-only', 'joint']
         if (!(server.publish instanceof Boolean) ||
-                !(server.reason in ['initial', 'server-change', 'stable-promotion', 'unchanged']) ||
+                (!selected && !(server.reason in ['initial', 'server-change', 'stable-promotion', 'unchanged'])) ||
                 !(server.activeVersion instanceof String) ||
-                !(server.currentFingerprint ==~ /[0-9a-f]{64}/) ||
-                !(server.activeFingerprint ==~ /[0-9a-f]{64}/) ||
+                (!selected && (!(server.currentFingerprint ==~ /[0-9a-f]{64}/) ||
+                    !(server.activeFingerprint ==~ /[0-9a-f]{64}/))) ||
                 !(server.protocolIds instanceof List) || !(server.matrixId instanceof String) ||
                 !(server.publications instanceof Map)) {
             throw new IllegalStateException('invalid server plugin release state')
@@ -180,8 +192,8 @@ final class PublicationSupport {
         boolean validVersion = (server.pluginVersion != null && publicationVersion == server.pluginVersion) || publicationVersion == manifestVersion ||
                 (preserved && publicationVersion ==~ /${java.util.regex.Pattern.quote(manifestVersion)}\.[1-9][0-9]*/)
         Map versionParts = ServerPluginVersion.parts(publicationVersion ?: '')
-        validVersion = validVersion && ServerPluginReleaseState.compareVersions(
-                versionParts.base.toString(), manifestVersion) <= 0
+        validVersion = manifest.componentKind == 'plugin-only' ? publicationVersion == manifestVersion :
+                validVersion && ServerPluginReleaseState.compareVersions(versionParts.base.toString(), manifestVersion) <= 0
         String expectedFile = "nclskins-plugin-${publicationVersion}.jar"
         boolean validFile = artifact.file == expectedFile || (preserved && versionParts.build == 1 &&
                 artifact.file == "nclskins-plugin-${versionParts.base}.jar")

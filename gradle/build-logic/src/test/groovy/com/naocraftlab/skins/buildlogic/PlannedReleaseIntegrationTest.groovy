@@ -55,6 +55,121 @@ final class PlannedReleaseIntegrationTest {
     }
 
     @Test
+    void pluginOnlyPlansFromDescendantThenNextModTagSkipsOldPlugin() {
+        verifyPluginOnly(true)
+    }
+
+    @Test
+    void firstPluginOnlyBuildKeepsHistoricalModReleaseBody() {
+        verifyPluginOnly(false)
+    }
+
+    private void verifyPluginOnly(boolean hasPreviousPlugin) {
+        File fixture = Files.createTempDirectory('plugin-only-release-').toFile()
+        try {
+            File source = fixtureRepository(new File(fixture, 'source'), false, false)
+            String historical = ReleaseSelection.git(source, ['rev-parse', 'HEAD']).trim()
+            File mod = new File(source, 'gradle/version.properties')
+            File plugin = new File(source, 'gradle/plugin-version.properties')
+            File notes = new File(source, 'PLUGIN_CHANGELOG.md')
+            mod.text = 'modVersion=1.1.0\n'
+            plugin.text = 'pluginVersion=1.0.0\npluginBuild=2\n'
+            notes.text = '## 1.0.0.2\n\nFixture Folia notes\n'
+            ReleaseSelection.git(source, ['add', 'gradle', 'PLUGIN_CHANGELOG.md'])
+            ReleaseSelection.git(source, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                                          '-c', 'commit.gpgsign=false', 'commit', '-qm', 'New plugin build'])
+            String candidate = ReleaseSelection.git(source, ['rev-parse', 'HEAD']).trim()
+            def project = ProjectBuilder.builder().withProjectDir(fixture).build()
+            FixturePlatforms platform = project.tasks.create('preflightReleasePlatforms', FixturePlatforms)
+            platform.filesDirectory = new File(fixture, 'remote-files')
+            platform.filesDirectory.mkdirs()
+            platform.replacePlugin = true
+            platform.repository = source
+            platform.version = '1.0.0'
+            platform.recoveredBaseline = '1.0.0'
+            FixtureGithub github = project.tasks.create('preflightGithubRelease', FixtureGithub)
+            github.platform = platform
+            github.commit = historical
+            github.hasPreviousPlugin = hasPreviousPlugin
+            PlanReleaseTask planner = project.tasks.create('planFixture', PlanReleaseTask)
+            planner.repositoryDirectory.set(source)
+            planner.releaseTag.set('1.0.0.2')
+            File planDirectory = new File(fixture, 'plan')
+            File planFile = new File(planDirectory, 'release-plan.json')
+            planner.outputDirectory.set(planDirectory)
+            planner.planRelease()
+            Map plan = ReleasePlan.load(planFile)
+            assertEquals('1.0.0.2', plan.version)
+            assertEquals(candidate, plan.sourceCommit)
+            assertEquals(historical, plan.tagCommit)
+            assertEquals([], plan.buildTargetIds)
+            assertTrue(plan.buildPlugin)
+            assertEquals(['server-plugin'], platform.components*.id)
+            assertEquals('Fixture Folia notes', plan.pluginNotes.trim())
+            Map originalMods = github.release().assets.findAll { !it.name.startsWith('nclskins-plugin-') }
+                    .collectEntries { [(it.name): it] }
+            assertFalse(originalMods.isEmpty())
+            Map component = plan.components.first()
+            [component.asset, component.sourcesAsset].each { Map artifact ->
+                File destination = new File(source, "server-plugin/build/libs/${artifact.file}")
+                FixturePlatforms.writeJar(destination, destination.name, '1.0.0')
+            }
+            ExportReleaseComponentTask exporter = project.tasks.create('exportPlugin', ExportReleaseComponentTask)
+            exporter.repositoryDirectory.set(source)
+            exporter.planFile.set(planFile)
+            exporter.componentId.set('server-plugin')
+            exporter.outputDirectory.set(new File(planDirectory, 'assets'))
+            exporter.exportComponent()
+            AssemblePlannedReleaseTask assembler = project.tasks.create('bundlePlugin', AssemblePlannedReleaseTask)
+            assembler.repositoryDirectory.set(source)
+            assembler.planFile.set(planFile)
+            assembler.componentDirectory.set(new File(planDirectory, 'assets'))
+            File bundles = new File(fixture, 'release')
+            assembler.releaseRoot.set(bundles)
+            assembler.assemble()
+            File bundle = new File(bundles, '1.0.0.2')
+            Map manifest = PublicationSupport.loadManifest(bundle)
+            assertEquals(0, manifest.targetCount)
+            assertEquals(['server-plugin', 'server-plugin-sources'], manifest.assets*.kind)
+            github.bundleDirectory.set(bundle)
+            github.commit = candidate
+            assertThrows(IllegalStateException) { github.publish() }
+            assertTrue(github.mutations.isEmpty())
+            github.commit = historical
+            File preservedJar = new File(platform.filesDirectory, originalMods.keySet().first().toString())
+            byte[] preservedBytes = preservedJar.bytes
+            preservedJar.text = 'unexpected replacement'
+            assertThrows(IllegalStateException) { github.publish() }
+            assertTrue(github.mutations.isEmpty())
+            preservedJar.bytes = preservedBytes
+            github.publish()
+            List<String> expectedMutations = hasPreviousPlugin ? ['POST', 'DELETE'] : ['POST']
+            assertEquals(expectedMutations, github.mutations)
+            assertEquals(originalMods, github.release().assets.findAll { !it.name.startsWith('nclskins-plugin-') }
+                    .collectEntries { [(it.name): it] })
+            assertEquals('Original release notes', github.body)
+            github.publish()
+            assertEquals(expectedMutations, github.mutations)
+
+            new File(source, 'CHANGELOG.md').text = '## 1.1.0\n\nFixture next mod notes\n'
+            ReleaseSelection.git(source, ['add', 'CHANGELOG.md'])
+            ReleaseSelection.git(source, ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                                          '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Next mod release'])
+            ReleaseSelection.git(source, ['tag', '1.1.0'])
+            assertEquals(historical, ReleaseSelection.git(source, ['rev-parse', '1.0.0']).trim())
+            platform.fresh = true
+            github.commit = ReleaseSelection.git(source, ['rev-parse', 'HEAD']).trim()
+            planner.releaseTag.set('1.1.0')
+            planner.planRelease()
+            Map next = ReleasePlan.load(planFile)
+            assertFalse(next.buildPlugin)
+            assertEquals('1.0.0', next.serverState.activeVersion)
+            assertEquals(CatalogTools.releaseTargets(CatalogTools.loadCatalog(source))*.id, next.buildTargetIds)
+            assertEquals(next.buildTargetIds, platform.components*.id)
+        } finally { fixture.deleteDir() }
+    }
+
+    @Test
     void compatibilityBuildPreservesBaselineButNewProtocolKeepsOldFunctionalVersion() {
         File fixture = Files.createTempDirectory(
                 new File(System.getenv('TMPDIR') ?: System.getProperty('java.io.tmpdir')).toPath(),
@@ -413,6 +528,7 @@ final class PlannedReleaseIntegrationTest {
         String body = 'Original release notes'
         List<String> mutations = []
         boolean initialized
+        boolean hasPreviousPlugin = true
         @Override String requireEnvironment(String name) { 'fixture-token' }
         @Override String requireRepository() { 'fixture/repository' }
         @Override Map findRelease(String api, String repo, String tag, String token) {
@@ -425,12 +541,17 @@ final class PlannedReleaseIntegrationTest {
                         AssembleReleaseTask.artifactName(target, platform.version), platform.recoveredBaseline)
             }
             String plugin = "nclskins-plugin-${platform.version}.jar"
-            FixturePlatforms.writeJar(new File(platform.filesDirectory, plugin), plugin, platform.recoveredBaseline)
+            if (hasPreviousPlugin) {
+                FixturePlatforms.writeJar(new File(platform.filesDirectory, plugin), plugin, platform.recoveredBaseline)
+            }
             release()
         }
         Map release() {
             [id: 1, body: body, name: 'Existing release', prerelease: false,
-             assets: platform.filesDirectory.listFiles().findAll { !it.name.endsWith('-sources.jar') }.collect {
+             assets: platform.filesDirectory.listFiles().findAll {
+                 !it.name.endsWith('-sources.jar') &&
+                         (hasPreviousPlugin || it.name != "nclskins-plugin-${platform.version}.jar")
+             }.collect {
                  String name = it.name == "nclskins-plugin-${platform.version}.jar"
                          ? "nclskins-plugin-${platform.version}.1.jar" : it.name
                  [id: name, name: name, sha256: ReleaseBundle.sha256(it)]

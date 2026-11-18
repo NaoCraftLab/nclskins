@@ -69,7 +69,8 @@ abstract class AssemblePlannedReleaseTask extends DefaultTask {
         String notes = plan.release.notes.toString()
         File notesFile = new File(output, 'release-notes.md')
         Files.writeString(notesFile.toPath(), notes)
-        Map manifest = [schemaVersion: 4, mode: plan.mode, version: plan.version,
+        Map identity = plan.componentKind == 'plugin-only' ? [componentKind: plan.componentKind, githubTag: plan.githubTag] : [:]
+        Map manifest = identity + [schemaVersion: 4, mode: plan.mode, version: plan.version,
                 channel: plan.release.channel, prerelease: plan.release.prerelease,
                 sourceCommit: plan.sourceCommit, tagCommit: plan.tagCommit, baseTag: null,
                 targetCount: targets.size(), selectedTargetIds: targets.collect { it.id },

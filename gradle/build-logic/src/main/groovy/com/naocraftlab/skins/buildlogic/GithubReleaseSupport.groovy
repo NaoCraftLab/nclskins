@@ -8,8 +8,12 @@ final class GithubReleaseSupport {
         Map<String, Map> preserved = (manifest.preservedGithub ?: []).collectEntries { Map asset ->
             [(asset.assetFile?.toString() ?: asset.file.toString()): asset]
         }
+        Map<String, Map> historical = manifest.componentKind == 'plugin-only' ? preserved.findAll { String file, Map entry ->
+            entry.file == file && entry.assetFile == null && ReleasePlan.historicalModAsset(file, manifest.githubTag.toString())
+        } : [:]
         if (preserved.any { String file, Map entry ->
-            !canonical.containsKey(file) || entry.sha256 != canonical[file].sha256
+            historical.containsKey(file) ? entry.id == null || !(entry.sha256 ==~ /[0-9a-f]{64}/) :
+                    !canonical.containsKey(file) || entry.sha256 != canonical[file].sha256
         }) {
             throw new IllegalStateException('Preserved GitHub assets differ from release assets')
         }
@@ -45,10 +49,19 @@ final class GithubReleaseSupport {
                         remoteSha256.call(old) == replacement.sha256
                 actions.add([action: exact ? 'delete-previous-plugin' : 'conflict', file: name,
                              remoteId: requiredId(old), reason: exact ? 'superseded plugin build' : 'previous plugin changed'])
+            } else if (historical.containsKey(name)) {
+                Map expected = historical[name]
+                Map asset = entries.first()
+                String id = requiredId(asset)
+                boolean exact = id == expected.id.toString() && remoteSha256.call(asset) == expected.sha256
+                actions.add([action: exact ? 'keep' : 'conflict', file: name, remoteId: id, reason: 'historical mod asset'])
             } else if (!desired.containsKey(name)) {
                 actions.add([action: 'conflict', file: name, remoteId: requiredId(entries.first()),
                              reason: 'unknown existing release asset'])
             }
+        }
+        historical.keySet().findAll { !remoteByName.containsKey(it) }.each { String name ->
+            actions.add([action: 'conflict', file: name, reason: 'preserved historical mod asset is missing'])
         }
         desired.each { String name, Map expectation ->
             Map asset = expectation.asset as Map

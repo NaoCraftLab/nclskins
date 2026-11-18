@@ -6,6 +6,13 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
 final class ReleaseMetadata {
+    static Map pluginOnly(File repository, String version) {
+        Map selection = ServerPluginVersion.select(version, CatalogTools.loadVersion(repository), ServerPluginVersion.load(repository))
+        if (selection.kind != 'plugin-only') throw new IllegalArgumentException('Not a plugin-only release')
+        String channel = version.contains('-alpha.') ? 'alpha' : version.contains('-beta.') ? 'beta' : 'release'
+        [version: version, channel: channel, prerelease: channel != 'release', notes: '']
+    }
+
     static Map validate(File versionFile, File changelogFile, String releaseTag) {
         if (releaseTag == null || releaseTag.isBlank()) {
             throw new IllegalArgumentException(
