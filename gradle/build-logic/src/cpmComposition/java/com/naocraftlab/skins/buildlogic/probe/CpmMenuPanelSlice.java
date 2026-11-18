@@ -99,6 +99,9 @@ final class CpmMenuPanelSlice implements AutoCloseable {
     void animate(com.naocraftlab.skins.core.png.CapeTimeline timeline, List<TextureRegistry.TextureHandle> frames) {
         fixture.animate(timeline, frames);
     }
+    void animate(com.naocraftlab.skins.core.png.CapeTimeline timeline, List<TextureRegistry.TextureHandle> frames, boolean glint) {
+        fixture.animate(timeline, frames, glint);
+    }
     void animationTime(long elapsedMillis) { fixture.animationTime(elapsedMillis); }
     void replaceCapeAsset(TextureRegistry.TextureHandle handle) { fixture.replaceCapeAsset(handle); }
     com.naocraftlab.skins.client.CapeAssetOwner capeOwner() {

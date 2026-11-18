@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.playerinfo.mixin;
 
+import com.naocraftlab.skins.compat.client.MinecraftUserProfileId;
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
@@ -35,7 +36,7 @@ abstract class PlayerInfoProviderMixin implements MinecraftProviderVisibility.Pl
     }
 
     private boolean nclskins$local() {
-        return Minecraft.getInstance().getUser().getProfileId().equals(((PlayerInfo) (Object) this).getProfile().getId());
+        return MinecraftUserProfileId.read(Minecraft.getInstance().getUser()).equals(((PlayerInfo) (Object) this).getProfile().getId());
     }
 
     @Override

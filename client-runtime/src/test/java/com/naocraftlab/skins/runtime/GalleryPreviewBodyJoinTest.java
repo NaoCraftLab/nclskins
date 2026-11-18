@@ -51,6 +51,60 @@ final class GalleryPreviewBodyJoinTest {
         } finally {f.runtime.close();}
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void noneInspectionRespectsNativeContentAndGalleryAdmission(boolean onlyNative) throws Exception {
+        var f = fixture();
+        try {
+            var environment = ClientRuntime.class.getDeclaredField("skinExtensionEnvironment"); environment.setAccessible(true);
+            environment.set(f.runtime, new SkinExtensionEnvironment(0, Map.of(), true));
+            GalleryInspectLayersTest.providers(f, f.runtime.snapshot().providers());
+            if (onlyNative) for (var provider : List.of(com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE,
+                    com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT,
+                    com.naocraftlab.skins.core.provider.BuiltinProvider.SNEAKY)) {
+                if (f.runtime.snapshot().providers().cape().enabled(provider))
+                    GallerySneakyPreparationJoinTest.change(f, f.operations.disableProvider(
+                            com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE, provider));
+            }
+            assertTrue(f.view().widget("gallery.inspect.none").isEmpty());
+            if (onlyNative) {
+                assertTrue(f.runtime.galleryPreviewCandidate().isEmpty(), "CPM alone does not admit the writable Gallery route");
+                f.runtime.dispatchWidget("gallery.inspect.none");
+                assertTrue(f.runtime.galleryPreviewCandidate().isEmpty());
+                return;
+            }
+            var live = new AtomicReference<>(new PreviewAccessories(new UUID(0, 91), 1,
+                    PreviewAccessories.Availability.CONFIRMED, true, true, PreviewRenderer.LiveReason.AVAILABLE, true, true));
+            f.runtime.observePreviewAccessories(f.runtime.galleryPreviewCandidate().orElseThrow(), live::get);
+            var empty = f.runtime.galleryPreviewCandidate().orElseThrow();
+            f.runtime.observePreviewBody(empty, () -> PreviewRenderer.DisplayKind.CPM).accept(PreviewRenderer.BodyStatus.READY);
+            assertTrue(f.view().widget("gallery.inspect.none").orElseThrow().activationEnabled());
+            f.runtime.dispatchWidget("gallery.inspect.none");
+            var inspected = f.runtime.galleryPreviewCandidate().orElseThrow();
+            assertEquals(Optional.of("none"), inspected.bodySource().orElseThrow().inspectionIdentity());
+            var callback = f.runtime.observePreviewAccessories(inspected, live::get);
+            live.set(new PreviewAccessories(new UUID(0, 91), 2,
+                    PreviewAccessories.Availability.CONFIRMED, true, true, PreviewRenderer.LiveReason.AVAILABLE));
+            callback.accept(live.get());
+            var current = f.runtime.galleryPreviewCandidate().orElseThrow();
+            assertTrue(current.bodySource().orElseThrow().inspectionIdentity().isEmpty());
+            assertNotEquals(inspected.bodySource(), current.bodySource());
+            f.runtime.observePreviewBody(current, () -> PreviewRenderer.DisplayKind.CPM).accept(PreviewRenderer.BodyStatus.READY);
+            assertTrue(f.view().widget("gallery.inspect.none").isEmpty());
+            live.set(new PreviewAccessories(new UUID(0, 91), 3,
+                    PreviewAccessories.Availability.CONFIRMED, true, true, PreviewRenderer.LiveReason.AVAILABLE, true, true));
+            callback.accept(live.get());
+            assertTrue(f.view().widget("gallery.inspect.none").isEmpty(), "Retired none callback cannot restore native absence");
+            f.runtime.observePreviewAccessories(current, live::get);
+            var next = f.runtime.galleryPreviewCandidate().orElseThrow();
+            f.runtime.observePreviewBody(next, () -> PreviewRenderer.DisplayKind.CPM).accept(PreviewRenderer.BodyStatus.READY);
+            assertTrue(f.view().widget("gallery.inspect.none").orElseThrow().activationEnabled());
+            f.runtime.dispatchWidget("gallery.inspect.none");
+            assertEquals(Optional.of("none"), f.runtime.galleryPreviewCandidate().orElseThrow()
+                    .bodySource().orElseThrow().inspectionIdentity());
+        } finally { f.runtime.close(); }
+    }
+
     @Test void exactNativeCapeIconSurvivesItsOwnInspectionAndColdSuccessorWithoutWrites() throws Exception {
         var f=fixture();
         try {

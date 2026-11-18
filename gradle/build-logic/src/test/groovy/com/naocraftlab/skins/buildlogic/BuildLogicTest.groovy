@@ -21,6 +21,72 @@ final class BuildLogicTest {
     private final Map catalog = CatalogTools.loadCatalog(repository)
     private final Map abi = CatalogTools.loadJson(new File(repository, 'gradle/abi-fingerprints.json'))
     private final Map modMenuAbi = CatalogTools.loadJson(new File(repository, 'gradle/modmenu-abi.json'))
+    @Test
+    void stringOnlyNativeFixtureSourcesAreCompiledOnlyForTheirSelectedAbi() {
+        def common = new File('CpmSessionPublicationProbe.java')
+        def sources = [common, new File('NativeCurrentAppearanceProbe.java'),
+                       new File('NativeRenderIdentityProbe.java'), new File('NativeUserProfileReadProbe.java')]
+        assertEquals(sources, VerifyCpmIntegrationTask.selectProbeSources(sources, true))
+        assertEquals([common], VerifyCpmIntegrationTask.selectProbeSources(sources, false))
+    }
+    @Test
+    void nativeMeasurementCompilesCommonSourcesWithoutStringOnlyFixtures() {
+        File work = Files.createTempDirectory('ncl-measurement-selection').toFile()
+        try {
+            def project = org.gradle.testfixtures.ProjectBuilder.builder().withProjectDir(work).build()
+            def task = project.tasks.create('measurement', VerifyCpmNativeMeasurementTask)
+            File probe = new File(repository, 'gradle/build-logic/src/cpmComposition')
+            def all = project.fileTree(new File(probe, 'java')).matching { include '**/*.java' }.files.toList().sort { it.path }
+            def selected = task.commonProbeSources(probe)
+            assertEquals(VerifyCpmIntegrationTask.selectProbeSources(all, false), selected)
+            assertEquals(3, all.size() - selected.size())
+            assertTrue(selected.any { it.name == 'CpmSessionPublicationProbe.java' })
+        } finally { work.deleteDir() }
+    }
+    @Test
+    void canonicalIdentityProbeSelectionUsesCatalogAbiRatherThanFacadePresence() {
+        String conventions = new File(repository, 'gradle/target-conventions.gradle').text
+        String registration = conventions.substring(conventions.indexOf('def cpmIntegrationTask ='),
+                conventions.indexOf('def isolationTask ='))
+        for (Map target : catalog.targets) {
+            File work = Files.createTempDirectory('ncl-identity-registration').toFile()
+            try {
+                def project = org.gradle.testfixtures.ProjectBuilder.builder().withProjectDir(work).build()
+                project.pluginManager.apply('java')
+                project.configurations.create('cpmCompositionRuntime')
+                def binding = new Binding([
+                        tasks: project.tasks, configurations: project.configurations, sourceSets: project.sourceSets,
+                        layout: project.layout, repositoryRoot: project.layout.projectDirectory,
+                        abiSourceSet: project.sourceSets.main, spec: target, nativeMeasurementTask: null,
+                        nclskinsVerifyCpmIntegrationTaskType: VerifyCpmIntegrationTask])
+                new GroovyShell(getClass().classLoader, binding).evaluate(registration)
+                def task = project.tasks.named('verifyCpmIntegration', VerifyCpmIntegrationTask).get()
+                assertEquals(target.capabilities.session == 'minecraft-user-string-profile-id', task.stringUserProfileId.get())
+                assertNotNull(task.inputs.properties['stringUserProfileId'])
+                String bundle = catalog.capabilityImplementations[target.capabilities.session].bundle
+                def readers = catalog.sourceBundles[bundle].java.collect { new File(repository,
+                        it + '/com/naocraftlab/skins/compat/client/MinecraftUserProfileId.java') }.findAll { it.isFile() }
+                assertEquals(1, readers.size())
+            } finally { work.deleteDir() }
+        }
+    }
+    @Test
+    void stringProfileSessionIsSelectedOnlyForStringUuidTargets() {
+        String stringId = 'minecraft-user-string-profile-id'
+        String uuidId = 'minecraft-user-uuid-profile-id'
+        assertEquals(['fabric-1.20.1', 'forge-1.20.1'] as Set,
+                (catalog.targets as List).findAll { it.capabilities.session == stringId }.collect { it.id } as Set)
+        assertTrue((catalog.targets as List).findAll { it.minecraft.version != '1.20.1' }
+                .every { it.capabilities.session == uuidId })
+        assertEquals(['compat/capabilities/session/minecraft-user-v1/src/main/java'],
+                catalog.sourceBundles[uuidId].java)
+        assertEquals([stringId], catalog.sourceBundles['resource-location-current'].requires)
+        assertEquals(['1.20.1'], abi.implementations[stringId].epochs)
+        assertFalse(abi.implementations[uuidId].epochs.contains('1.20.1'))
+        assertTrue((abi.implementations[stringId].classes as List)
+                .find { it.name == 'net.minecraft.client.User' }.members
+                .any { it.name == 'getUuid' && it.descriptor == '()Ljava/lang/String;' })
+    }
 @Test
     void cpmSubprocessesUseDistinctEmptyHeadlessTemporaryDirectories() {
         File work = Files.createTempDirectory('ncl-cpm-registration').toFile()

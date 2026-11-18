@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.waveycapes;
 
+import com.naocraftlab.skins.compat.client.MinecraftUserProfileId;
 import com.naocraftlab.skins.client.ExactLocalPlayerScope;
 import com.naocraftlab.skins.client.TextureUseValidity;
 import com.naocraftlab.skins.compat.client.cape.CapePassMaterial;
@@ -48,7 +49,7 @@ public final class WaveyCapesSupport implements ModSupport, CapeRenderer, AutoCl
         TextureUseValidity preview = ExactLocalPlayerScope.capeValidity(actor, installed.toString());
         TextureUseValidity validity = preview != null ? preview : CapeProjection.captureCapeTexture(
                 actor.getUUID(), actor.getScoreboardName(),
-                actor.getUUID().equals(Minecraft.getInstance().getUser().getProfileId()), installed.toString());
+                actor.getUUID().equals(MinecraftUserProfileId.read(Minecraft.getInstance().getUser())), installed.toString());
         return validity.isValid() ? validity : null;
     }
 

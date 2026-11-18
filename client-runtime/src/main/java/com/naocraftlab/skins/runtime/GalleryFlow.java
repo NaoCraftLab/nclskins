@@ -224,7 +224,7 @@ final class GalleryFlow {
         if (!state.draftInitialized) return null;
         var inputDraft = new GalleryPresenter.DraftInput(Optional.ofNullable(state.selectedPresetId),state.baselineMask,
                 state.draftMask,skinSelectionGeneration,Optional.empty(),java.util.Set.of(),Optional.empty(),PreviewRenderer.DisplayKind.UNCONFIRMED);
-        var base = GalleryPresenter.mainAppearance(context.snapshot(), inputDraft, context.currentPlayerVariant(), capeChoices(false), false, false);
+        var base = GalleryPresenter.mainAppearance(context.snapshot(), inputDraft, context.currentPlayerVariant(), capeChoices(false, false), false, false);
         return context.previewSource(base.revision(), base.variant(), base.presetId(), skinSelectionGeneration)
                 + ":" + state.openingGeneration + ":" + base.skin()
                 + ":" + base.capeId() + ":" + base.capeHasElytra() + ":" + base.intent() + ":" + previewMask()
@@ -310,13 +310,15 @@ final class GalleryFlow {
                 hash = sneaky.result.comparisonKey();
             else if (candidate.texture().isPresent()) {
                 String capeId = candidate.texture().orElseThrow();
-                var ready = context.prepareCapeComparison(capeId);
-                ready.ifPresent(value -> {
-                    var known = capeIdentities.get(capeId);
-                    if (value.key().isPresent() || known == null || !known.scope().equals(scope))
-                        capeIdentities.put(capeId, new CapeIdentity(scope, value.key()));
-                });
                 var identity = capeIdentities.get(capeId);
+                if (identity == null || !identity.scope().equals(scope) || identity.comparisonKey().isEmpty()) {
+                    context.prepareCapeComparison(capeId).ifPresent(value -> {
+                        var known = capeIdentities.get(capeId);
+                        if (value.key().isPresent() || known == null || !known.scope().equals(scope))
+                            capeIdentities.put(capeId, new CapeIdentity(scope, value.key()));
+                    });
+                    identity = capeIdentities.get(capeId);
+                }
                 if (identity != null && identity.scope().equals(scope)) hash = identity.comparisonKey();
                 else pending = true;
             }
@@ -431,7 +433,8 @@ final class GalleryFlow {
                 && context.snapshot().skinExtensionEnvironment().cpmPresent()
                 && context.snapshot().providers().cape().enabled(BuiltinProvider.CPM);
         if (!Objects.equals(state.inspectionScope, inspectionScope())
-                || !nativePending && capeChoices().stream().noneMatch(c -> c.id().equals(state.inspectionIdentity))) {
+                || !nativePending && capeChoices(state.inspectionIdentity.equals("none"), false).stream()
+                        .noneMatch(c -> c.id().equals(state.inspectionIdentity))) {
             state.inspectionIdentity = null;
             return Optional.empty();
         }
@@ -439,7 +442,7 @@ final class GalleryFlow {
     }
 
     private String inspectionScope() {
-        return capeIdentityScope() + ":" + previewMask() + ":" + capeChoices(false, false).stream()
+        return capeIdentityScope() + ":" + capeChoices(false, false).stream()
                         .filter(c -> c.id().equals(state.inspectionIdentity))
                         .map(c -> java.util.List.of(c.id(), c.texture(), c.hasElytra(), c.content())).toList()
                 + ":" + context.snapshot().providers().cape().configurationRevision();

@@ -186,6 +186,7 @@ public final class MinecraftCapeFallbackProbe {
         map(types, "com/mojang/authlib/minecraft/MinecraftProfileTexture$Type", TextureType.class);
         map(types, "net/minecraft/client/Minecraft", Client.class);
         map(types, "net/minecraft/client/User", User.class);
+        map(types, "com/naocraftlab/skins/compat/client/MinecraftUserProfileId", User.class);
         map(types, "net/minecraft/client/multiplayer/PlayerInfo", Info.class);
         map(types, "net/minecraft/resources/ResourceLocation", Location.class);
         map(types, "net/minecraft/resources/Identifier", Location.class);
@@ -407,7 +408,10 @@ public final class MinecraftCapeFallbackProbe {
         public boolean isLocalPlayer(UUID id) { return SELF.equals(id); }
         public User getUser() { return new User(); }
     }
-    public static final class User { public UUID getProfileId() { return SELF; } }
+    public static final class User {
+        public UUID getProfileId() { return SELF; }
+        public static UUID read(User user) { return user.getProfileId(); }
+    }
     public enum TextureType { SKIN, CAPE, ELYTRA }
     public enum Model { WIDE, SLIM }
     public record Skin(Location texture, String textureUrl, Location capeTexture, Location elytraTexture, Model model, boolean secure) {}

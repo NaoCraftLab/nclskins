@@ -30,6 +30,10 @@ final class GalleryCapeGroupingJoinTest {
     }
 
     private GalleryRuntimeSelectionTest fixture(boolean completeSneaky, boolean prepared, boolean terminalComparisonFailure) throws Exception {
+        return fixture(completeSneaky, prepared, terminalComparisonFailure, 0);
+    }
+
+    private GalleryRuntimeSelectionTest fixture(boolean completeSneaky, boolean prepared, boolean terminalComparisonFailure, int extraPresets) throws Exception {
         var support = new GallerySneakyPreparationJoinTest();
         support.directory = directory;
         var f = support.fixture();
@@ -49,6 +53,14 @@ final class GalleryCapeGroupingJoinTest {
                 old.accountId(), old.skinAssets(), old.personalSkins(), old.presets().stream().map(p ->
                 p.id().equals(GalleryRuntimeSelectionTest.B) ? p.withOfflineCape(cape) : p).toList(),
                 old.updatedAt(), old.personalCapes()));
+        if (extraPresets > 0) f.storage.updateAccount(GalleryRuntimeSelectionTest.ACCOUNT, old -> {
+            var presets = new ArrayList<>(old.presets());
+            for (int i = 0; i < extraPresets; i++) presets.add(new com.naocraftlab.skins.core.model.AppearancePreset(
+                    new java.util.UUID(0, 500 + i), "Extra " + i, com.naocraftlab.skins.core.model.SkinReference.accountDefault(),
+                    null, GalleryApplyTest.NOW.minusSeconds(i + 1), GalleryApplyTest.NOW));
+            return new AccountState(old.schemaVersion(), old.accountId(), old.skinAssets(), old.personalSkins(), presets,
+                    old.updatedAt(), old.personalCapes());
+        });
         if (terminalComparisonFailure) f.beforeOperation = name -> {
             if (name.equals("loadCapePreviewResult")) throw new IllegalStateException("Synthetic comparison unavailable");
         };
@@ -514,6 +526,145 @@ final class GalleryCapeGroupingJoinTest {
         } finally { f.runtime.close(); }
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void semanticBodyCurrentnessReusesConfirmedComparisonMetadata(boolean offlineInspection) throws Exception {
+        var f = fixture();
+        var contextField = GalleryFlow.class.getDeclaredField("context"); contextField.setAccessible(true);
+        var flowField = ClientRuntime.class.getDeclaredField("galleryFlow"); flowField.setAccessible(true);
+        var flow = (GalleryFlow) flowField.get(f.runtime);
+        var delegate = contextField.get(flow);
+        try {
+            if (offlineInspection) {
+                while (f.runtime.snapshot().providers().cape().order().indexOf(com.naocraftlab.skins.core.provider.BuiltinProvider.SNEAKY) > 0)
+                    GallerySneakyPreparationJoinTest.change(f, f.operations.moveProvider(
+                            com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                            com.naocraftlab.skins.core.provider.BuiltinProvider.SNEAKY, -1));
+            }
+            GalleryInspectLayersTest.ordinary(f);
+            String inspected = offlineInspection ? "OFFLINE" : "SNEAKY";
+            String offline = f.view().backEquipmentPreviews().stream().filter(p -> p.id().equals("gallery.inspect.OFFLINE.preview"))
+                    .findFirst().orElseThrow().capeId();
+            f.runtime.dispatchWidget("gallery.inspect." + inspected); GalleryInspectLayersTest.ordinary(f);
+            var loaded = f.runtime.loadCapePreview(offline); f.drain();
+            assertTrue(loaded.join().isPresent());
+            var preview = candidate(f);
+            assertEquals(Optional.of(inspected), preview.bodySource().orElseThrow().inspectionIdentity());
+            var comparisons = new java.util.concurrent.atomic.AtomicInteger();
+            contextField.set(flow, java.lang.reflect.Proxy.newProxyInstance(GalleryFlow.Context.class.getClassLoader(),
+                    new Class<?>[]{GalleryFlow.Context.class}, (proxy, method, args) -> {
+                        if (method.getName().equals("prepareCapeComparison")) comparisons.incrementAndGet();
+                        try { return method.invoke(delegate, args); }
+                        catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+                    }));
+            for (int i = 0; i < 20; i++) {
+                assertTrue(flow.previewStillCurrent(preview));
+                assertTrue(flow.accessoryStillCurrent(preview));
+                var admitted = flow.admissionPreview().orElseThrow();
+                assertEquals(preview.bodySource(), admitted.bodySource());
+                assertEquals(preview.capeId(), admitted.capeId());
+                assertEquals(preview.outerLayerVisibility(), admitted.outerLayerVisibility());
+            }
+            assertEquals(0, comparisons.get(), "Confirmed same-scope comparison metadata must not be prepared again by source guards");
+            GallerySneakyPreparationJoinTest.change(f, f.operations.disableProvider(
+                    com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE,
+                    com.naocraftlab.skins.core.provider.BuiltinProvider.valueOf(inspected)));
+            assertFalse(flow.previewStillCurrent(preview));
+            assertTrue(flow.admissionPreview().orElseThrow().bodySource().orElseThrow().inspectionIdentity().isEmpty());
+        } finally {
+            contextField.set(flow, delegate); f.runtime.close();
+        }
+    }
+
+    @Test void benignActionsAndTheirCompletionsPreserveExactInspectionAfterMaskChange() throws Exception {
+        var f = fixture(true, false, true, 24);
+        try {
+            var stateField = ClientRuntime.class.getDeclaredField("state"); stateField.setAccessible(true);
+            var state = stateField.get(f.runtime);
+            var sessionField = state.getClass().getDeclaredField("session"); sessionField.setAccessible(true);
+            sessionField.set(state, new com.naocraftlab.skins.core.service.SessionValidation(
+                    com.naocraftlab.skins.core.service.SessionStatus.OFFLINE_OR_INVALID, f.identity.get(), null, null, "Synthetic offline"));
+            GalleryInspectLayersTest.providers(f, f.runtime.snapshot().providers());
+            GalleryInspectLayersTest.ordinary(f);
+            f.runtime.dispatchWidget("gallery.inspect.SNEAKY"); GalleryInspectLayersTest.ordinary(f);
+            f.runtime.dispatchWidget("gallery.outer_layer.head"); GalleryInspectLayersTest.ordinary(f);
+            var inspected = candidate(f);
+            assertEquals(Optional.of("SNEAKY"), inspected.bodySource().orElseThrow().inspectionIdentity());
+            f.runtime.dispatchText("gallery.search", "B");
+            assertEquals(Optional.of("B"), f.view().widget("gallery.search").orElseThrow().value());
+            assertEquals(inspected, candidate(f));
+            f.runtime.dispatchText("gallery.search", "");
+            for (boolean collapsed : List.of(true, false)) {
+                assertTrue(f.view().widget("gallery.your_appearances").orElseThrow().activationEnabled());
+                f.runtime.dispatchWidget("gallery.your_appearances"); f.drain();
+                assertEquals(collapsed, f.storage.loadUiPreferences(GalleryRuntimeSelectionTest.ACCOUNT).preferences()
+                        .collapsedGallerySections().contains("gallery.your_appearances"));
+                assertEquals(inspected, candidate(f));
+            }
+            var small = f.runtime.view(320, 240, 0, 0);
+            var cards = small.scrollSurface("gallery.cards").orElseThrow();
+            assertTrue(cards.maximumPixels() > 0);
+            f.runtime.nativeScrollPositionChanged("gallery.cards", Math.min(10.5, cards.maximumPixels()));
+            assertTrue(f.runtime.view(320, 240, 0, 0).scrollSurface("gallery.cards").orElseThrow().offsetPixels() > 0);
+            assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD, "gallery.add"));
+            assertEquals("gallery.search", f.runtime.view(320, 240, 0, 0).focusRequest().orElseThrow().widgetId());
+            f.view();
+            assertEquals(inspected, candidate(f));
+            String other = "gallery.preset." + new java.util.UUID(0, 303);
+            f.view();
+            f.runtime.dispatchWidget(other + ".more");
+            assertTrue(f.view().widget(other + ".delete").orElseThrow().activationEnabled());
+            f.runtime.dispatchWidget(other + ".delete");
+            assertTrue(f.view().widget(other + ".delete_cancel").orElseThrow().activationEnabled());
+            f.runtime.dispatchWidget(other + ".delete_cancel");
+            assertEquals(inspected, candidate(f));
+            String selected = "gallery.preset." + GalleryRuntimeSelectionTest.B;
+            for (boolean favorite : List.of(true, false)) {
+                f.runtime.dispatchWidget(selected + ".more");
+                assertTrue(f.view().widget(selected + ".favorite").orElseThrow().activationEnabled());
+                f.runtime.dispatchWidget(selected + ".favorite"); f.drain();
+                assertEquals(favorite, f.storage.loadOrCreateAccount(GalleryRuntimeSelectionTest.ACCOUNT).presets().stream()
+                        .filter(p -> p.id().equals(GalleryRuntimeSelectionTest.B)).findFirst().orElseThrow().favorite());
+                assertEquals(inspected, candidate(f));
+            }
+            assertTrue(f.view().widget("gallery.preview_mode").orElseThrow().activationEnabled());
+            f.runtime.dispatchWidget("gallery.preview_mode"); f.drain(); GalleryInspectLayersTest.ordinary(f);
+            assertNotEquals(inspected.capeMode(), candidate(f).capeMode());
+            assertEquals(inspected.capeId(), candidate(f).capeId());
+            assertEquals(inspected.bodySource().orElseThrow().inspectionIdentity(), candidate(f).bodySource().orElseThrow().inspectionIdentity());
+            var afterMode = candidate(f);
+            var providers = f.runtime.snapshot().providers();
+            var inventory = ScopedEditorSaveTest.inventory(directory);
+            var calls = new ArrayList<String>();
+            f.beforeOperation = calls::add;
+            assertTrue(f.view().widget("gallery.retry_session").orElseThrow().activationEnabled());
+            f.runtime.dispatchWidget("gallery.retry_session");
+            assertEquals(ClientSnapshot.SessionActivity.RECONNECTING, f.runtime.snapshot().sessionActivity());
+            f.drain();
+            f.runtime.acknowledgeViewRendered(f.view());
+            for (int tick = 0; tick < 6; tick++) { f.runtime.tick(); f.drain(); }
+            assertTrue(calls.contains("retrySession"));
+            assertEquals(ClientSnapshot.SessionActivity.NONE, f.runtime.snapshot().sessionActivity());
+            assertEquals(afterMode, candidate(f));
+            assertEquals(providers, f.runtime.snapshot().providers());
+            assertEquals(inventory, ScopedEditorSaveTest.inventory(directory));
+            f.expectedGalleryReconciliation = true;
+            int reconciliations = f.reconciliations.get();
+            f.runtime.dispatchWidget("gallery.retry_cape"); f.drain();
+            assertEquals(reconciliations + 1, f.reconciliations.get());
+            assertEquals(afterMode, candidate(f));
+            f.runtime.dispatchWidget(other + ".more"); f.runtime.dispatchWidget(other + ".delete");
+            assertTrue(f.view().widget(other + ".delete_confirm").orElseThrow().activationEnabled());
+            f.runtime.dispatchWidget(other + ".delete_confirm"); f.drain();
+            assertTrue(f.storage.loadOrCreateAccount(GalleryRuntimeSelectionTest.ACCOUNT).presets().stream()
+                    .noneMatch(p -> p.id().equals(new java.util.UUID(0, 303))));
+            for (int i = 0; i < 3; i++) {
+                f.view(); assertEquals(afterMode, candidate(f));
+                assertEquals(Optional.of("active"), f.view().widget("gallery.inspect.SNEAKY").orElseThrow().value());
+            }
+        } finally { f.runtime.close(); }
+    }
+
     @Test void preparedSourceRemainsUsableAcrossMetadataPublicationAndPriorityGrouping() throws Exception {
         var f = fixture(true, true);
         try {
@@ -537,6 +688,56 @@ final class GalleryCapeGroupingJoinTest {
                 f.drain();
                 try (var pixels = frame.join().orElseThrow()) { assertEquals(64, pixels.width()); }
             }
+        } finally { f.runtime.close(); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void layerChangeKeepsExactMemberBeforeAndAfterDelayedMerge(boolean mergeFirst) throws Exception {
+        var f = fixture();
+        try {
+            GalleryInspectLayersTest.ordinary(f);
+            f.runtime.dispatchWidget("gallery.inspect.SNEAKY");
+            GalleryInspectLayersTest.ordinary(f);
+            var inspected = candidate(f);
+            assertEquals(Optional.of("SNEAKY"), inspected.bodySource().orElseThrow().inspectionIdentity());
+            var exactBytes = f.runtime.loadCapePreview(inspected.capeId().orElseThrow()).join().orElseThrow();
+            String offline = f.view().backEquipmentPreviews().stream()
+                    .filter(p -> p.id().equals("gallery.inspect.OFFLINE.preview")).findFirst().orElseThrow().capeId();
+            var merge = f.runtime.loadCapePreview(offline);
+            assertFalse(merge.isDone());
+            if (mergeFirst) f.drain();
+            assertEquals(mergeFirst, f.view().widget("gallery.inspect.SNEAKY").isEmpty());
+            var before = candidate(f);
+            var inventory = ScopedEditorSaveTest.inventory(directory);
+            var providers = f.runtime.snapshot().providers();
+            assertTrue(f.view().widget("gallery.outer_layer.body").orElseThrow().activationEnabled());
+            f.runtime.dispatchWidget("gallery.outer_layer.body");
+            var desired = candidate(f);
+            assertEquals(Optional.of("SNEAKY"), desired.bodySource().orElseThrow().inspectionIdentity());
+            assertEquals(inspected.capeId(), desired.capeId());
+            assertEquals(inspected.skin(), desired.skin());
+            assertEquals(inspected.intent(), desired.intent());
+            assertEquals(before.bodySource().orElseThrow().draftGeneration() + 1,
+                    desired.bodySource().orElseThrow().draftGeneration());
+            assertEquals(EditorOuterLayerCycle.cycle("body", before.outerLayerVisibility(), 1), desired.outerLayerVisibility());
+            GalleryInspectLayersTest.retained(f, before);
+            GalleryInspectLayersTest.ordinary(f);
+            f.drain();
+            assertTrue(merge.join().isPresent());
+            assertTrue(f.view().widget("gallery.inspect.SNEAKY").isEmpty());
+            assertEquals(Optional.of("active"), f.view().widget("gallery.inspect.OFFLINE").orElseThrow().value());
+            assertEquals(desired, candidate(f), "Metadata merge must preserve the newly admitted mask composition");
+            assertEquals(desired, GalleryInspectLayersTest.main(f));
+            assertArrayEquals(exactBytes, f.runtime.loadCapePreview(desired.capeId().orElseThrow()).join().orElseThrow());
+            assertNotEquals(Optional.of(offline), desired.capeId(), "Equal image does not transfer owning source to the representative");
+            var loads = new java.util.concurrent.atomic.AtomicInteger();
+            f.beforeOperation = name -> { if (name.startsWith("load") || name.startsWith("openPrepared")) loads.incrementAndGet(); };
+            for (int i = 0; i < 5; i++) assertEquals(desired, candidate(f));
+            assertEquals(0, loads.get());
+            assertTrue(f.workers.isEmpty());
+            assertEquals(providers, f.runtime.snapshot().providers());
+            assertEquals(inventory, ScopedEditorSaveTest.inventory(directory));
         } finally { f.runtime.close(); }
     }
 

@@ -5,11 +5,13 @@ import com.mojang.authlib.minecraft.MinecraftProfileTexture;
 import com.naocraftlab.skins.client.CurrentPlayerAppearanceSource;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.TextureRegistry.TextureHandle;
+import com.naocraftlab.skins.compat.client.MinecraftUserProfileId;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.User;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.resources.ResourceLocation;
@@ -35,7 +37,7 @@ public final class ResourceLocationCurrentPlayerAppearanceSource
 
     @Override
     public PlayerAppearance defaultPlayerAppearance() {
-        UUID profileId = Minecraft.getInstance().getUser().getProfileId();
+        UUID profileId = MinecraftUserProfileId.read(Minecraft.getInstance().getUser());
         return new PlayerAppearance(new TextureHandle(DefaultPlayerSkin.getDefaultSkin(profileId).toString(), 64, 64),
                 defaultModel(profileId), Optional.empty());
     }
@@ -43,8 +45,12 @@ public final class ResourceLocationCurrentPlayerAppearanceSource
     @Override
     public PlayerAppearance currentPlayerAppearance() {
         Minecraft minecraft = Minecraft.getInstance();
-        GameProfile profile = minecraft.getUser().getGameProfile();
-        UUID profileId = profile.getId() == null ? new UUID(0L, 0L) : profile.getId();
+        User user = minecraft.getUser();
+        UUID profileId = MinecraftUserProfileId.canonical(user);
+        GameProfile profile = profileId == null ? user.getGameProfile() : null;
+        if (profileId == null) {
+            profileId = profile.getId() == null ? new UUID(0L, 0L) : profile.getId();
+        }
         initializeProfile(profileId);
 
         Optional<PlayerAppearance> installed = installedAppearance.apply(profileId);
@@ -60,7 +66,7 @@ public final class ResourceLocationCurrentPlayerAppearanceSource
                     ? SkinModel.SLIM
                     : SkinModel.CLASSIC;
         } else {
-            startSkinLookupWhenAvailable(minecraft, profile, profileId);
+            startSkinLookupWhenAvailable(minecraft, user, profile, profileId);
         }
 
         return new PlayerAppearance(
@@ -82,7 +88,7 @@ public final class ResourceLocationCurrentPlayerAppearanceSource
     }
 
     private synchronized void startSkinLookupWhenAvailable(
-            Minecraft minecraft, GameProfile profile, UUID profileId) {
+            Minecraft minecraft, User user, GameProfile profile, UUID profileId) {
         if (!profileId.equals(resolvedProfileId) || skinLookupStarted) {
             return;
         }
@@ -97,7 +103,7 @@ public final class ResourceLocationCurrentPlayerAppearanceSource
 
         try {
             skinManager.registerSkins(
-                    profile,
+                    profile != null ? profile : user.getGameProfile(),
                     (type, location, texture) ->
                             textureAvailable(profileId, type, location, texture),
                     false);

@@ -125,10 +125,15 @@ public final class SimplePreviewRenderer
 
     @Override
     public void render(GuiGraphics graphics, PreviewRequest request) {
-        String skin = request.appearance().skin().location();
+        var appearance = request.appearance();
+        String skin = appearance.skin().location();
         var registration = com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin);
+        var menuCape = imageSource == null && request.intent() == PreviewIntent.CURRENT_APPEARANCE
+                ? appearance.cape().orElse(null) : null;
+        var capeOwner = menuCape == null ? null : appearance.capeAssetOwner();
+        if (capeOwner != null && !capeOwner.ownsFrame(menuCape.location())) return;
         if (imageSource == null) {
-            var identity = java.util.List.of(request.appearance(), registration);
+            var identity = java.util.List.of(capeOwner == null ? appearance : new MenuCapeImageIdentity(appearance), registration);
             if (!java.util.Objects.equals(implicitImageSource, identity)) {
                 if (displayedImageSession != null) {
                     if (imageSession != displayedImageSession) imageSession.invalidateDisplayedBody();
@@ -155,6 +160,7 @@ public final class SimplePreviewRenderer
             return;
         }
         renderLoading(graphics, imageSession, request);
+        if (capeOwner != null && !capeOwner.ownsFrame(menuCape.location())) return;
         if (imageSession.imageVisible()) {
             renderImage(graphics, request);
             {
@@ -179,12 +185,25 @@ public final class SimplePreviewRenderer
                         && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.isReady(skin));
         try {
             renderImage(graphics, request.hidden());
+            if (capeOwner != null && !capeOwner.ownsFrame(menuCape.location())) return;
             completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.ORDINARY,
                     () -> com.naocraftlab.skins.client.NativePlayerSkinLifecycle.registration(skin).equals(registration)
                         && com.naocraftlab.skins.client.NativePlayerSkinLifecycle.isReady(skin)));
         } catch (RuntimeException | Error failure) {
             completion.accept(new com.naocraftlab.skins.client.PreviewModelFrames.Body(BodyStatus.FAILED, () -> true));
             throw failure;
+        }
+    }
+
+    private record MenuCapeImageIdentity(
+            com.naocraftlab.skins.client.TextureRegistry.TextureHandle skin, SkinModel model,
+            com.naocraftlab.skins.client.CapeAssetOwner capeOwner, CapeMode capeMode,
+            com.naocraftlab.skins.client.OuterLayerVisibility outerLayerVisibility, boolean capeHasElytra,
+            boolean capeGlint, boolean nativeAccessories, com.naocraftlab.skins.client.TextureUseValidity capeValidity) {
+        MenuCapeImageIdentity(PreviewAppearance appearance) {
+            this(appearance.skin(), appearance.model(), appearance.capeAssetOwner(), appearance.capeMode(),
+                    appearance.outerLayerVisibility(), appearance.capeHasElytra(), appearance.capeGlint(),
+                    appearance.nativeAccessories(), appearance.capeValidity());
         }
     }
 

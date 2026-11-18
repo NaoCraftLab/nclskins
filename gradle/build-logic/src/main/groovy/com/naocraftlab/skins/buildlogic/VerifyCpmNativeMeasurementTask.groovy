@@ -20,6 +20,12 @@ abstract class VerifyCpmNativeMeasurementTask extends DefaultTask {
 
     VerifyCpmNativeMeasurementTask() { nativeProfile.convention('staged') }
 
+    List<File> commonProbeSources(File probe) {
+        // All supported measurement profiles use UUID-native SDKs.
+        VerifyCpmIntegrationTask.selectProbeSources(project.fileTree(new File(probe,'java'))
+                .matching { include '**/*.java' }.files.toList().sort { it.path }, false)
+    }
+
     @TaskAction void verify() {
         if (nativeProfile.get() in ['immediate-26.1','immediate-26.1-neoforge']) { verifyImmediate(); return }
         if (!(nativeProfile.get() in ['staged','staged-26.3-fabric','staged-26.3-neoforge'])) throw new IllegalStateException('Unknown native measurement profile')
@@ -39,7 +45,7 @@ abstract class VerifyCpmNativeMeasurementTask extends DefaultTask {
             File sdk=resolutionClasspath.files.find { hasEntry(it,'net/minecraft/client/renderer/StagedVertexBuffer.class') }
             selectedSdk=sdk
             if(sdk==null)throw new IllegalStateException('Selected 26.3 SDK missing')
-            List<File> sources=project.fileTree(new File(probe,'java')).matching { include '**/*.java' }.files.toList().sort { it.path }+
+            List<File> sources=commonProbeSources(probe)+
                     project.fileTree(new File(probe,'nativeMeasurement/java')).matching { include '**/*.java'; exclude '**/PipCpuBackend.java' }.files.toList().sort { it.path }+
                     project.fileTree(new File(probe,'nativeMeasurement/staged263/java')).matching { include '**/*.java' }.files.toList().sort { it.path }+
                     (loaderFamily.get()=='neoforge' ? project.fileTree(new File(probe,'nativeMeasurement/neoforge/java')).matching { include '**/*.java' }.files.toList().sort { it.path }+['NeoImmediateEvents.java','NeoEventCleanupProbe.java'].collect { new File(probe,'nativeMeasurement/immediate/neoforge/java/com/naocraftlab/skins/buildlogic/probe/'+it) } : [])
@@ -52,7 +58,7 @@ abstract class VerifyCpmNativeMeasurementTask extends DefaultTask {
         compile([new File(probe,'nativeMeasurement/java/com/naocraftlab/skins/buildlogic/probe/PrepareAccess.java')],classes,base)
         run(work,'access',base,'PrepareAccess',[cpm.path,access.path])
         base=[access]+base
-        if(!nativeProfile.get().startsWith('staged-26.3-')) compile(project.fileTree(new File(probe,'java')).matching { include '**/*.java' }.files.toList()
+        if(!nativeProfile.get().startsWith('staged-26.3-')) compile(commonProbeSources(probe)
                 +project.fileTree(new File(probe,'nativeMeasurement/java')).matching { include '**/*.java' }.files.toList()
                 +project.fileTree(new File(probe,'nativeMeasurement/staged262/java')).matching { include '**/*.java' }.files.toList()
                 +(loaderFamily.get()=='neoforge' ? project.fileTree(new File(probe,'nativeMeasurement/neoforge/java')).matching { include '**/*.java' }.files.toList()+['NeoImmediateEvents.java','NeoEventCleanupProbe.java'].collect { new File(probe,'nativeMeasurement/immediate/neoforge/java/com/naocraftlab/skins/buildlogic/probe/'+it) } : []),classes,base)
@@ -283,7 +289,7 @@ abstract class VerifyCpmNativeMeasurementTask extends DefaultTask {
         if(sdk==null||cpm==null||ears==null)throw new IllegalStateException('Immediate selected SDK/CPM/Ears closure missing')
         File resources=new File(probe,'resources')
         List<File> host=[classes,work,resources]+mixins+probeClasspath.files+resolutionClasspath.files
-        List<File> common=project.fileTree(new File(probe,'java')).matching { include '**/*.java' }.files.toList().sort { it.path }
+        List<File> common=commonProbeSources(probe)
         compile(common,classes,probeClasspath.files.toList()+resolutionClasspath.files.toList())
         List<File> typed=project.fileTree(new File(probe,'nativeMeasurement/immediate/java')).matching { include '**/*.java' }.files.toList().sort { it.path }
         typed += ['PrepareAccess.java','FitCountingObservation.java','UpstreamRendererWeave.java','CpmNativeMeasurementCore.java','FixtureCleanup.java'].collect { new File(probe,'nativeMeasurement/java/com/naocraftlab/skins/buildlogic/probe/'+it) }

@@ -30,6 +30,7 @@ final class GalleryRuntimeSelectionTest {
     boolean inline;
     boolean rejectWorker;
     boolean expectedProvidersParent;
+    boolean expectedGalleryReconciliation;
     Runnable afterApply = () -> {};
     java.util.function.Consumer<String> beforeOperation = ignored -> {};
     java.util.function.Consumer<String> afterOperation = ignored -> {};
@@ -70,7 +71,8 @@ final class GalleryRuntimeSelectionTest {
                 (p,m,a) -> {
                     if (m.getName().equals("reconcileAppearance")) {
                         reconciliations.incrementAndGet();
-                        if (expectedProvidersParent) assertEquals("providers", runtime.view(854,480,0,0).screenId());
+                        if (expectedGalleryReconciliation) assertEquals("gallery", runtime.view(854,480,0,0).screenId());
+                        else if (expectedProvidersParent) assertEquals("providers", runtime.view(854,480,0,0).screenId());
                         else assertEquals(ClientSnapshot.Lifecycle.CLOSED, runtime.snapshot().lifecycle(), "Parent must close before reconciliation");
                     }
                     try {
@@ -108,6 +110,73 @@ final class GalleryRuntimeSelectionTest {
     String card(UUID id) { return "gallery.card." + id; }
     ViewSpec view() { return runtime.view(854,480,0,0); }
     void selectB() { runtime.dispatchWidget(card(B), false, InteractionOrigin.POINTER); }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"same", "reset", "other", "delete", "providers", "add", "reopen"})
+    void explicitResetRoutesStillDiscardCapeInspectionAndDraft(String action) throws Exception {
+        var support = new GalleryInspectLayersTest(); support.directory = directory;
+        var f = support.twoCapes(new GalleryInspectLayersTest.Layers(), true);
+        try {
+            f.runtime.dispatchWidget("gallery.outer_layer.body"); GalleryInspectLayersTest.ordinary(f);
+            var inspected = GalleryInspectLayersTest.main(f);
+            assertEquals(Optional.of("MINECRAFT"), inspected.bodySource().orElseThrow().inspectionIdentity());
+            assertNotEquals(OuterLayerVisibility.allVisible(), inspected.outerLayerVisibility());
+            var before = ScopedEditorSaveTest.inventory(directory);
+            switch (action) {
+                case "same" -> f.runtime.dispatchWidget(f.card(A));
+                case "reset" -> f.runtime.dispatchWidget("gallery.reset");
+                case "other" -> f.selectB();
+                case "delete" -> {
+                    String id = "gallery.preset." + A;
+                    f.runtime.dispatchWidget(id + ".more");
+                    f.runtime.dispatchWidget(id + ".delete");
+                    assertTrue(f.view().widget(id + ".delete_confirm").orElseThrow().activationEnabled());
+                    f.runtime.dispatchWidget(id + ".delete_confirm");
+                }
+                case "providers" -> {
+                    f.runtime.dispatchWidget("gallery.providers"); f.drain();
+                    assertEquals("providers", f.view().screenId());
+                    f.runtime.dispatchWidget("providers.back");
+                }
+                case "add" -> {
+                    f.runtime.dispatchWidget("gallery.add"); f.drain();
+                    assertNotEquals("gallery", f.view().screenId());
+                    f.runtime.escapePressed();
+                }
+                case "reopen" -> { f.runtime.closeScreen(); f.runtime.reopen(); }
+            }
+            f.drain();
+            assertEquals("gallery", f.view().screenId());
+            var candidate = f.runtime.galleryPreviewCandidate().orElseThrow();
+            assertTrue(candidate.bodySource().orElseThrow().inspectionIdentity().isEmpty());
+            if (action.equals("same") || action.equals("reset") || action.equals("reopen")) {
+                assertEquals(Optional.of(A), candidate.presetId());
+                assertEquals(OuterLayerVisibility.allVisible(), candidate.outerLayerVisibility());
+                assertNotEquals(inspected.capeId(), candidate.capeId());
+            }
+            if (!action.equals("delete")) assertEquals(before, ScopedEditorSaveTest.inventory(directory));
+            assertEquals(action.equals("delete") ? 1 : 0, f.reconciliations.get());
+        } finally { f.runtime.close(); }
+    }
+
+    @Test void explicitCapeSelectionAndFirstThumbnailStillReplaceInspection() throws Exception {
+        var support = new GalleryInspectLayersTest(); support.directory = directory;
+        var f = support.twoCapes(new GalleryInspectLayersTest.Layers(), true);
+        try {
+            var before = ScopedEditorSaveTest.inventory(directory);
+            f.runtime.dispatchWidget("gallery.outer_layer.body"); GalleryInspectLayersTest.ordinary(f);
+            var mask = GalleryInspectLayersTest.main(f).outerLayerVisibility();
+            f.runtime.dispatchWidget("gallery.inspect.OFFLINE"); GalleryInspectLayersTest.ordinary(f);
+            var original = GalleryInspectLayersTest.main(f);
+            assertTrue(original.bodySource().orElseThrow().inspectionIdentity().isEmpty());
+            assertEquals(Optional.of("provider:cape:" + "b".repeat(64)), original.capeId());
+            f.runtime.dispatchWidget("gallery.inspect.MINECRAFT"); GalleryInspectLayersTest.ordinary(f);
+            assertEquals(Optional.of("MINECRAFT"), GalleryInspectLayersTest.main(f).bodySource().orElseThrow().inspectionIdentity());
+            assertEquals(Optional.of("fixture-official"), GalleryInspectLayersTest.main(f).capeId());
+            assertEquals(mask, GalleryInspectLayersTest.main(f).outerLayerVisibility());
+            assertEquals(before, ScopedEditorSaveTest.inventory(directory));
+        } finally { f.runtime.close(); }
+    }
 
     @Test void deletedQueuedSelectionFailsOpenAndResetReadsIndependentDeletion() throws Exception {
         setup();

@@ -58,6 +58,260 @@ final class GalleryInspectLayersTest {
         assertTrue(v.navigationNodes().stream().noneMatch(n -> n.id().startsWith("gallery.outer_layer.")));
     }
 
+    GalleryRuntimeSelectionTest twoCapes(Layers layers, boolean selected) throws Exception {
+        var f = fixture(layers, selected);
+        var cape = new com.naocraftlab.skins.core.model.LocalCapeReference(null, "b".repeat(64), true);
+        if (selected) {
+            f.storage.updateAccount(GalleryRuntimeSelectionTest.ACCOUNT, old -> new com.naocraftlab.skins.core.model.AccountState(
+                    old.schemaVersion(), old.accountId(), old.skinAssets(), old.presets().stream().map(p ->
+                    p.id().equals(GalleryRuntimeSelectionTest.A) ? new com.naocraftlab.skins.core.model.AppearancePreset(
+                            p.id(), p.name(), p.skin(), "fixture-official", p.outerLayerVisibility(), p.createdAt(), p.updatedAt(), cape, p.favorite()) : p).toList(), old.updatedAt()));
+            f.runtime.dispatchWidget("gallery.reset");
+            f.drain();
+        } else {
+            var current = f.runtime.snapshot().providers();
+            var channel = current.cape().select(current.cape().intentRevision() + 1,
+                    new com.naocraftlab.skins.core.provider.ProviderCape("fixture-offline", cape.sha256(), true))
+                    .observeMinecraft(new com.naocraftlab.skins.core.provider.ProviderCape("fixture-official", null, true));
+            providers(f, new com.naocraftlab.skins.core.provider.AppearanceProviders(current.skin(), channel));
+        }
+        f.view(); f.drain(); ordinary(f);
+        assertTrue(f.view().widget("gallery.inspect.OFFLINE").isPresent());
+        assertTrue(f.view().widget("gallery.inspect.MINECRAFT").orElseThrow().activationEnabled());
+        f.runtime.dispatchWidget("gallery.inspect.MINECRAFT");
+        ordinary(f);
+        assertEquals(Optional.of("MINECRAFT"), main(f).bodySource().orElseThrow().inspectionIdentity());
+        assertEquals(Optional.of("fixture-official"), main(f).capeId());
+        return f;
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void accessoryFactsDoNotResolveComparisonScopes(boolean selected) throws Exception {
+        var f = twoCapes(new Layers(), selected);
+        var flowField = ClientRuntime.class.getDeclaredField("galleryFlow"); flowField.setAccessible(true);
+        var flow = (GalleryFlow) flowField.get(f.runtime);
+        var contextField = GalleryFlow.class.getDeclaredField("context"); contextField.setAccessible(true);
+        var delegate = contextField.get(flow);
+        try {
+            var preview = f.runtime.galleryPreviewCandidate().orElseThrow();
+            String input = flow.accessoryInput();
+            var comparisonScopes = new java.util.concurrent.atomic.AtomicInteger();
+            var directSources = new java.util.concurrent.atomic.AtomicInteger();
+            contextField.set(flow, java.lang.reflect.Proxy.newProxyInstance(GalleryFlow.Context.class.getClassLoader(),
+                    new Class<?>[]{GalleryFlow.Context.class}, (proxy, method, args) -> {
+                        if (method.getName().equals("previewSource")) {
+                            var callers = StackWalker.getInstance().walk(frames -> frames
+                                    .filter(frame -> frame.getClassName().equals(GalleryFlow.class.getName()))
+                                    .map(StackWalker.StackFrame::getMethodName).toList());
+                            if (callers.contains("accessoryInput")) {
+                                if (callers.contains("capeIdentityScope")) comparisonScopes.incrementAndGet();
+                                else directSources.incrementAndGet();
+                            }
+                        }
+                        try { return method.invoke(delegate, args); }
+                        catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+                    }));
+            for (int i = 0; i < 5; i++) assertEquals(input, flow.accessoryInput());
+            assertTrue(directSources.get() >= 5, "Every accessory-facts read must retain its live source check");
+            assertEquals(0, comparisonScopes.get(), "Accessory-facts identity must not rebuild visual comparison scopes");
+            f.identity.set(new GameSessionTokenSource.SessionIdentity(new UUID(0, 987), "Replacement"));
+            assertNotEquals(input, flow.accessoryInput());
+            assertFalse(flow.accessoryStillCurrent(preview), "An unobserved session replacement must revoke the old accessory request");
+        } finally {
+            contextField.set(flow, delegate); f.runtime.close();
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"MINECRAFT", "OFFLINE"})
+    void semanticMembershipDoesNotRebuildNativeAccessoryInput(String inspected) throws Exception {
+        var f = twoCapes(new Layers(), true);
+        var flowField = ClientRuntime.class.getDeclaredField("galleryFlow"); flowField.setAccessible(true);
+        var flow = (GalleryFlow) flowField.get(f.runtime);
+        var contextField = GalleryFlow.class.getDeclaredField("context"); contextField.setAccessible(true);
+        var delegate = contextField.get(flow);
+        try {
+            var environment = ClientRuntime.class.getDeclaredField("skinExtensionEnvironment"); environment.setAccessible(true);
+            environment.set(f.runtime, new com.naocraftlab.skins.core.compatibility.SkinExtensionEnvironment(0, Map.of(), true));
+            providers(f, f.runtime.snapshot().providers());
+            var component = com.naocraftlab.skins.core.provider.AppearanceProviders.Component.CAPE;
+            f.operations.useCpmPresence(() -> true);
+            GallerySneakyPreparationJoinTest.change(f, f.operations.enableProvider(component,
+                    com.naocraftlab.skins.core.provider.BuiltinProvider.CPM));
+            var minecraft = com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT;
+            if (inspected.equals("OFFLINE")) while (f.runtime.snapshot().providers().cape().order().indexOf(minecraft) > 0)
+                GallerySneakyPreparationJoinTest.change(f, f.operations.moveProvider(component, minecraft, -1));
+            ordinary(f);
+            f.runtime.dispatchWidget("gallery.inspect." + inspected); ordinary(f);
+            var preview = f.runtime.galleryPreviewCandidate().orElseThrow();
+            assertEquals(Optional.of(inspected), preview.bodySource().orElseThrow().inspectionIdentity());
+            assertTrue(f.runtime.snapshot().skinExtensionEnvironment().cpmPresent());
+            assertTrue(f.runtime.snapshot().providers().cape().enabled(com.naocraftlab.skins.core.provider.BuiltinProvider.CPM));
+            var nestedAccessoryReads = new java.util.concurrent.atomic.AtomicInteger();
+            contextField.set(flow, java.lang.reflect.Proxy.newProxyInstance(GalleryFlow.Context.class.getClassLoader(),
+                    new Class<?>[]{GalleryFlow.Context.class}, (proxy, method, args) -> {
+                        if (method.getName().equals("previewSource")) {
+                            var callers = StackWalker.getInstance().walk(frames -> frames
+                                    .filter(frame -> frame.getClassName().equals(GalleryFlow.class.getName()))
+                                    .map(StackWalker.StackFrame::getMethodName).toList());
+                            if (callers.contains("inspectionIdentity") && callers.contains("accessoryInput"))
+                                nestedAccessoryReads.incrementAndGet();
+                        }
+                        try { return method.invoke(delegate, args); }
+                        catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+                    }));
+            for (int i = 0; i < 5; i++) {
+                assertTrue(flow.previewStillCurrent(preview));
+                assertTrue(flow.accessoryStillCurrent(preview));
+                var admitted = flow.admissionPreview().orElseThrow();
+                assertEquals(preview.bodySource(), admitted.bodySource());
+                assertEquals(preview.capeId(), admitted.capeId());
+            }
+            assertEquals(0, nestedAccessoryReads.get(), "Ordinary semantic membership must not recursively rebuild native accessory input");
+            GallerySneakyPreparationJoinTest.change(f, f.operations.disableProvider(component,
+                    com.naocraftlab.skins.core.provider.BuiltinProvider.valueOf(inspected)));
+            assertFalse(flow.previewStillCurrent(preview));
+            assertTrue(flow.admissionPreview().orElseThrow().bodySource().orElseThrow().inspectionIdentity().isEmpty());
+        } finally {
+            contextField.set(flow, delegate); f.runtime.close();
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "true,false,false,POINTER", "true,false,true,POINTER", "true,false,false,KEYBOARD", "true,false,true,KEYBOARD",
+            "false,false,false,POINTER", "false,false,true,POINTER", "false,false,false,KEYBOARD", "false,false,true,KEYBOARD",
+            "true,true,false,POINTER", "true,true,true,POINTER", "true,true,false,KEYBOARD", "true,true,true,KEYBOARD",
+            "false,true,false,POINTER", "false,true,true,POINTER", "false,true,false,KEYBOARD", "false,true,true,KEYBOARD"})
+    void layerCyclesKeepExactInspectionAfterOwnAck(boolean selected, boolean elytra, boolean reverse, InteractionOrigin origin) throws Exception {
+        var layers = new Layers(); var f = twoCapes(layers, selected);
+        try {
+            if (elytra) {
+                assertTrue(f.view().widget("gallery.preview_mode").orElseThrow().activationEnabled());
+                f.runtime.dispatchWidget("gallery.preview_mode"); f.drain(); ordinary(f);
+            }
+            var initial = main(f);
+            var anchor = initial.anchorBounds();
+            double x = anchor.x() + anchor.width() / 2.0, y = anchor.y() + anchor.height() / 2.0;
+            f.runtime.pointerPressed(x, y, 0);
+            f.runtime.pointerDragged(x + 13, y + 7, 0, 13, 7); f.runtime.pointerReleased(0);
+            f.runtime.pointerScrolled(x, y, 0, 1.25);
+            var transformed = main(f);
+            assertNotEquals(initial.yawDegrees(), transformed.yawDegrees());
+            assertNotEquals(initial.scale(), transformed.scale());
+            assertEquals(elytra ? PreviewRenderer.CapeMode.ELYTRA : PreviewRenderer.CapeMode.CAPE, transformed.capeMode());
+            var inventory = ScopedEditorSaveTest.inventory(directory);
+            var providerState = f.runtime.snapshot().providers();
+            var saved = f.storage.loadOrCreateAccount(GalleryRuntimeSelectionTest.ACCOUNT);
+            var appearance = f.storage.loadAppearance(GalleryRuntimeSelectionTest.ACCOUNT);
+            for (String group : List.of("head", "body", "legs")) {
+                var start = main(f).outerLayerVisibility();
+                int steps = group.equals("head") ? 2 : group.equals("body") ? 8 : 4;
+                for (int step = 0; step < steps; step++) {
+                    var before = main(f);
+                    var old = ordinary(f);
+                    String id = "gallery.outer_layer." + group;
+                    assertTrue(f.view().widget(id).orElseThrow().activationEnabled());
+                    var expected = EditorOuterLayerCycle.cycle(group, before.outerLayerVisibility(), reverse ? -1 : 1);
+                    int writes = layers.writes;
+                    if (origin.keyboard() && !reverse) assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, id));
+                    else f.runtime.dispatchWidget(id, reverse, origin);
+                    var desired = f.runtime.galleryPreviewCandidate().orElseThrow();
+                    assertEquals(expected, desired.outerLayerVisibility());
+                    assertEquals(Optional.of("MINECRAFT"), desired.bodySource().orElseThrow().inspectionIdentity());
+                    assertEquals(before.capeId(), desired.capeId());
+                    if (selected) assertEquals(before.bodySource().orElseThrow().draftGeneration() + 1,
+                            desired.bodySource().orElseThrow().draftGeneration());
+                    assertEquals(writes + (selected ? 0 : 1), layers.writes);
+                    retained(f, before);
+                    old.accept(PreviewRenderer.BodyStatus.ORDINARY);
+                    retained(f, before);
+                    ordinary(f);
+                    for (int lookup = 0; lookup < 3; lookup++) {
+                        var shown = main(f);
+                        assertEquals(expected, shown.outerLayerVisibility());
+                        assertEquals(desired.bodySource(), shown.bodySource());
+                        assertEquals(Optional.of("fixture-official"), shown.capeId());
+                        assertEquals(Optional.of("active"), f.view().widget("gallery.inspect.MINECRAFT").orElseThrow().value());
+                        assertEquals(transformed.yawDegrees(), shown.yawDegrees());
+                        assertEquals(transformed.pitchDegrees(), shown.pitchDegrees());
+                        assertEquals(transformed.scale(), shown.scale());
+                        assertEquals(transformed.capeMode(), shown.capeMode());
+                    }
+                    assertEquals(inventory, ScopedEditorSaveTest.inventory(directory));
+                    assertEquals(saved, f.storage.loadOrCreateAccount(GalleryRuntimeSelectionTest.ACCOUNT));
+                    assertEquals(appearance, f.storage.loadAppearance(GalleryRuntimeSelectionTest.ACCOUNT));
+                    assertEquals(providerState, f.runtime.snapshot().providers());
+                    assertEquals(0, f.reconciliations.get());
+                    assertEquals(!selected || expected.equals(OuterLayerVisibility.allVisible()), f.view().widget("gallery.done").isPresent());
+                }
+                assertEquals(start, main(f).outerLayerVisibility());
+            }
+        } finally { f.runtime.close(); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"source", "missing", "policy", "order", "world", "resources", "account", "reopen"})
+    void maskInspectionCannotSurviveRealInvalidationOrOldCompletion(String boundary) throws Exception {
+        var layers = new Layers(); var f = twoCapes(layers, false);
+        try {
+            var old = ordinary(f);
+            f.runtime.dispatchWidget("gallery.outer_layer.body"); ordinary(f);
+            assertEquals(Optional.of("MINECRAFT"), main(f).bodySource().orElseThrow().inspectionIdentity());
+            var before = ScopedEditorSaveTest.inventory(directory);
+            int writes = layers.writes;
+            var current = f.runtime.snapshot().providers();
+            var channel = current.cape();
+            switch (boundary) {
+                case "source" -> channel = channel.observeMinecraft(new com.naocraftlab.skins.core.provider.ProviderCape("replacement", null, true));
+                case "missing" -> channel = channel.observeMinecraft(null);
+                case "policy" -> channel = channel.disable(com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT);
+                case "order" -> channel = channel.move(com.naocraftlab.skins.core.provider.BuiltinProvider.MINECRAFT, -1);
+                case "world" -> f.runtime.importWorldChanged();
+                case "resources" -> f.runtime.resourcesReloaded();
+                case "account" -> f.identity.set(new GameSessionTokenSource.SessionIdentity(new UUID(0, 909), "Other"));
+                case "reopen" -> { f.runtime.closeScreen(); f.runtime.reopen(); }
+            }
+            if (!channel.equals(current.cape())) providers(f, new com.naocraftlab.skins.core.provider.AppearanceProviders(current.skin(), channel));
+            old.accept(PreviewRenderer.BodyStatus.ORDINARY);
+            f.runtime.dispatchWidget("gallery.outer_layer.head", true, InteractionOrigin.POINTER);
+            f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, "gallery.outer_layer.head");
+            assertEquals(writes, layers.writes);
+            if (boundary.equals("account")) {
+                f.runtime.tick();
+                f.identity.set(new GameSessionTokenSource.SessionIdentity(GalleryRuntimeSelectionTest.ACCOUNT, "Fixture"));
+            }
+            f.drain();
+            for (int i = 0; i < 3; i++) {
+                f.view();
+                assertTrue(f.runtime.galleryPreviewCandidate().stream().allMatch(p -> p.bodySource().orElseThrow().inspectionIdentity().isEmpty()));
+                old.accept(PreviewRenderer.BodyStatus.ORDINARY);
+            }
+            assertEquals(before, ScopedEditorSaveTest.inventory(directory));
+            assertEquals(writes, layers.writes);
+        } finally { f.runtime.close(); }
+    }
+
+    @Test void applyMaskDoesNotCommitInspectedCape() throws Exception {
+        var layers = new Layers(); var f = twoCapes(layers, true);
+        try {
+            var saved = f.storage.loadOrCreateAccount(GalleryRuntimeSelectionTest.ACCOUNT).presets().get(0);
+            f.runtime.dispatchWidget("gallery.outer_layer.body"); ordinary(f);
+            var mask = main(f).outerLayerVisibility();
+            assertEquals(Optional.of("fixture-official"), main(f).capeId());
+            int writes = layers.writes;
+            f.runtime.dispatchWidget("gallery.apply"); f.drain();
+            var committed = f.storage.loadOrCreateAccount(GalleryRuntimeSelectionTest.ACCOUNT).presets().stream()
+                    .filter(p -> p.id().equals(saved.id())).findFirst().orElseThrow();
+            assertEquals(mask, committed.outerLayerVisibility());
+            assertEquals(saved.capeId(), committed.capeId());
+            assertEquals(saved.offlineCape(), committed.offlineCape());
+            assertEquals(mask, layers.value);
+            assertEquals(writes + 1, layers.writes);
+        } finally { f.runtime.close(); }
+    }
+
     @Test void selectedLayersRequireOwnDrawAndOnlyChangeDraftUntilApply() throws Exception {
         var layers = new Layers(); var f = fixture(layers, true);
         try {

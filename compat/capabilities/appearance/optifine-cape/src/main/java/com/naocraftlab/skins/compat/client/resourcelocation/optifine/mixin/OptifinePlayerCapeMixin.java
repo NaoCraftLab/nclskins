@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.client.resourcelocation.optifine.mixin;
 
+import com.naocraftlab.skins.compat.client.MinecraftUserProfileId;
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import com.naocraftlab.skins.compat.client.resourcelocation.playerinfo.OfficialCapeSource;
 import com.naocraftlab.skins.compat.client.resourcelocation.playerinfo.PreviewScope;
@@ -47,7 +48,7 @@ abstract class OptifinePlayerCapeMixin {
         AbstractClientPlayer player = (AbstractClientPlayer) (Object) this;
         GameProfile profile = player.getGameProfile();
         Minecraft minecraft = Minecraft.getInstance();
-        boolean self = minecraft.getUser().getProfileId().equals(profile.getId());
+        boolean self = MinecraftUserProfileId.read(minecraft.getUser()).equals(profile.getId());
         CapeProjection.Candidate minecraftCape = null;
         if (!self) {
             ClientPacketListener connection = minecraft.getConnection();

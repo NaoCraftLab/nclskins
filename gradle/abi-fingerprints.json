@@ -4652,10 +4652,9 @@
       "mixinAnchors": [],
       "baselineSha256": "da5f53357d50342a51371af2b25c677ba45abee0cb62236dfb17c4fc1434c899"
     },
-    "minecraft-user-v1": {
+    "minecraft-user-uuid-profile-id": {
       "kind": "session",
       "epochs": [
-        "1.20.1",
         "1.21.1",
         "1.21.11",
         "26.1",
@@ -4715,6 +4714,72 @@
       ],
       "mixinAnchors": [],
       "baselineSha256": "08e56672c7afd020f50f017fb5a8dcce8960c709d2aa4dd76a83ecbf0529e525"
+    },
+    "minecraft-user-string-profile-id": {
+      "kind": "session",
+      "epochs": [
+        "1.20.1"
+      ],
+      "classes": [
+        {
+          "name": "net.minecraft.client.Minecraft",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getInstance",
+              "descriptor": "()Lnet/minecraft/client/Minecraft;",
+              "access": "public static",
+              "finality": "static"
+            },
+            {
+              "kind": "method",
+              "name": "getUser",
+              "descriptor": "()Lnet/minecraft/client/User;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        },
+        {
+          "name": "net.minecraft.client.User",
+          "access": "public",
+          "finality": "concrete",
+          "members": [
+            {
+              "kind": "method",
+              "name": "getProfileId",
+              "descriptor": "()Ljava/util/UUID;",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "getName",
+              "descriptor": "()Ljava/lang/String;",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "getAccessToken",
+              "descriptor": "()Ljava/lang/String;",
+              "access": "public",
+              "finality": "virtual"
+            },
+            {
+              "kind": "method",
+              "name": "getUuid",
+              "descriptor": "()Ljava/lang/String;",
+              "access": "public",
+              "finality": "virtual"
+            }
+          ]
+        }
+      ],
+      "mixinAnchors": [],
+      "baselineSha256": "d943bc4b216aca34c41f01a4745d7303fbb6fa74b2a131e93d456e81d26ca0f7"
     },
     "neoforge-extraction": {
       "kind": "loaderScreen",
@@ -7394,9 +7459,9 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "minecraft-user-v1": {
+      "minecraft-user-string-profile-id": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
-        "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
+        "net.minecraft.client.User": "0caa52419289b5abd6a56578ead8709cbc99d051d86ad7e602a32b8b1f41fdb2"
       },
       "player-info-cache": {
         "net.minecraft.client.multiplayer.ClientPacketListener": "5b14e1ba950279bf84b353c9bf320c5bda7211b93d02998f0cb7bfea25ba59e8",
@@ -7503,7 +7568,7 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "minecraft-user-v1": {
+      "minecraft-user-uuid-profile-id": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
         "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },
@@ -7686,7 +7751,7 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "minecraft-user-v1": {
+      "minecraft-user-uuid-profile-id": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
         "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },
@@ -7826,7 +7891,7 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "minecraft-user-v1": {
+      "minecraft-user-uuid-profile-id": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
         "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },
@@ -7966,7 +8031,7 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "minecraft-user-v1": {
+      "minecraft-user-uuid-profile-id": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
         "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },
@@ -8107,7 +8172,7 @@
       "minecraft-client-executor-v1": {
         "net.minecraft.util.thread.BlockableEventLoop": "0c08593027a2614b1773b4628fe6170f03d8d19daa0a68ab31526a56add1b6b9"
       },
-      "minecraft-user-v1": {
+      "minecraft-user-uuid-profile-id": {
         "net.minecraft.client.Minecraft": "f3f1c03fc74008b2753d8322d8335769a33b7c793951b370546c591b8e615948",
         "net.minecraft.client.User": "a9552ff6aa7f89124540e0bbde8d1d2d0fbbcd86f906181e6c3def682a22158d"
       },

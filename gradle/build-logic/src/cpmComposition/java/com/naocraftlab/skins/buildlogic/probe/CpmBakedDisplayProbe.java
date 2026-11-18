@@ -4,9 +4,11 @@ import com.naocraftlab.skins.client.EditorPreviewSession;
 import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.PreviewModelFrames;
 import com.naocraftlab.skins.client.PreviewRenderer;
+import com.naocraftlab.skins.client.PreviewRenderer.PreviewAppearance;
 import com.naocraftlab.skins.client.TextureRegistry;
 import com.naocraftlab.skins.client.SkinModel;
 import com.naocraftlab.skins.client.OuterLayerVisibility;
+import java.util.List;
 import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.Map;
@@ -284,6 +286,7 @@ public final class CpmBakedDisplayProbe {
 
     static final java.util.List<CpmPreviewScopeProbe.Location> immediateMaterials = new java.util.ArrayList<>();
     static final java.util.List<Float> immediateTranslations = new java.util.ArrayList<>();
+    private static final List<CpmPreviewScopeProbe.Location> immediateDrawnMaterials = new java.util.ArrayList<>();
     static boolean observeImmediateMenu;
     private static boolean immediateStaticJoin;
     public static void translated(float x) { if (observeImmediateMenu) immediateTranslations.add(x); }
@@ -541,19 +544,107 @@ public final class CpmBakedDisplayProbe {
             observeImmediateMenu = false; immediateMaterials.clear(); immediateTranslations.clear();
             draw = () -> {}; pop = () -> {}; flushed = () -> {}; lighting = () -> {};
         }
+        if (menuPanelJoin) {
+            String previousPause = System.getProperty("nclskins.menuPause");
+            try {
+                for (boolean pause : new boolean[]{false,true}) {
+                    System.setProperty("nclskins.menuPause",Boolean.toString(pause));
+                    for (boolean glint : new boolean[]{false,true})
+                        immediateMenuAnimation(loader,prefix,appearance,family,pause,glint);
+                }
+            } finally {
+                if (previousPause == null) System.clearProperty("nclskins.menuPause");
+                else System.setProperty("nclskins.menuPause",previousPause);
+            }
+        }
+    }
+
+    private static void immediateMenuAnimation(ClassLoader loader, String prefix, PreviewAppearance appearance,
+            String family, boolean pause, boolean glint) throws Exception {
+        String role = " family=" + family + " pause=" + pause + " glint=" + glint;
+        var frames = List.of(new TextureRegistry.TextureHandle("fixture:menu-frame-A",64,32),
+                new TextureRegistry.TextureHandle("fixture:menu-frame-B",64,32));
+        var timeline = com.naocraftlab.skins.core.png.CapeTimeline.pngStrip(2);
+        var previousClient = CpmPreviewScopeProbe.Client.current;
+        CpmPreviewScopeProbe.Client.current = new CpmPreviewScopeProbe.Client();
+        try (var panel = new CpmMenuPanelSlice(loader,prefix,appearance,CpmPreviewScopeProbe.Graphics.class,CpmPreviewScopeProbe.Client.class)) {
+            panel.install(com.naocraftlab.skins.core.config.MenuPreviewPlacement.RIGHT);
+            var renderer = initializeImmediateRenderer(panel.renderer());
+            panel.animate(timeline,frames,glint);
+            var owner = panel.capeOwner();
+            observeImmediateMenu = true;
+            immediateMenuFrame(panel,appearance,frames.get(0),false,role);
+            immediateMenuFrame(panel,appearance,frames.get(0),true,role);
+            Object session = field(renderer,"imageSession");
+            for (long elapsed : new long[]{100,100,200,300,700}) {
+                panel.animationTime(elapsed);
+                var frame = frames.get(timeline.frameAt(elapsed));
+                check(panel.capeOwner() == owner && owner.ownsFrame(frame.location()), "MENU animation owner and frame" + role);
+                immediateMenuFrame(panel,appearance,frame,true,role + " elapsed=" + elapsed);
+                check(field(renderer,"imageSession") == session, "MENU animation preserves prepared image session" + role);
+            }
+
+            var frame = frames.get(timeline.frameAt(700));
+            owner.installFrame("fixture:unpublished-menu-frame");
+            immediateMenuFrame(panel,appearance,null,false,role);
+            owner.installFrame(frame.location());
+            immediateMenuFrame(panel,appearance,frame,true,role);
+            check(field(renderer,"imageSession") == session, "MENU unowned input cannot replace visible image session" + role);
+
+            panel.replaceCapeAsset(frame);
+            var replacement = panel.capeOwner();
+            check(replacement != owner && !owner.isActive(), "MENU replacement changes owner even with same texture" + role);
+            flushed = () -> replacement.installFrame("fixture:superseded-during-menu-flush");
+            try {
+                immediateMenuFrame(panel,appearance,frame,false,role);
+                var preparing = (EditorPreviewSession) field(renderer,"imageSession");
+                check(preparing.imagePreparing() && !preparing.imageVisible(),
+                        "MENU a frame replaced during hidden draw cannot confirm readiness" + role);
+            } finally { flushed = () -> {}; }
+            replacement.installFrame(frame.location());
+            immediateMenuFrame(panel,appearance,frame,false,role);
+            check(field(renderer,"imageSession") != session, "MENU replacement needs its own image session" + role);
+            immediateMenuFrame(panel,appearance,frame,true,role);
+            replacement.retire();
+            immediateMenuFrame(panel,appearance,null,false,role);
+            System.out.println("PASS immediate menu animated cape continuity/currentness" + role);
+        } finally {
+            observeImmediateMenu = false;
+            immediateMaterials.clear(); immediateTranslations.clear(); immediateDrawnMaterials.clear();
+            CpmPreviewScopeProbe.Client.current = previousClient;
+        }
+    }
+
+    private static void immediateMenuFrame(CpmMenuPanelSlice panel, PreviewAppearance appearance,
+            TextureRegistry.TextureHandle cape, boolean visible, String role) throws Exception {
+        immediateTranslations.clear(); immediateMaterials.clear(); immediateDrawnMaterials.clear();
+        CpmPreviewScopeProbe.Graphics.loadingFrames.clear();
+        panel.draw(new CpmPreviewScopeProbe.Graphics());
+        check(CpmPreviewScopeProbe.Graphics.loadingFrames.isEmpty(), "MENU animation must not restart loading" + role);
+        if (cape == null) {
+            check(immediateTranslations.isEmpty() && immediateDrawnMaterials.isEmpty(), "MENU unowned cape must not draw" + role);
+            return;
+        }
+        check(immediateDrawnMaterials.equals(List.of(new CpmPreviewScopeProbe.Location(appearance.skin().location()),
+                new CpmPreviewScopeProbe.Location(cape.location()))), "MENU animation consumes exact current skin and cape" + role);
+        check(!immediateTranslations.isEmpty() && (visible ? immediateTranslations.get(0) > 0 : immediateTranslations.get(0) < 0),
+                "MENU animation expected " + (visible ? "visible" : "hidden") + " whole player" + role);
     }
 
     private static Object newImmediateRenderer(Class<?> rendererType) {
         try {
-            Object renderer = rendererType.getConstructor().newInstance();
-            for (var field : rendererType.getDeclaredFields()) {
-                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
-                Object value = field.getType() == Model.class ? new Model() : field.getType() == Part.class ? new Part()
-                        : field.getName().equals("imageSession") ? new EditorPreviewSession() : null;
-                if (value != null) { field.setAccessible(true); field.set(renderer, value); }
-            }
-            return renderer;
+            return initializeImmediateRenderer(rendererType.getConstructor().newInstance());
         } catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
+    }
+
+    private static Object initializeImmediateRenderer(Object renderer) throws ReflectiveOperationException {
+        for (var field : renderer.getClass().getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+            Object value = field.getType() == Model.class ? new Model() : field.getType() == Part.class ? new Part()
+                    : field.getName().equals("imageSession") ? new EditorPreviewSession() : null;
+            if (value != null) { field.setAccessible(true); field.set(renderer, value); }
+        }
+        return renderer;
     }
 
     private static void immediateStaticHost(Class<?> rendererType,PreviewRenderer.PreviewAppearance appearance) throws Exception {
@@ -3929,7 +4020,10 @@ public final class CpmBakedDisplayProbe {
             if(CpmExtractionBodyProbe.RenderSystem.outputColorTextureOverride != null)
                 CpmExtractionBodyProbe.RenderSystem.outputColorTextureOverride.texture.data = type.texture;
             return new Vertex() {
-                public void consumeMaterial() { if (type.texture != null) consumedMaterials.add(type.texture); }
+                public void consumeMaterial() {
+                    if (type.texture != null) consumedMaterials.add(type.texture);
+                    if (observeImmediateMenu && type.immediateTexture != null) immediateDrawnMaterials.add(type.immediateTexture);
+                }
             };
         }
         public void endBatch() {

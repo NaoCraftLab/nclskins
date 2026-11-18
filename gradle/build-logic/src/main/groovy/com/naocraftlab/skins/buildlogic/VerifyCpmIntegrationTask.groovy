@@ -26,6 +26,13 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
     @Optional @InputFile abstract RegularFileProperty getNativeBodyProof()
     @Optional @Input abstract Property<String> getNativeBodyProfile()
     @Optional @Input abstract Property<String> getNativeBodyLoader()
+    @Optional @Input abstract Property<Boolean> getStringUserProfileId()
+
+    static List<File> selectProbeSources(List<File> sources, boolean stringProfileId) {
+        Set<String> stringOnly = ['NativeCurrentAppearanceProbe.java', 'NativeRenderIdentityProbe.java',
+                                  'NativeUserProfileReadProbe.java'] as Set
+        sources.findAll { stringProfileId || !stringOnly.contains(it.name) }
+    }
 
     static boolean declaresExtendableClass(String accessRules, String owner) {
         accessRules.readLines().any { line ->
@@ -75,7 +82,8 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
         File compiled = new File(work, 'classes')
         compiled.mkdirs()
         File probe = probeDirectory.get().asFile
-        List<File> sources = project.fileTree(new File(probe, 'java')).matching { include '**/*.java' }.files.sort { it.path }
+        List<File> sources = selectProbeSources(project.fileTree(new File(probe, 'java'))
+                .matching { include '**/*.java' }.files.sort { it.path }, stringUserProfileId.getOrElse(false))
         String libraries = probeClasspath.asPath + File.pathSeparator + resolutionClasspath.asPath
         int result = ToolProvider.systemJavaCompiler.run(null, System.out, System.err,
                 (['--release', '17', '-classpath', libraries, '-d', compiled.path] + sources*.path) as String[])
@@ -138,6 +146,16 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
         File sessionHost = new File(work, 'session-host'); sessionHost.mkdirs()
         runProbe(work, 'session-host-setup', hostClasspath, 'CpmSessionPublicationProbe', ['setup', sessionHost.absolutePath])
         runProbe(work, 'session-native', [sessionHost] + hostClasspath, 'CpmSessionPublicationProbe', ['run'])
+        boolean stringProfileId = stringUserProfileId.getOrElse(false)
+        if (stringProfileId) {
+            File userObserver = new File(work, 'native-user-observer'); userObserver.mkdirs()
+            runProbe(work, 'native-user-observer-setup', hostClasspath, 'NativeUserProfileReadProbe', ['instrument', userObserver.absolutePath])
+            runProbe(work, 'native-render-identity', [userObserver] + hostClasspath, 'NativeRenderIdentityProbe', [])
+            runProbe(work, 'native-user-session', [sessionHost, userObserver] + hostClasspath, 'NativeUserProfileReadProbe', ['session'])
+            File appearanceHost = new File(work, 'native-appearance-host'); appearanceHost.mkdirs()
+            runProbe(work, 'native-appearance-host-setup', hostClasspath, 'NativeCurrentAppearanceProbe', ['setup', appearanceHost.absolutePath])
+            runProbe(work, 'native-current-appearance', [appearanceHost, userObserver] + hostClasspath, 'NativeCurrentAppearanceProbe', ['run'])
+        }
         File projectTransforms = new File(work, 'project-transformed')
         new File(work, 'project-binding.json').text = groovy.json.JsonOutput.toJson([
                 required: true, package: 'com.naocraftlab.skins.compat.cpm.mixin',

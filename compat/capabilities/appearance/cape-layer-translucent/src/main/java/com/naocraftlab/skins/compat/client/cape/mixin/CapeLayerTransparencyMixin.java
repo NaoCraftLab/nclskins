@@ -1,5 +1,6 @@
 package com.naocraftlab.skins.compat.client.cape.mixin;
 
+import com.naocraftlab.skins.compat.client.MinecraftUserProfileId;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
@@ -38,7 +39,7 @@ public abstract class CapeLayerTransparencyMixin {
             } else {
                 GameProfile profile = player.getGameProfile();
                 if (profile.getId() != null && profile.getName() != null) {
-                    boolean self = Minecraft.getInstance().getUser().getProfileId().equals(profile.getId());
+                    boolean self = MinecraftUserProfileId.read(Minecraft.getInstance().getUser()).equals(profile.getId());
                     CapeProjection.Result selected = CapeProjection.material(profile.getId(), profile.getName(), self);
                     glint = selected.capeGlint() && texture.toString().equals(selected.capeLocation());
                 }

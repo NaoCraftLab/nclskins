@@ -27,6 +27,11 @@ public final class CpmSessionPublicationProbe {
         Class<?> user=Class.forName("net.minecraft.client.User");
         Class<?> source=Class.forName("com.naocraftlab.skins.compat.client.MinecraftGameSessionTokenSource");
         require(user.getProtectionDomain().getCodeSource()!=null,"Original User has loaded archive origin");
+        Object readerUser = user("Player", PLACEHOLDER, PROFILE);
+        Object readerId = Class.forName("com.naocraftlab.skins.compat.client.MinecraftUserProfileId")
+                .getMethod("read", user).invoke(null, readerUser);
+        require(PROFILE.equals(readerId), "Selected native identity facade preserves original UUID");
+        System.out.println("NATIVE_IDENTITY_READER_PASS selected-sdk=true");
         System.out.println("ORIGINAL_USER_ORIGIN "+user.getProtectionDomain().getCodeSource().getLocation());
         System.out.println("NATIVE_ADAPTER_ORIGIN "+source.getProtectionDomain().getCodeSource().getLocation());
         for(String scenario:List.of("accepted-negative","accepted-positive","fresh-user","blank-after-connect","no-consent","absent","invalid-name","blank-token","mojang-rejected","paste-rejected","session-empty","session-null","session-array","session-malformed","session-error","connect-id","connect-base64","list-schema","count","size","upload-schema","expired","name-connect","name-join","name-session","name-list","account","aba","cancel","close","payload","decline","duplicate","not-sent","uncertain")) {

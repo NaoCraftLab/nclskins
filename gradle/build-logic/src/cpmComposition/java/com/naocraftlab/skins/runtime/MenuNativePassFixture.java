@@ -14,6 +14,7 @@ public final class MenuNativePassFixture implements AutoCloseable {
             new com.naocraftlab.skins.client.CapeAssetOwner();
     private long elapsedMillis;
     private int installedFrame = -1;
+    private boolean animationGlint;
 
     public MenuNativePassFixture(PreviewRenderer.PreviewAppearance appearance) {
         appearance(appearance);
@@ -40,9 +41,14 @@ public final class MenuNativePassFixture implements AutoCloseable {
         current = appearance == null ? null : new CurrentPlayerAppearanceSource.PlayerAppearance(appearance.skin(),appearance.model(),appearance.cape());
     }
     public void animate(com.naocraftlab.skins.core.png.CapeTimeline timeline, List<TextureRegistry.TextureHandle> frames) {
+        animate(timeline, frames, false);
+    }
+
+    public void animate(com.naocraftlab.skins.core.png.CapeTimeline timeline, List<TextureRegistry.TextureHandle> frames, boolean glint) {
         if (timeline.frameCount() != frames.size() || animation != null) throw new IllegalArgumentException();
         this.timeline = timeline;
         this.frames = List.copyOf(frames);
+        animationGlint = glint;
         var events = (CapeProjection.Events) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{CapeProjection.Events.class}, (p,m,a) -> {
                     if (m.getName().equals("capeFrameDemand")) publishFrame();
@@ -79,9 +85,10 @@ public final class MenuNativePassFixture implements AutoCloseable {
                 Map.of(), Map.of(), Map.of(), Map.of(),
                 new CapeProjection.Identity(new UUID(0,901), "MenuFixture"),
                 new CapeProjection.Candidate(frames.get(frame).location(), null, false,
-                        false, false, false, null, null, animationOwner), null));
+                        animationGlint, false, false, null, null, animationOwner), null));
         var selected = CapeProjection.resolveSelf(new UUID(0,901), "MenuFixture").orElseThrow();
-        if (selected.capeAssetOwner() != animationOwner || !animationOwner.ownsFrame(selected.capeLocation()))
+        if (selected.capeAssetOwner() != animationOwner || !animationOwner.ownsFrame(selected.capeLocation())
+                || selected.capeGlint() != animationGlint)
             throw new AssertionError("Menu fixture projection must preserve its current animated asset owner");
     }
     @Override public void close() {
