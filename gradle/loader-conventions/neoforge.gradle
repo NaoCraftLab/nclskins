@@ -36,7 +36,9 @@ if (yaclRuntimeGraph != null) {
 }
 def patchYaclRuntimeMetadataTaskType = nclskinsCatalogTools.getClassLoader().loadClass(
         'com.naocraftlab.skins.buildlogic.PatchNeoForgeRuntimeMetadataTask')
-def patchedYaclRuntime = yaclDevelopmentRuntimeEnabled && targetSpec.minecraft.version == '26.2'
+def yaclClientRunOnly = targetSpec.minecraft.version == '26.3'
+def patchedYaclRuntime = yaclDevelopmentRuntimeEnabled &&
+        (targetSpec.minecraft.version == '26.2' || yaclClientRunOnly)
         ? tasks.register('patchYaclRuntimeMetadata',
         patchYaclRuntimeMetadataTaskType) {
             artifactKind.set('yacl')
@@ -61,7 +63,11 @@ dependencies {
     compileOnly(yaclCoordinate) {
         transitive = yaclDevelopmentRuntimeEnabled
     }
-    if (patchedYaclRuntime != null) {
+    if (patchedYaclRuntime != null && yaclClientRunOnly) {
+        tasks.withType(JavaExec).matching { it.name in ['runClient', 'runClientLicensed'] }.configureEach {
+            classpath(files(patchedYaclRuntime))
+        }
+    } else if (patchedYaclRuntime != null) {
         add(yaclRuntimeConfiguration, files(patchedYaclRuntime))
     } else if (yaclDevelopmentRuntimeEnabled) {
         add(yaclRuntimeConfiguration, yaclCoordinate)

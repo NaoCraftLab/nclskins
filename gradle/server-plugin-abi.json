@@ -128,7 +128,8 @@
       ],
       "families": [
         "paper",
-        "purpur"
+        "purpur",
+        "folia"
       ],
       "authlibFamily": "authlib-v10",
       "profileModel": "immutable-replacement",

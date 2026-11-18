@@ -33,10 +33,7 @@ final class BukkitAdapterCatalog {
                 PaperAuthlib7NativeAdapter::new);
         registerPaperFamily(registrations, "26.1.2", PaperAuthlib7NativeAdapter::new);
         registerPaperFamily(registrations, "26.2", PaperAuthlib9NativeAdapter::new);
-        register(registrations, "26.3", ServerRuntimeIdentity.Family.PAPER,
-                PaperAuthlib10NativeAdapter::new);
-        register(registrations, "26.3", ServerRuntimeIdentity.Family.PURPUR,
-                PaperAuthlib10NativeAdapter::new);
+        registerPaperFamily(registrations, "26.3", PaperAuthlib10NativeAdapter::new);
         return new ExactAdapterSelector<>(registrations);
     }
 

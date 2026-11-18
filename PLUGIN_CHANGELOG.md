@@ -1,3 +1,9 @@
+## 1.2.0.2
+
+### Added
+
+- Support for Minecraft 26.3 on Folia
+
 ## 1.2.0.1
 
 ### Changed

@@ -1086,7 +1086,7 @@ final class CatalogTools {
                 '26.1.1' : ['paper'],
                 '26.1.2' : ['paper', 'purpur', 'folia'],
                 '26.2'   : ['paper', 'purpur', 'folia'],
-                '26.3'   : ['paper', 'purpur']
+                '26.3'   : ['paper', 'purpur', 'folia']
         ]
         if (plugin.compatibility != expectedCompatibility ||
                 plugin.excluded != ['waterfall', 'sponge', 'geyser']) {
@@ -1146,8 +1146,8 @@ final class CatalogTools {
                 'id', 'platform', 'version', 'build', 'channel', 'url', 'sha256', 'javaRelease'
         ] as Set
         Set runtimeIds = [] as Set
-        if (runtimes.size() != 22 || runtimes.size() != rawRuntimes.size()) {
-            errors.add('serverPluginRuntimes must contain exactly 22 entries')
+        if (runtimes.size() != 23 || runtimes.size() != rawRuntimes.size()) {
+            errors.add('serverPluginRuntimes must contain exactly 23 entries')
         }
         runtimes.each { Map runtime ->
             if ((runtime.keySet() as Set) != runtimeKeys ||
@@ -1188,7 +1188,8 @@ final class CatalogTools {
                         sha256: '7f98951a70ed7b3f28906b1c534e599f70d0dbbab1ef58bb2272f7d348bc0e51',
                         javaRelease: 25] ||
                 runtimes.find { it.id == 'folia-1.20.1' }?.channel != 'ALPHA' ||
-                runtimes.find { it.id == 'folia-26.2' }?.channel != 'BETA') {
+                runtimes.find { it.id == 'folia-26.2' }?.channel != 'BETA' ||
+                runtimes.find { it.id == 'folia-26.3' }?.channel != 'STABLE') {
             errors.add('serverPluginRuntimes do not cover exact pins or Folia upstream channels')
         }
 
@@ -1256,15 +1257,15 @@ final class CatalogTools {
                 errors.add("${topology.id}: Spigot is supported only on 1.20.1 outside Velocity")
             }
         }
-        if (topologies.size() != rawTopologies.size() || topologies.size() != 34 ||
-                counts != [standalone: 19, velocity: 7, bungeecord: 8]) {
-            errors.add('serverPluginTopologies must contain 19 standalone, 7 Velocity, and 8 BungeeCord runs')
+        if (topologies.size() != rawTopologies.size() || topologies.size() != 35 ||
+                counts != [standalone: 20, velocity: 7, bungeecord: 8]) {
+            errors.add('serverPluginTopologies must contain 20 standalone, 7 Velocity, and 8 BungeeCord runs')
         }
         Set<Integer> modPorts = (catalog.targets as List).collectMany { Map target ->
             targetRuntimeSpecs(target).collect { (it.serverPort as Number).intValue() }
         } as Set<Integer>
-        List<Integer> expectedPorts = (26000..26052).toList() + [26153] + (26054..26062).toList() + [26063]
-        if (ports != expectedPorts || ports.toSet().size() != 64 ||
+        List<Integer> expectedPorts = (26000..26052).toList() + [26153] + (26054..26064).toList()
+        if (ports != expectedPorts || ports.toSet().size() != 65 ||
                 !ports.toSet().intersect(modPorts).isEmpty()) {
             errors.add('server plugin ports must match the exact topology allocation, be unique, and be disjoint from mod runs')
         }

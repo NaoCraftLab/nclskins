@@ -178,7 +178,7 @@ public final class TmpProbe {
                 catalog.serverPlugin.platforms.modrinth.projectId)
         assertNotEquals(catalog.mod.platforms.curseforge.projectId,
                 catalog.serverPlugin.platforms.curseforge.projectId)
-        assertEquals(22, catalog.serverPluginRuntimes.size())
+        assertEquals(23, catalog.serverPluginRuntimes.size())
         assertEquals([
                 id: 'paper-26.3', platform: 'paper', version: '26.3',
                 build: '5', channel: 'ALPHA',
@@ -203,14 +203,20 @@ public final class TmpProbe {
         assertEquals(
                 'https://github.com/lucko/BungeeGuard/releases/download/v1.4.0/BungeeGuard.jar',
                 catalog.serverPluginRuntimes.find { it.id == 'bungeeguard-1.4.0' }.url)
-        assertEquals(34, catalog.serverPluginTopologies.size())
-        assertEquals(64, catalog.serverPluginTopologies.collectMany {
+        assertEquals(35, catalog.serverPluginTopologies.size())
+        assertEquals(65, catalog.serverPluginTopologies.collectMany {
             (it.ports as Map).values()
         }.toSet().size())
         assertTrue(catalog.serverPlugin.developmentCompatibility.isEmpty())
-        assertEquals(['paper', 'purpur'], catalog.serverPlugin.compatibility['26.3'])
+        assertEquals(['paper', 'purpur', 'folia'], catalog.serverPlugin.compatibility['26.3'])
         assertFalse(catalog.serverPlugin.excluded.contains('26.3'))
-        assertEquals(4, catalog.serverPluginTopologies.count { it.minecraft == '26.3' })
+        assertEquals(5, catalog.serverPluginTopologies.count { it.minecraft == '26.3' })
+        Map folia = catalog.serverPluginRuntimes.find { it.id == 'folia-26.3' }
+        assertEquals('STABLE', folia.channel)
+        assertEquals(25, folia.javaRelease)
+        assertEquals(['26.3-folia-standalone'], catalog.serverPluginTopologies.findAll {
+            it.minecraft == '26.3' && it.kernel == 'folia'
+        }*.id)
         Map characterization = CatalogTools.loadJson(
                 new File(repository, 'gradle/server-plugin-characterization.json'))
         assertEquals(1, characterization.schemaVersion)
@@ -249,9 +255,9 @@ public final class TmpProbe {
         assertEquals('[26.3.0.6-beta,)', neoForgeTarget.loader.predicate)
         assertEquals(25, neoForgeTarget.java.release)
         assertEquals(25580, neoForgeTarget.development.serverPort)
-        assertEquals('3.9.6+26.3-fabric',
+        assertEquals('3.9.7+26.3-neoforge',
                 catalog.optionalDependencies.yet_another_config_lib_v3.versions['neoforge-26.3'])
-        assertFalse(CatalogTools.optionalDependencyDevelopmentRuntimeEnabled(
+        assertTrue(CatalogTools.optionalDependencyDevelopmentRuntimeEnabled(
                 catalog, neoForgeTarget, 'yet_another_config_lib_v3'))
         assertEquals([97, 1], neoForgeTarget.metadata.packFormat)
         CatalogTools.validate(repository, catalog)
@@ -1694,9 +1700,11 @@ public final class TmpProbe {
         assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
                 IdeaRunConfigurations.RUN_KINDS.size() +
                 catalog.serverPluginTopologies.size(), taskNames.size())
-        assertEquals(82, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
+        assertEquals(83, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
         assertTrue(IdeaRunConfigurations.orderedConfigurationNames(catalog)
                 .contains('26.3:paper:runServer'))
+        assertTrue(IdeaRunConfigurations.orderedConfigurationNames(catalog)
+                .contains('26.3:folia:runServer'))
         assertEquals('26.1', IdeaRunConfigurations.displayFolder('26.1'))
         assertEquals('26.1.1', IdeaRunConfigurations.displayFolder('26.1.1'))
         assertEquals('26.1.2', IdeaRunConfigurations.displayFolder('26.1.2'))
@@ -2107,6 +2115,67 @@ public final class TmpProbe {
         assertTrue(convention.contains('else if (yaclDevelopmentRuntimeEnabled)'))
         assertTrue(convention.contains("url = 'https://maven.fabricmc.net/'"))
         assertTrue(convention.contains("content { includeGroup 'net.fabricmc.fabric-api' }"))
+    }
+
+    @Test
+    void neoForgeYaclAdaptsOnlyKnownStaleCompatibilityRows() {
+        Path directory = Files.createTempDirectory('nclskins-yacl-ranges-')
+        try {
+            Path input = directory.resolve('yacl.jar')
+            Path output = directory.resolve('patched.jar')
+            String metadata = '''[[mods]]
+    logoFile = "yacl-128x.png"
+    version = "3.9.7+26.3-neoforge"
+    modId = "yet_another_config_lib_v3"
+[["dependencies.yet_another_config_lib_v3"]]
+    versionRange = "[26.2,26.3)"
+    side = "BOTH"
+    ordering = "NONE"
+    mandatory = true
+    modId = "neoforge"
+[["dependencies.yet_another_config_lib_v3"]]
+    versionRange = "[26.2,26.3)"
+    side = "BOTH"
+    ordering = "NONE"
+    mandatory = true
+    modId = "minecraft"
+[["dependencies.yet_another_config_lib_v3"]]
+    versionRange = "[26.2,26.3)"
+    modId = "unrelated"
+'''
+            byte[] nested = [1, 3, 5] as byte[]
+            Closure writeArtifact = { String descriptor ->
+                new ZipOutputStream(Files.newOutputStream(input)).withCloseable { ZipOutputStream zip ->
+                    zip.putNextEntry(new ZipEntry(NeoForgeRuntimeMetadata.METADATA))
+                    zip.write(descriptor.getBytes('UTF-8'))
+                    zip.closeEntry()
+                    zip.putNextEntry(new ZipEntry('META-INF/jarjar/nested.jar'))
+                    zip.write(nested)
+                    zip.closeEntry()
+                }
+            }
+            writeArtifact(metadata)
+            byte[] original = Files.readAllBytes(input)
+            NeoForgeRuntimeMetadata.patchYacl(input, output)
+            new ZipFile(output.toFile()).withCloseable { ZipFile zip ->
+                String actual = zip.getInputStream(zip.getEntry(NeoForgeRuntimeMetadata.METADATA))
+                        .withCloseable { new String(it.readAllBytes(), 'UTF-8') }
+                assertEquals(2, actual.count('[[dependencies.yet_another_config_lib_v3]]'))
+                assertEquals(1, actual.count('[["dependencies.yet_another_config_lib_v3"]]'))
+                assertEquals(1, actual.count('versionRange = "[26.3]"'))
+                assertEquals(1, actual.count('versionRange = "[26.3.0.6-beta]"'))
+                assertEquals(1, actual.count('versionRange = "[26.2,26.3)"'))
+                assertArrayEquals(nested, zip.getInputStream(zip.getEntry('META-INF/jarjar/nested.jar'))
+                        .withCloseable { it.readAllBytes() })
+            }
+            assertArrayEquals(original, Files.readAllBytes(input))
+            writeArtifact(metadata.replace('modId = "minecraft"', 'modId = "not-minecraft"'))
+            Path rejected = directory.resolve('rejected.jar')
+            assertThrows(GradleException) { NeoForgeRuntimeMetadata.patchYacl(input, rejected) }
+            assertFalse(Files.exists(rejected))
+        } finally {
+            directory.toFile().deleteDir()
+        }
     }
 
     @Test

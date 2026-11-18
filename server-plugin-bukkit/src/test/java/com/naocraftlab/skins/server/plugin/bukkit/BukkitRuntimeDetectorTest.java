@@ -104,6 +104,20 @@ final class BukkitRuntimeDetectorTest {
         assertFalse(selector.select(purpur("26.4")).supported());
     }
 
+    @Test
+    void selectsAuthlib10ForExactRegionizedFolia263WithoutVersionFallback() {
+        ExactAdapterSelector<BukkitNativeAdapter> selector = BukkitAdapterCatalog.selector();
+        String version = BukkitRuntimeDetector.minecraftVersion("26.3.build.23-stable");
+        assertEquals("26.3", version);
+        ExpectedBinding expected = binding(version, ServerRuntimeIdentity.Family.FOLIA, "paper-authlib10");
+        ExactAdapterSelector.Selection<BukkitNativeAdapter> selection = selector.select(expected.identity());
+        assertTrue(selection.supported());
+        assertEquals(expected.adapterId(), selection.load().id());
+        assertEquals(expected.identity(), selection.load().identity());
+        assertFalse(selector.select(binding("26.3.1", ServerRuntimeIdentity.Family.FOLIA,
+                expected.adapterId()).identity()).supported());
+    }
+
     private static ServerRuntimeIdentity purpur(String version) {
         return new ServerRuntimeIdentity(
                 version,
