@@ -355,7 +355,7 @@ final class LocalizationVerifierTest {
                 'compat/resources/mojang-collections/src/main/resources/resourcepacks/' +
                         'mojang_collections/assets/nclskins/lang')
         Set<String> expected = LocalizationVerifier.collectionKeys(repository)
-        assertEquals(138, expected.size())
+        assertEquals(178, expected.size())
         LocalizationVerifier.sourceLocales(catalog).each { String locale ->
             Set<String> actual = CatalogTools.loadJson(
                     new File(directory, "${locale}.json")).keySet() as Set
@@ -410,14 +410,15 @@ final class LocalizationVerifierTest {
         Map provenance = new JsonSlurper().parse(
                 new File(repository, 'gradle/asset-provenance/mojang-capes.json')) as Map
 
-        assertEquals(13, collections.size())
+        assertEquals(15, collections.size())
         assertEquals([
                 'mojang_minecon_earth_2017', 'mojang_builders_and_biomes',
                 'mojang_striding_hero', 'mojang_the_garden_awakens',
                 'mojang_chase_the_skies', 'mojang_the_copper_age',
                 'mojang_mounts_of_mayhem', 'mojang_tiny_takeover',
                 'mojang_chaos_cubed', 'mojang_account_ownership',
-                'mojang_account_events', 'mojang_global_events', 'mojang_the_camp_out'
+                'mojang_account_events', 'mojang_global_events', 'mojang_the_camp_out',
+                'mojang_minecraft_dungeons', 'mojang_minecraft_dungeons_ii'
         ] as Set, collections)
         assertFalse(new File(pack, 'assets/nclskins/collections.json').exists())
         assertEquals(false, provenance.releaseApproved)
@@ -454,7 +455,7 @@ final class LocalizationVerifierTest {
             assertTrue(notice.contains("textures/entity/cape/${entry.capeId}.png"))
             assertTrue(notice.contains(entry.sha256.toString()))
         }
-        assertEquals(13, Files.walk(pack.toPath()).withCloseable { stream ->
+        assertEquals(15, Files.walk(pack.toPath()).withCloseable { stream ->
             stream.filter { it.fileName.toString() == 'notice-mojang.md' }.count()
         })
         assertFalse(new File(pack, 'assets/nclskins/cape-provenance.json').exists())
@@ -625,6 +626,8 @@ final class LocalizationVerifierTest {
             Path provenance = fixture.resolve('gradle/asset-provenance/mojang-capes.json')
             Files.createDirectories(provenance.parent)
             Files.copy(new File(repository, 'gradle/asset-provenance/mojang-capes.json').toPath(), provenance)
+            String dungeonsManifest = 'gradle/asset-provenance/mojang-dungeons-skins.json'
+            Files.copy(new File(repository, dungeonsManifest).toPath(), fixture.resolve(dungeonsManifest))
             Path bigFoot = pack.resolve(hashes.keySet().first())
             switch (mutation) {
                 case 'extra-variant':

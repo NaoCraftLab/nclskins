@@ -811,8 +811,8 @@ final class ArtifactVerifier {
                     collections.toPath().relativize(path).getName(1).toString()) }
         }
         Map provenance = new JsonSlurper().parse(provenanceFile) as Map
-        if (collectionIds.size() != 13) {
-            errors.add("${target.id}: Mojang resource paths must define 13 unique collections")
+        if (collectionIds.size() != 15) {
+            errors.add("${target.id}: Mojang resource paths must define 15 unique collections")
         }
         Map<String, String> campOutHashes = [
                 'assets/mojang_the_camp_out/textures/entity/player/slim/big_foot.png':
@@ -852,6 +852,7 @@ final class ArtifactVerifier {
                 errors.add("${target.id}: Camp Out notice differs from original identity for ${path}")
             }
         }
+        verifyDungeonsSkinOriginals(root, collections, archive, target, names, errors)
         if (provenance.schemaVersion != 1 || provenance.releaseApproved != false ||
                 provenance.approvedAssetSetSha256 != null ||
                 !(provenance.entries instanceof List) || provenance.entries.isEmpty()) {
@@ -916,6 +917,54 @@ final class ArtifactVerifier {
             if (archive.getEntry(archivePath) != null &&
                     !MessageDigest.isEqual(source.bytes, read(archive, archivePath))) {
                 errors.add("${target.id}: resource hash differs for ${archivePath}")
+            }
+        }
+    }
+
+    private static void verifyDungeonsSkinOriginals(
+            File root, File collections, ZipFile archive, Map target, List<String> names, List<String> errors) {
+        File index = new File(root, 'gradle/asset-provenance/mojang-dungeons-skins.json')
+        if (!index.isFile()) {
+            errors.add("${target.id}: missing Dungeons skin provenance")
+            return
+        }
+        Map<String, String> hashes = new JsonSlurper().parse(index) as Map<String, String>
+        Map<String, Integer> rosters = [mojang_minecraft_dungeons: 13, mojang_minecraft_dungeons_ii: 21]
+        if (hashes.size() != 34 || names.any { it.endsWith('/mojang-dungeons-skins.json') }) {
+            errors.add("${target.id}: Dungeons skin provenance inventory differs")
+        }
+        rosters.each { String namespace, Integer count ->
+            String prefix = "assets/${namespace}/"
+            Map<String, String> expected = hashes.findAll { String path, String hash -> path.startsWith(prefix) }
+            File collection = new File(collections, prefix)
+            Set<String> sourcePaths = collection.isDirectory() ? Files.walk(collection.toPath()).withCloseable { stream ->
+                stream.filter { Files.isRegularFile(it) && it.toString().endsWith('.png') }.map {
+                    collections.toPath().relativize(it).toString().replace('\\', '/')
+                }.toList() as Set<String>
+            } : [] as Set<String>
+            Set<String> archivedPaths = names.findAll {
+                it.startsWith(COLLECTIONS + prefix) && it.endsWith('.png')
+            }.collect { it.substring(COLLECTIONS.length()) } as Set<String>
+            if (expected.size() != count || expected.keySet() != sourcePaths || expected.keySet() != archivedPaths) {
+                errors.add("${target.id}: Dungeons original path inventory differs for ${namespace}")
+            }
+            List<String> notice = new File(collection, 'notice-mojang.md')
+                    .with { it.isFile() ? it.readLines('UTF-8') : [] }
+            Set<String> ids = [] as Set<String>
+            expected.each { String path, String hash ->
+                String relative = path.substring(prefix.length())
+                if (!(relative ==~ /textures\/entity\/player\/(wide|slim)\/[a-z0-9_]+\.png/) ||
+                        !ids.add(relative.substring(relative.lastIndexOf('/') + 1))) {
+                    errors.add("${target.id}: invalid or duplicate Dungeons skin model path ${path}")
+                    return
+                }
+                File source = new File(collections, path)
+                String archivePath = COLLECTIONS + path
+                if (!source.isFile() || sha256(source) != hash || archive.getEntry(archivePath) == null ||
+                        HexFormat.of().formatHex(MessageDigest.getInstance('SHA-256').digest(read(archive, archivePath))) != hash ||
+                        !notice.any { it.contains("`${relative}`") && it.contains("`${hash}`") }) {
+                    errors.add("${target.id}: Dungeons original identity differs for ${path}")
+                }
             }
         }
     }

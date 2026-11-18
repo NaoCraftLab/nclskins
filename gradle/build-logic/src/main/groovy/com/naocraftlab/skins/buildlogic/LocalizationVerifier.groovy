@@ -452,7 +452,8 @@ final class LocalizationVerifier {
                 errors.add("mojang-collections ${locale}: ${skinId} must use its reviewed natural name")
             }
         }
-        ['account_ownership', 'account_events', 'global_events', 'the_camp_out'].each {
+        ['account_ownership', 'account_events', 'global_events', 'the_camp_out',
+         'minecraft_dungeons', 'minecraft_dungeons_ii'].each {
             String key = "nclskins.mojang_${it}.authors"
             if (language[key] != 'Mojang Studios') {
                 errors.add("mojang-collections ${locale}: ${key} must credit Mojang Studios")
