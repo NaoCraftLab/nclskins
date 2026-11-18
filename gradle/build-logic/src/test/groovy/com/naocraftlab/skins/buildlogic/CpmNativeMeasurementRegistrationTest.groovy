@@ -250,6 +250,7 @@ final class CpmNativeMeasurementRegistrationTest {
 
     @Test void actualRegistrationMakesNativeBodyMandatoryOnlyForSelectedSdk() {
         File repository=new File('../..').canonicalFile
+        def catalog=CatalogTools.loadCatalog(repository)
         String conventions=new File(repository,'gradle/target-conventions.gradle').text
         String registration=conventions.substring(conventions.indexOf('def nativeMeasurementTask ='),conventions.indexOf('def isolationTask ='))
         for (String family : ['fabric','neoforge']) for (String version : ['26.1','26.2']) {
@@ -257,15 +258,16 @@ final class CpmNativeMeasurementRegistrationTest {
             def project=ProjectBuilder.builder().withProjectDir(root).build()
             project.pluginManager.apply('java')
             project.pluginManager.apply(NclSkinsBuildToolsPlugin)
+            project.ext.spec=catalog.targets.find { it.id==family+'-'+version }
             File script=new File(root,'registration.gradle')
             script.text="""
 ext.repositoryRoot = layout.projectDirectory
 ext.abiSourceSet = sourceSets.main
 ext.resolvedBundleIds = ['avatar-pip-ears-measurement']
-ext.spec = [minecraft: [version: '${version}'], loader: [id: '${family}']]
 """+registration
             project.apply(from:script)
             def integration=project.tasks.getByName('verifyCpmIntegration')
+            assertFalse(integration.stringUserProfileId.get())
             if(version in ['26.1','26.2']) {
                 def nativeBody=project.tasks.getByName('verifyCpmNativeMeasurement')
                 assertEquals(version=='26.1' ? (family=='neoforge'?'immediate-26.1-neoforge':'immediate-26.1') : 'staged', nativeBody.nativeProfile.get())
