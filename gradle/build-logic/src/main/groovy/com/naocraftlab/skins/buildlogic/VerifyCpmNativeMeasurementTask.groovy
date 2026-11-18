@@ -21,7 +21,6 @@ abstract class VerifyCpmNativeMeasurementTask extends DefaultTask {
     VerifyCpmNativeMeasurementTask() { nativeProfile.convention('staged') }
 
     List<File> commonProbeSources(File probe) {
-        // All supported measurement profiles use UUID-native SDKs.
         VerifyCpmIntegrationTask.selectProbeSources(project.fileTree(new File(probe,'java'))
                 .matching { include '**/*.java' }.files.toList().sort { it.path }, false)
     }
