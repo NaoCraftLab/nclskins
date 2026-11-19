@@ -11,8 +11,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.client.renderer.texture.SkinTextureDownloader;
 import net.minecraft.resources.Identifier;
 
 
@@ -60,31 +58,13 @@ public final class IdentifierTextureRegistry
         try (ByteArrayInputStream input = new ByteArrayInputStream(pngBytes)) {
             image = NativeImage.read(input);
         }
-        String kindPath = switch (kind) {
-            case PLAYER_SKIN -> throw new IllegalStateException(
-                    "Player skins use the native player-skin pipeline");
-            case IMAGE -> "image";
-        };
-        Identifier location = Identifier.fromNamespaceAndPath(
-                "nclskins", pathRoot + '/' + kindPath + '/' + sha256);
-        DynamicTexture texture = new DynamicTexture(
-                () -> "NCL Skins " + sha256.substring(0, 12), image);
-        try {
-            Minecraft.getInstance().getTextureManager().register(location, texture);
-        } catch (RuntimeException failure) {
-            texture.close();
-            throw failure;
-        }
-        return new LoadedTexture<>(
-                new TextureHandle(location.toString(), image.getWidth(), image.getHeight()),
-                NativeTexture.loaded(location));
+        return registerImage(sha256, image);
     }
 
     @Override
     protected LoadedTexture<NativeTexture> loadRgba(String sha256, int width, int height,
             byte[] rgba8) throws IOException {
         NativeImage image = new NativeImage(width, height, false);
-        DynamicTexture texture = null;
         try {
             int offset = 0;
             for (int y = 0; y < height; y++) {
@@ -95,17 +75,29 @@ public final class IdentifierTextureRegistry
                     offset += 4;
                 }
             }
-            texture = new DynamicTexture(() -> "NCL Skins " + sha256.substring(0, 12), image);
-            Identifier location = Identifier.fromNamespaceAndPath(
-                    "nclskins", pathRoot + "/image/" + sha256);
-            Minecraft.getInstance().getTextureManager().register(location, texture);
-            return new LoadedTexture<>(new TextureHandle(location.toString(), width, height),
-                    NativeTexture.loaded(location));
         } catch (RuntimeException | Error failure) {
-            if (texture == null) image.close();
-            else texture.close();
+            image.close();
             throw failure;
         }
+        return registerImage(sha256, image);
+    }
+
+    private LoadedTexture<NativeTexture> registerImage(String sha256, NativeImage image) {
+        Identifier location;
+        TextureHandle handle;
+        Minecraft minecraft;
+        String name;
+        try {
+            location = Identifier.fromNamespaceAndPath("nclskins", pathRoot + "/image/" + sha256);
+            handle = new TextureHandle(location.toString(), image.getWidth(), image.getHeight());
+            minecraft = Minecraft.getInstance();
+            name = "NCL Skins " + sha256.substring(0, 12);
+        } catch (RuntimeException | Error failure) {
+            image.close();
+            throw failure;
+        }
+        Runnable release = IdentifierNativeTextureBackend.upload(minecraft, location, name, image);
+        return new LoadedTexture<>(handle, NativeTexture.loaded(release));
     }
 
     @Override
@@ -124,20 +116,14 @@ public final class IdentifierTextureRegistry
             throws IOException {
         Minecraft minecraft = Minecraft.getInstance();
         Identifier location = Identifier.fromNamespaceAndPath(
-                "nclskins", pathRoot + "/feature_skin/" + sha256);
+                "nclskins", IdentifierNativeTextureBackend.featureLocationPath(pathRoot + "/feature_skin/" + sha256));
         OwnedSkinFile staged = OwnedSkinFile.stage(sha256, pngBytes);
         NativePlayerSkinLifecycle.Registration lifecycle =
                 NativePlayerSkinLifecycle.pending(location.toString(), lifecycleTransition);
-        NativeTexture resource = NativeTexture.pending(location, staged, lifecycle);
+        NativeTexture resource = NativeTexture.pending(staged, lifecycle);
         try {
-            CompletableFuture<?> registration = new SkinTextureDownloader(
-                    minecraft.getProxy(), minecraft.getTextureManager(), minecraft)
-                    .downloadAndRegisterSkin(
-                            location,
-                            staged.path(),
-                            LOCAL_SKIN_SENTINEL + sha256,
-                            true);
-            resource.attach(registration);
+            resource.attach(IdentifierNativeTextureBackend.download(
+                    minecraft, location, staged.path(), LOCAL_SKIN_SENTINEL + sha256));
         } catch (RuntimeException failure) {
             lifecycle.failed();
             lifecycle.retire();
@@ -149,46 +135,45 @@ public final class IdentifierTextureRegistry
     }
 
     protected static final class NativeTexture {
-        private final Identifier location;
         private final OwnedSkinFile stagedFile;
         private final NativePlayerSkinLifecycle.Registration lifecycle;
-        private CompletableFuture<?> registration;
+        private Runnable release;
         private boolean completed;
         private boolean retired;
         private boolean released;
 
         private NativeTexture(
-                Identifier location,
                 OwnedSkinFile stagedFile,
                 NativePlayerSkinLifecycle.Registration lifecycle,
+                Runnable release,
                 boolean completed) {
-            this.location = Objects.requireNonNull(location, "location");
             this.stagedFile = stagedFile;
             this.lifecycle = lifecycle;
+            this.release = release;
             this.completed = completed;
         }
 
-        private static NativeTexture loaded(Identifier location) {
-            return new NativeTexture(location, null, null, true);
+        private static NativeTexture loaded(Runnable release) {
+            return new NativeTexture(null, null, Objects.requireNonNull(release, "release"), true);
         }
 
         private static NativeTexture pending(
-                Identifier location,
                 OwnedSkinFile stagedFile,
                 NativePlayerSkinLifecycle.Registration lifecycle) {
             return new NativeTexture(
-                    location,
                     Objects.requireNonNull(stagedFile, "stagedFile"),
                     Objects.requireNonNull(lifecycle, "lifecycle"),
+                    null,
                     false);
         }
 
-        private void attach(CompletableFuture<?> registration) {
+        private void attach(IdentifierNativeTextureBackend.Download download) {
+            CompletableFuture<?> registration = Objects.requireNonNull(download.ready(), "registration");
             synchronized (this) {
-                if (this.registration != null || completed) {
+                if (release != null || completed) {
                     throw new IllegalStateException("Feature texture registration is already attached");
                 }
-                this.registration = Objects.requireNonNull(registration, "registration");
+                release = Objects.requireNonNull(download.release(), "release");
             }
             registration.whenComplete((ignored, failure) -> complete(failure));
         }
@@ -232,7 +217,6 @@ public final class IdentifierTextureRegistry
 
         private void releaseOnClientThread() {
             Minecraft minecraft = Minecraft.getInstance();
-            Runnable release = () -> minecraft.getTextureManager().release(location);
             if (minecraft.isSameThread()) {
                 release.run();
             } else {

@@ -1,11 +1,13 @@
 package com.naocraftlab.skins.compat.client.identifier.extraction;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.tabs.GridLayoutTab;
 import net.minecraft.client.gui.components.tabs.MenuTabBar;
 import net.minecraft.client.gui.components.tabs.Tab;
 import net.minecraft.client.gui.components.tabs.TabManager;
 import net.minecraft.client.gui.components.tabs.TabNavigationBar;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
 
@@ -24,9 +26,13 @@ public final class ExtractionGuiApi {
         minecraft.gui.setScreen(screen);
     }
 
-    static TabNavigationBar buildTabBar(TabManager manager, int width, Iterable<Tab> tabs) {
+    static ExtractionTab createTab(Component label) {
+        return new ExtractionTab(new GridLayoutTab(label), label);
+    }
+
+    static TabNavigationBar buildTabBar(TabManager manager, int width, Iterable<ExtractionTab> tabs) {
         MenuTabBar.Builder builder = MenuTabBar.builder(manager, width);
-        tabs.forEach(builder::addTab);
+        tabs.forEach(entry -> builder.addTab(entry.tab()));
         return builder.build();
     }
 

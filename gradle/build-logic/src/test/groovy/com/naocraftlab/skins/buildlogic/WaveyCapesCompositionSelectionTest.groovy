@@ -144,7 +144,7 @@ class WaveyCapesCompositionSelectionTest {
     }
 
     @Test
-    void everyCatalogTargetRegistersItsExecutableNativeFamily() {
+    void everyCatalogTargetRegistersItsNativeFamilyOrCompileReference() {
         Map expected = ['fabric-1.20.1': 'rendered-buffer', 'forge-1.20.1': 'rendered-buffer',
                 'fabric-1.21.1': 'mesh', 'neoforge-1.21.1': 'mesh',
                 'fabric-1.21.11': 'buffered', 'neoforge-1.21.11': 'buffered',
@@ -152,7 +152,8 @@ class WaveyCapesCompositionSelectionTest {
                 'fabric-26.2': 'prepared', 'neoforge-26.2': 'prepared',
                 'fabric-26.3': 'combined', 'neoforge-26.3': 'combined']
         Map catalog = new JsonSlurper().parse(new File(repository, 'gradle/targets.json')) as Map
-        assertEquals(expected.keySet(), catalog.targets.collect { it.id } as Set)
+        Map<String, String> compileReferences = ['fabric-26.4': 'fabric-26.3']
+        assertEquals(expected.keySet() + compileReferences.keySet(), catalog.targets.collect { it.id } as Set)
         String convention = new File(repository, 'gradle/waveycapes-conventions.gradle').text
         String registration = convention.substring(convention.indexOf('String appearance ='))
         ['gradle', 'compat'].each { String name ->
@@ -162,15 +163,28 @@ class WaveyCapesCompositionSelectionTest {
             File directory = new File(temporary, "targets/${target.minecraft.version}/${target.loader.id}"); directory.mkdirs()
             def project = ProjectBuilder.builder().withProjectDir(directory).build()
             project.pluginManager.apply('java')
-            project.configurations.create('cpmCompositionRuntime')
-            project.configurations.create('nclskinsSqliteClientRuntime')
             project.ext.targetSpec = target
             project.ext.targetCatalog = catalog
+            project.ext.nclskinsCatalogTools = CatalogTools
+            if (compileReferences.containsKey(target.id)) {
+                assertEquals(compileReferences[target.id], CatalogTools.optionalCompileTargetId(catalog, target, 'waveycapes'))
+                project.apply(from: new File(repository, 'gradle/waveycapes-conventions.gradle'))
+                def compileCheck = project.tasks.named('verifyWaveyCapesCompileAbi').get()
+                assertTrue(project.tasks.check.taskDependencies.getDependencies(project.tasks.check).contains(compileCheck))
+                assertNull(project.tasks.findByName('verifyWaveyCapesComposition'))
+                assertNull(project.tasks.findByName('verifyWaveyCapesGuards'))
+                def donor = catalog.optionalDependencies.waveycapes.artifacts[compileReferences[target.id]]
+                assertTrue(project.configurations.compileOnly.dependencies.any { it.version == donor.versionId })
+                assertFalse(project.configurations.runtimeClasspath.allDependencies.any { it.version == donor.versionId })
+                assertFalse(project.configurations.testRuntimeClasspath.allDependencies.any { it.version == donor.versionId })
+                return
+            }
+            project.configurations.create('cpmCompositionRuntime')
+            project.configurations.create('nclskinsSqliteClientRuntime')
             project.ext.wavey = catalog.optionalDependencies.waveycapes
             project.ext.pin = project.ext.wavey.artifacts[target.id]
             project.ext.publicAbi = project.configurations.create('waveyCapesPublicAbi')
             project.ext.compileAbi = project.files()
-            project.ext.nclskinsCatalogTools = CatalogTools
             registerLegacyProviders(project)
             File script = new File(directory, 'composition.gradle'); script.text = registration
             project.apply(from: script)

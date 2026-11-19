@@ -670,7 +670,7 @@ class CapeProviderCoordinatorTest {
         assertTrue(sink.live(third), "both world and menu must see an installed frame");
 
         for (int frame = 3; frame <= 4; frame++) {
-            now.set(TimeUnit.MILLISECONDS.toNanos(frame * 100L));
+            now.set(TimeUnit.MILLISECONDS.toNanos((frame + 3L) * 100L));
             CapeProjection.resolveSelf(self, "Self");
             drainHeld(worker);
         }

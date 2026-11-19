@@ -1110,7 +1110,8 @@ final class ArtifactVerifier {
                 'com/naocraftlab/skins/client/TextureUseValidity.class']
         String implementation = target.capabilities.appearance
         boolean immediate = implementation in ['player-info-cache', 'skin-lookup']
-        boolean prepared = implementation in ['cape-foil-pipeline-bind-groups', 'cape-foil-combined']
+        boolean prepared = implementation in ['cape-foil-pipeline-bind-groups', 'cape-foil-combined',
+                                                'cape-foil-combined-stage-selector']
         if (immediate) {
             required += ['com/naocraftlab/skins/compat/client/cape/CapePassMaterial.class',
                     'com/naocraftlab/skins/compat/client/cape/CapturedCapePass.class',
@@ -1240,7 +1241,7 @@ final class ArtifactVerifier {
         String fragment = 'assets/nclskins/shaders/core/cape_entity_foil.fsh'
         if (!names.contains(fragment)) { errors.add("${target.id}: missing cape entity shader"); return }
         String body = archive.getInputStream(archive.getEntry(fragment)).withCloseable { it.getText('UTF-8') }
-        if (implementation == 'cape-foil-combined') {
+        if (implementation in ['cape-foil-combined', 'cape-foil-combined-stage-selector']) {
             if (!body.contains('color.a <= 0.0') || body.contains('color.a = max(color.a, GlintAlpha)')
                     || !body.contains('texture(GlintSampler, texCoordGlint)')) {
                 errors.add("${target.id}: combined/OIT cape shader must preserve current frame alpha")
@@ -1290,13 +1291,30 @@ final class ArtifactVerifier {
             return
         }
         byte[] bytes = read(archive, path)
+        if (target.capabilities?.textures == 'identifier-provider-texture-registry') {
+            String configName = 'nclskins.player-skin-providers.mixins.json'
+            List<String> mixins = ['SkinTextureDownloaderProviderMixin', 'NativeImageSneakyPixelsMixin',
+                                   'TextureManagerProviderAccessor', 'TextureManagerEntryProviderAccessor']
+            if (!names.contains(configName) || mixins.any { !names.contains(base + it + '.class') }) {
+                errors.add("${target.id}: missing Sneaky texture provider registration mixins")
+            } else {
+                Map config = json(archive, configName, target, errors)
+                if (config?.package != base[0..-2].replace('/', '.') || config.required != true
+                        || !(config.client instanceof List) || mixins.any { config.client.count(it) != 1 }
+                        || !PreAlphaSkinCaptureVerifier.providerRegistrationStages(bytes)) {
+                    errors.add("${target.id}: invalid Sneaky texture provider registration mixins")
+                }
+            }
+            return
+        }
         boolean intermediary = fabric && epoch == '1.21.11'
-        String process = intermediary ? 'method_65863' : 'processLegacySkin'
-        String register = intermediary ? 'method_65860' : 'registerTextureInManager'
-        if (!PreAlphaSkinCaptureVerifier.wrappedBeforeOriginal(bytes, process, 'nclskins$rememberUnmodifiedSkinPixels')
-                || !PreAlphaSkinCaptureVerifier.wrappedBeforeOriginal(bytes, register,
-                        'skinTextureReady', 'nclskins$captureSkinPixels')
-                || !PreAlphaSkinCaptureVerifier.modernStages(bytes)) {
+        String manager = base + 'TextureManagerRegistrationMixin.class'
+        String configName = 'nclskins.player-skin-providers.mixins.json'
+        Map config = names.contains(configName) ? json(archive, configName, target, errors) : null
+        if (!names.contains(manager) || config?.package != base[0..-2].replace('/', '.') || config.required != true
+                || !(config.client instanceof List) || ['SkinTextureDownloaderProviderMixin', 'NativeImageSneakyPixelsMixin',
+                        'TextureManagerRegistrationMixin'].any { config.client.count(it) != 1 }
+                || !PreAlphaSkinCaptureVerifier.dynamicRegistrationStages(bytes, read(archive, manager), intermediary)) {
             errors.add("${target.id}: modern Sneaky pixels must be copied before native alpha forcing and published with registered texture identity")
         }
     }

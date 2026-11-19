@@ -6,10 +6,13 @@ import org.gradle.testkit.runner.GradleRunner
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
+import java.nio.file.Files
+
 import static org.junit.jupiter.api.Assertions.*
 
 class ReceiptEnvironmentTest {
     @TempDir File workspace
+    private File testKitHome
 
     File fixture() {
         File root = new File(workspace, 'project')
@@ -72,8 +75,12 @@ tasks.register('statusReceipt') {
         Map<String, String> environment = new HashMap<>(System.getenv())
         environment.remove('NCLSKINS_SERVER_PLUGIN_BASELINE')
         if (baseline != null) environment.NCLSKINS_SERVER_PLUGIN_BASELINE = baseline
+        if (testKitHome == null) {
+            def parent = new File(System.getProperty('nclskins.receiptTestKitRoot')).toPath()
+            testKitHome = Files.createTempDirectory(Files.createDirectories(parent), 'case-').toFile()
+        }
         GradleRunner.create().withProjectDir(root).withPluginClasspath()
-                .withTestKitDir(new File(workspace, 'test-kit'))
+                .withTestKitDir(testKitHome)
                 .withEnvironment(environment).withArguments(task, '--console=plain', '--stacktrace')
     }
 

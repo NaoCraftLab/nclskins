@@ -405,7 +405,7 @@ tasks.register('verifyLoggingSecurityBaseline') {
     description = 'Requires a dated host-owned logging security baseline for every catalog Minecraft pin.'
     def baselineFile = file('gradle/logging-security-baseline.json')
     def requiredVersions = targetCatalog.targets.collect {
-        it.minecraft.version.toString()
+        nclskinsCatalogTools.minecraftCompileVersion(it)
     }.toSet()
     inputs.file(baselineFile)
     inputs.file(layout.projectDirectory.file('gradle/targets.json'))

@@ -1,0 +1,50 @@
+package com.naocraftlab.skins.compat.client.identifier.extraction;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.tabs.GridLayoutTab;
+import net.minecraft.client.gui.components.tabs.MenuTabBar;
+import net.minecraft.client.gui.components.tabs.Tab;
+import net.minecraft.client.gui.components.tabs.TabManager;
+import net.minecraft.client.gui.components.tabs.TabNavigationBar;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
+
+public final class ExtractionGuiApi {
+    private ExtractionGuiApi() {}
+
+    public static boolean keybindingOverlayAbsent(Minecraft minecraft) {
+        return minecraft.gui.overlay() == null;
+    }
+
+    public static Screen currentScreen(Minecraft minecraft) {
+        return minecraft.gui.screen();
+    }
+
+    public static void setScreen(Minecraft minecraft, Screen screen) {
+        minecraft.gui.setScreen(screen);
+    }
+
+    static ExtractionTab createTab(Component label) {
+        return new ExtractionTab(new GridLayoutTab(), label);
+    }
+
+    static TabNavigationBar buildTabBar(TabManager manager, int width, Iterable<ExtractionTab> tabs) {
+        MenuTabBar.Builder builder = MenuTabBar.builder(manager, width);
+        tabs.forEach(entry -> builder.addTab(entry.label(), entry.tab()));
+        return builder.build();
+    }
+
+    static void arrange(TabNavigationBar bar, int width) {
+        bar.arrangeElements(width);
+    }
+
+    static void select(TabManager manager, Tab tab) {
+        manager.setCurrentTab(tab, false, false);
+    }
+
+    static EntityType<?> mannequin() {
+        return EntityTypes.MANNEQUIN;
+    }
+}

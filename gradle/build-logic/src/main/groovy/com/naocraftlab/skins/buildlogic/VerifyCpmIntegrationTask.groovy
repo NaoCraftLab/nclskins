@@ -231,19 +231,24 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
             byte[] equipmentMixin = new ZipFile(cpm.first()).withCloseable { zip ->
                 zip.getInputStream(zip.getEntry('com/tom/cpm/mixin/render/EquipmentLayerRendererMixin.class')).bytes
             }
-            boolean[] glintBinding = [false] as boolean[]
-            new org.objectweb.asm.ClassReader(equipmentMixin).accept(new org.objectweb.asm.ClassVisitor(org.objectweb.asm.Opcodes.ASM9) {
-                @Override org.objectweb.asm.MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
-                    if (name == 'grabTextureGlint') glintBinding[0] = true
-                    return null
+            def materialMixin = new org.objectweb.asm.tree.ClassNode()
+            new org.objectweb.asm.ClassReader(equipmentMixin).accept(materialMixin, org.objectweb.asm.ClassReader.SKIP_CODE)
+            boolean glint = materialMixin.methods.any { it.name == 'grabTextureGlint' }
+            boolean returnsInt = materialMixin.methods.any { method ->
+                method.name == 'grabTexture' && method.visibleAnnotations?.any { annotation ->
+                    annotation.desc == 'Lorg/spongepowered/asm/mixin/injection/Inject;' && annotation.values.collate(2).any { pair ->
+                        pair[0] == 'method' && pair[1].any { selector -> selector.startsWith('renderLayers(') && selector.endsWith(')I') }
+                    }
                 }
-            }, org.objectweb.asm.ClassReader.SKIP_CODE)
-            boolean glint = glintBinding[0]
+            }
             File originalFixture = materialSources.find { it.name == 'EquipmentLayerRenderer.java' }
             File generatedFixture = new File(work, 'material-source/EquipmentLayerRenderer.java')
             generatedFixture.parentFile.mkdirs()
-            generatedFixture.text = originalFixture.getText('UTF-8').replace('RenderTypes.armorCutoutNoCull(selected);',
-                    glint ? 'if (order == 1) RenderTypes.armorCutoutNoCullGlint(selected); else RenderTypes.armorCutoutNoCull(selected);' : 'RenderTypes.armorCutoutNoCull(selected);')
+            String baseMaterial = 'RenderTypes.armorCutoutNoCull(selected);'
+            String material = glint ? 'if (order == 1) RenderTypes.armorCutoutNoCullGlint(selected); else ' + baseMaterial : baseMaterial
+            String fixtureSource = originalFixture.getText('UTF-8')
+            if (returnsInt) fixtureSource = fixtureSource.replace('public void renderLayers(', 'public int renderLayers(')
+            generatedFixture.text = fixtureSource.replace(baseMaterial, material + (returnsInt ? '\n  return 0;' : ''))
             materialSources = materialSources.findAll { it != originalFixture } + generatedFixture
             int materialResult = ToolProvider.systemJavaCompiler.run(null, System.out, System.err,
                     (['--release', '17', '-classpath', libraries, '-d', fixtureClasses.path] + materialSources*.path) as String[])

@@ -135,6 +135,9 @@ final class SemanticVerifier {
                 leafText = guiHostSources(roots)
             }
             verifyLeaf(implementation, key, leafText, errors)
+            if (key == 'textures' && implementation in ['identifier-texture-registry', 'identifier-provider-texture-registry']) {
+                verifyIdentifierTextureBackend(implementation, roots, errors)
+            }
             if (implementation == 'identifier-submission') {
                 verifyIdentifierSubmissionGuiBundle(roots, errors)
             }
@@ -805,12 +808,12 @@ final class SemanticVerifier {
                 errors.add("${implementation}: legacy gallery cards must not sample the dirt background")
             }
         }
-        if (implementation == 'identifier-extraction-menu-tab-input-constants'
+        if (implementation in ['identifier-extraction-menu-tab-input-constants', 'identifier-extraction-context-input-constants']
                 && (!compact.contains('event.shortcutKey() == InputConstants.KEYCODE_RETURN')
                         || !compact.contains('switch (event.shortcutKey())')
                         || compact.contains('isEnterKey(event.key())')
                         || compact.contains('switch (event.key())'))) {
-            errors.add('identifier-extraction-menu-tab-input-constants: product navigation must classify logical shortcutKey rather than physical scancode')
+            errors.add("${implementation}: product navigation must classify logical shortcutKey rather than physical scancode")
         }
         if ((implementation == 'identifier-submission'
                 || implementation.startsWith('identifier-extraction-'))
@@ -830,8 +833,8 @@ final class SemanticVerifier {
             ['NativePlayerSkinLifecycle', 'OwnedSkinFile'].each { String marker ->
                 if (!compact.contains(marker)) errors.add("${implementation}: texture lifecycle lacks required marker '${marker}'")
             }
-            List<String> nativeMarkers = implementation == 'identifier-texture-registry'
-                    ? ['SkinTextureDownloader', 'whenComplete', 'stagedFile.close()']
+            List<String> nativeMarkers = implementation in ['identifier-texture-registry', 'identifier-provider-texture-registry']
+                    ? ['IdentifierNativeTextureBackend.download(', 'whenComplete', 'stagedFile.close()']
                     : ['HttpTexture', 'NativeTextureUploadTracker', 'closeStagedFile()']
             nativeMarkers.each { String marker ->
                 if (!compact.contains(marker)) errors.add("${implementation}: native texture readiness lacks required marker '${marker}'")
@@ -889,6 +892,27 @@ final class SemanticVerifier {
             if (!Files.isRegularFile(file)) { errors.add("required publication boundary source is missing: ${path}"); return }
             String text = Files.readString(file).replaceAll('\\s+', ' ')
             markers.each { String marker -> if (!text.contains(marker)) errors.add("${path} lacks narrow boundary marker '${marker}'") }
+        }
+    }
+
+    static void verifyIdentifierTextureBackend(String implementation, Set<Path> roots, List<String> errors) {
+        List<Path> backends = roots.collect {
+            it.resolve('com/naocraftlab/skins/compat/client/identifier/IdentifierNativeTextureBackend.java')
+        }.findAll(Files::isRegularFile)
+        if (backends.size() != 1) {
+            errors.add("${implementation}: expected exactly one selected native texture backend, got ${backends.size()}")
+            return
+        }
+        String source = Files.readString(backends[0]).replaceAll('\\s+', ' ')
+        List<String> markers = ['downloadAndRegisterSkin(location, staged, sentinel, true)',
+                                'manager.release(location)']
+        markers += implementation == 'identifier-provider-texture-registry'
+                ? ['new FeatureSkinTextureDownloader(', 'TextureResources.from2dImage(',
+                   'manager.registerProvider(location, new ExternalTextureProvider(texture))',
+                   'texture.close()', 'downloader::close']
+                : ['new SkinTextureDownloader(', 'new DynamicTexture(', 'manager.register(location, texture)']
+        markers.each { String marker ->
+            if (!source.contains(marker)) errors.add("${implementation}: native texture backend lacks required marker '${marker}'")
         }
     }
 

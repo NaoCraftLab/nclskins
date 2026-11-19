@@ -10,7 +10,8 @@
     "ClientPacketListenerCapeMixin",
     "SkinManagerProviderMixin",
     "SkinTextureDownloaderProviderMixin",
-    "NativeImageSneakyPixelsMixin"
+    "NativeImageSneakyPixelsMixin",
+    "TextureManagerRegistrationMixin"
   ],
   "injectors": {
     "defaultRequire": 1

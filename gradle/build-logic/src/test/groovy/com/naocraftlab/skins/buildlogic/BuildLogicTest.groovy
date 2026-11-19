@@ -168,7 +168,7 @@ public final class TmpProbe {
         assertEquals(
                 catalog.targets.collect { "targets/${it.minecraft.version}/${it.loader.id}".toString() },
                 catalog.targets.collect { it.path })
-        assertEquals(12, catalog.targets.size())
+        assertEquals(13, catalog.targets.size())
         assertEquals(12, CatalogTools.releaseTargets(catalog).size())
         assertEquals('NCL Skins Plugin', catalog.serverPlugin.name)
         assertEquals('nclskins-plugin', catalog.serverPlugin.slug)
@@ -233,8 +233,8 @@ public final class TmpProbe {
         assertEquals([
                 version: '26.3', predicate: '>=26.3', epoch: '26.3'
         ], finalTarget.minecraft)
-        assertEquals('0.19.5', finalTarget.loader.version)
-        assertEquals('>=0.19.5', finalTarget.loader.predicate)
+        assertEquals('0.20.1', finalTarget.loader.version)
+        assertEquals('>=0.20.1', finalTarget.loader.predicate)
         assertEquals('0.161.0+26.3', finalTarget.loader.apiVersion)
         assertEquals('>=0.161.0+26.3', finalTarget.loader.apiPredicate)
         assertEquals('21.0.0-beta.1', finalTarget.loader.modMenuVersion)
@@ -825,7 +825,7 @@ public final class TmpProbe {
         Map family = catalog.targets.find { it.id == 'fabric-26.1' } as Map
         assertEquals(['26.1', '26.1.1', '26.1.2'], family.compatibility.minecraftVersions)
         assertEquals(
-                [minecraftVersion: '26.1.2', loaderVersion: '0.19.5', serverPort: 25578],
+                [minecraftVersion: '26.1.2', loaderVersion: '0.20.1', serverPort: 25578],
                 CatalogTools.compatibilityRuntime(family, '26.1.2'))
         assertThrows(IllegalArgumentException) {
             CatalogTools.compatibilityRuntime(family, '26.1.3')
@@ -982,7 +982,7 @@ public final class TmpProbe {
                 assertEquals("[${target.minecraft.version},)".toString(), target.minecraft.predicate)
             }
         }
-        assertEquals(['0.19.5'] as Set,
+        assertEquals(['0.20.1'] as Set,
                 catalog.targets.findAll { it.loader.id == 'fabric' }.collect { it.loader.version } as Set)
         Map neoForgeExtraction = catalog.targets.find { it.id == 'neoforge-26.2' } as Map
         assertEquals('26.2.0.57', neoForgeExtraction.loader.version)
@@ -1048,45 +1048,45 @@ public final class TmpProbe {
         ['snapshot-10': 'alpha.10', 'pre-2': 'pre.2', 'rc-1': 'rc.1'].each {
             String compileSuffix, String runtimeSuffix ->
             Map valid = cloneMap(catalog)
-            Map target = valid.targets.find { it.id == 'fabric-26.3' } as Map
+            Map target = valid.targets.find { it.id == 'fabric-26.4' } as Map
             target.releaseEligible = false
-            target.minecraft.compileVersion = "26.3-${compileSuffix}".toString()
-            target.minecraft.runtimeVersion = "26.3-${runtimeSuffix}".toString()
-            target.minecraft.minimumRuntimeVersion = "26.3-${runtimeSuffix}".toString()
-            target.minecraft.predicate = ">=26.3-${runtimeSuffix}".toString()
+            target.minecraft.compileVersion = "26.4-${compileSuffix}".toString()
+            target.minecraft.runtimeVersion = "26.4-${runtimeSuffix}".toString()
+            target.minecraft.minimumRuntimeVersion = "26.4-${runtimeSuffix}".toString()
+            target.minecraft.predicate = ">=26.4-${runtimeSuffix}".toString()
             CatalogTools.validate(repository, valid)
         }
 
         Map malformed = cloneMap(catalog)
-        Map malformedMinecraft = malformed.targets.find { it.id == 'fabric-26.3' }.minecraft as Map
-        malformedMinecraft.compileVersion = '26.3-preview-2'
-        malformedMinecraft.runtimeVersion = '26.3-pre.2'
-        malformedMinecraft.minimumRuntimeVersion = '26.3-pre.2'
-        malformedMinecraft.predicate = '>=26.3-pre.2'
+        Map malformedMinecraft = malformed.targets.find { it.id == 'fabric-26.4' }.minecraft as Map
+        malformedMinecraft.compileVersion = '26.4-preview-2'
+        malformedMinecraft.runtimeVersion = '26.4-pre.2'
+        malformedMinecraft.minimumRuntimeVersion = '26.4-pre.2'
+        malformedMinecraft.predicate = '>=26.4-pre.2'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, malformed) }
 
         Map stale = cloneMap(catalog)
-        Map staleMinecraft = stale.targets.find { it.id == 'fabric-26.3' }.minecraft as Map
-        staleMinecraft.compileVersion = '26.3-pre-2'
-        staleMinecraft.runtimeVersion = '26.3-pre.2'
-        staleMinecraft.minimumRuntimeVersion = '26.3-alpha.10'
-        staleMinecraft.predicate = '>=26.3-alpha.10'
+        Map staleMinecraft = stale.targets.find { it.id == 'fabric-26.4' }.minecraft as Map
+        staleMinecraft.compileVersion = '26.4-pre-2'
+        staleMinecraft.runtimeVersion = '26.4-pre.2'
+        staleMinecraft.minimumRuntimeVersion = '26.4-alpha.10'
+        staleMinecraft.predicate = '>=26.4-alpha.10'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, stale) }
 
         Map future = cloneMap(catalog)
-        Map futureMinecraft = future.targets.find { it.id == 'fabric-26.3' }.minecraft as Map
-        futureMinecraft.compileVersion = '26.3-pre-2'
-        futureMinecraft.runtimeVersion = '26.3-pre.2'
-        futureMinecraft.minimumRuntimeVersion = '26.3-rc.1'
-        futureMinecraft.predicate = '>=26.3-rc.1'
+        Map futureMinecraft = future.targets.find { it.id == 'fabric-26.4' }.minecraft as Map
+        futureMinecraft.compileVersion = '26.4-pre-2'
+        futureMinecraft.runtimeVersion = '26.4-pre.2'
+        futureMinecraft.minimumRuntimeVersion = '26.4-rc.1'
+        futureMinecraft.predicate = '>=26.4-rc.1'
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, future) }
 
         Map released = cloneMap(catalog)
-        Map releasedTarget = released.targets.find { it.id == 'fabric-26.3' } as Map
-        releasedTarget.minecraft.compileVersion = '26.3-pre-2'
-        releasedTarget.minecraft.runtimeVersion = '26.3-pre.2'
-        releasedTarget.minecraft.minimumRuntimeVersion = '26.3-pre.2'
-        releasedTarget.minecraft.predicate = '>=26.3-pre.2'
+        Map releasedTarget = released.targets.find { it.id == 'fabric-26.4' } as Map
+        releasedTarget.minecraft.compileVersion = '26.4-pre-2'
+        releasedTarget.minecraft.runtimeVersion = '26.4-pre.2'
+        releasedTarget.minecraft.minimumRuntimeVersion = '26.4-pre.2'
+        releasedTarget.minecraft.predicate = '>=26.4-pre.2'
         releasedTarget.releaseEligible = true
         assertThrows(IllegalArgumentException) { CatalogTools.validate(repository, released) }
     }
@@ -1096,7 +1096,8 @@ public final class TmpProbe {
         catalog.targets.each { Map target ->
             Map resolved = CatalogTools.resolveTargetSources(repository, catalog, target)
             List roots = resolved.java.findAll { it.startsWith('compat/capabilities/configuration-link/') }
-            String api = target.capabilities.gui == 'identifier-extraction-menu-tab-input-constants'
+            String api = target.capabilities.gui in ['identifier-extraction-menu-tab-input-constants',
+                                                     'identifier-extraction-context-input-constants']
                     ? 'uri-blaze3d'
                     : target.capabilities.gui.toString().startsWith('immediate-')
                             ? 'string-root-util' : 'string-package-util'
@@ -1146,6 +1147,7 @@ public final class TmpProbe {
                 'fabric-26.2'     : 'avatar-pip-extraction-simple-model-attack-time-fabric',
                 'neoforge-26.2'   : 'avatar-pip-extraction-simple-model-attack-time-neoforge',
                 'fabric-26.3'     : 'avatar-pip-extraction-simple-model-no-attack-time-fabric',
+                'fabric-26.4'     : 'avatar-pip-extraction-simple-model-no-attack-time-fabric',
                 'neoforge-26.3'   : 'avatar-pip-extraction-simple-model-no-attack-time-neoforge'
         ]
         Set<String> registrationBundles = expected.values() as Set
@@ -1700,11 +1702,13 @@ public final class TmpProbe {
         assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
                 IdeaRunConfigurations.RUN_KINDS.size() +
                 catalog.serverPluginTopologies.size(), taskNames.size())
-        assertEquals(83, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
-        assertTrue(IdeaRunConfigurations.orderedConfigurationNames(catalog)
-                .contains('26.3:paper:runServer'))
-        assertTrue(IdeaRunConfigurations.orderedConfigurationNames(catalog)
-                .contains('26.3:folia:runServer'))
+        List<String> configurationNames = IdeaRunConfigurations.orderedConfigurationNames(catalog)
+        assertEquals(86, configurationNames.size())
+        assertEquals(86, configurationNames.toSet().size())
+        assertTrue(configurationNames.containsAll([
+                '26.3:paper:runServer', '26.3:folia:runServer',
+                '26.4:fabric:runClient', '26.4:fabric:runClientLicensed', '26.4:fabric:runServer'
+        ]))
         assertEquals('26.1', IdeaRunConfigurations.displayFolder('26.1'))
         assertEquals('26.1.1', IdeaRunConfigurations.displayFolder('26.1.1'))
         assertEquals('26.1.2', IdeaRunConfigurations.displayFolder('26.1.2'))
@@ -2334,6 +2338,29 @@ public final class TmpProbe {
     }
 
     @Test
+    void semanticTextureVerificationUsesExactlyTheSelectedNativeBackend() {
+        String dynamic = 'identifier-texture-registry'
+        String provider = 'identifier-provider-texture-registry'
+        Map bundles = catalog.sourceBundles as Map
+        Set<Path> dynamicRoots = SemanticVerifier.bundleRoots(repository.toPath(), bundles, dynamic)
+        Set<Path> providerRoots = SemanticVerifier.bundleRoots(repository.toPath(), bundles, provider)
+        List<String> errors = []
+
+        SemanticVerifier.verifyIdentifierTextureBackend(dynamic, dynamicRoots, errors)
+        SemanticVerifier.verifyIdentifierTextureBackend(provider, providerRoots, errors)
+        assertEquals([], errors)
+
+        SemanticVerifier.verifyIdentifierTextureBackend(provider, dynamicRoots, errors)
+        assertTrue(errors.any { it.contains("required marker 'downloader::close'") }, errors.toString())
+        errors.clear()
+        SemanticVerifier.verifyIdentifierTextureBackend(provider, dynamicRoots.intersect(providerRoots) as Set, errors)
+        assertTrue(errors.any { it.contains('exactly one selected native texture backend') }, errors.toString())
+        errors.clear()
+        SemanticVerifier.verifyIdentifierTextureBackend(provider, dynamicRoots + providerRoots as Set, errors)
+        assertTrue(errors.any { it.contains('exactly one selected native texture backend') }, errors.toString())
+    }
+
+    @Test
     void mixinPolicyRejectsNonDelegatingChainableWrappers() {
         Path root = Files.createTempDirectory('nclskins-mixin-policy-')
         try {
@@ -2513,7 +2540,7 @@ public final class TmpProbe {
         ].each { String path ->
             String source = new File(repository, path).text
             String init = sourceSection(source, 'protected void init()', 'protected void setInitialFocus()')
-            String extraction = sourceSection(source, 'public void extractRenderState(', 'private void drawListPanels(')
+            String extraction = sourceSection(source, 'protected void extractFrame(', 'private void drawListPanels(')
             String editor = sourceSection(extraction, 'ViewSpec initialView =', '} else {')
 
             assertSourceStages(init, ['addNativeWidgets(currentView)', 'syncNativeWidgetState(currentView)'])
@@ -2957,7 +2984,7 @@ public final class TmpProbe {
                 'renderWidgetsClipped(graphics, current, mouseX, mouseY, partialTick);'
         ])
         extraction.each { String source ->
-            String frame = sourceSection(source, 'public void extractRenderState(', 'private void drawListPanels(')
+            String frame = sourceSection(source, 'protected void extractFrame(', 'private void drawListPanels(')
             String editor = sourceSection(frame, 'if (editor) {', '} else {')
             assertSourceStagesWithNegatives(editor, [
                     'drawPreviews(graphics, previewView);', 'graphics.nextStratum();',

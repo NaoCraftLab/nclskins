@@ -26,9 +26,11 @@ class WaveyCapesCatalogTest {
         CatalogTools.validate(repository, catalog)
         Map wavey = catalog.optionalDependencies.waveycapes
         assertEquals('46362c5bc2b0169dd8a658262b8194bdf0b0a11b', wavey.sourceCommit)
-        assertEquals(catalog.targets.collect { it.id } as Set, wavey.artifacts.keySet())
+        assertEquals((catalog.targets.collect { it.id } as Set) - ['fabric-26.4'], wavey.artifacts.keySet())
         catalog.targets.each { Map target ->
-            assertEquals('1.11.3', wavey.artifacts[target.id].version)
+            String compileId = CatalogTools.optionalCompileTargetId(catalog, target, 'waveycapes')
+            assertEquals(target.id == 'fabric-26.4' ? 'fabric-26.3' : target.id, compileId)
+            assertEquals('1.11.3', wavey.artifacts[compileId].version)
             assertNull(CatalogTools.optionalDependencyVersion(catalog, target, 'waveycapes'))
             assertNull(CatalogTools.optionalDependencyPredicate(catalog, target, 'waveycapes'))
             String metadata = MetadataRenderer.render(catalog, target, '1.3.0', '1.3.0').values().join('\n')

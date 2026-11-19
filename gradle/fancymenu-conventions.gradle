@@ -1,5 +1,6 @@
 def fancy = targetCatalog.optionalDependencies.fancymenu
-String fancyCoordinate = "maven.modrinth:Wq5SjeWM:${fancy.versions[targetSpec.id]}"
+String fancyCompileTarget = nclskinsCatalogTools.optionalCompileTargetId(targetCatalog, targetSpec, 'fancymenu')
+String fancyCoordinate = "maven.modrinth:Wq5SjeWM:${fancy.versions[fancyCompileTarget]}"
 def compileDependency = dependencies.create(fancyCoordinate)
 compileDependency.transitive = false
 if (targetSpec.loader.id == 'forge') {

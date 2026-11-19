@@ -61,6 +61,12 @@ tasks.withType(Test).configureEach {
             .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
+tasks.named('test', Test) {
+    def receiptTestKitRoot = project.layout.buildDirectory.dir('test-kit/receipts')
+    localState.register(receiptTestKitRoot)
+    systemProperty 'nclskins.receiptTestKitRoot', receiptTestKitRoot.get().asFile.absolutePath
+}
+
 dependencies {
     implementation 'org.ow2.asm:asm:9.9'
     implementation 'org.ow2.asm:asm-tree:9.9'

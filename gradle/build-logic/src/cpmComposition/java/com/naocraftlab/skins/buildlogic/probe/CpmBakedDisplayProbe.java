@@ -276,6 +276,7 @@ public final class CpmBakedDisplayProbe {
             types.put("com/mojang/renderpearl/api/textures/GpuTextureView", CpmExtractionBodyProbe.TextureView.class);
             types.put("com/mojang/renderpearl/api/device/GpuDevice", CpmExtractionBodyProbe.Device.class);
             types.put("com/mojang/renderpearl/api/commands/CommandEncoder", CpmExtractionBodyProbe.Encoder.class);
+            CpmExtractionBodyProbe.bindRenderPassLayout(types);
             types.put("com/mojang/renderpearl/api/commands/RenderPass", CpmExtractionBodyProbe.Pass.class);
             types.put((prefix+"VanillaPreviewModels").replace('.', '/'), Models.class);
         }

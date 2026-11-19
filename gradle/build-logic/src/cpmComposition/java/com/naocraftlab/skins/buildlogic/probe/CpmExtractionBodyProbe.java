@@ -89,6 +89,7 @@ public final class CpmExtractionBodyProbe {
         types.put("com/mojang/renderpearl/api/textures/GpuTextureView", TextureView.class);
         types.put("com/mojang/renderpearl/api/device/GpuDevice", Device.class);
         types.put("com/mojang/renderpearl/api/commands/CommandEncoder", Encoder.class);
+        bindRenderPassLayout(types);
         types.put("com/mojang/renderpearl/api/commands/RenderPass", Pass.class);
         var loader = new Loader(types);
         Class<?> contextType = loader.loadClass(PREFIX + "AvatarPreviewContext");
@@ -579,7 +580,25 @@ public final class CpmExtractionBodyProbe {
     public interface GpuTexture { int getWidth(int mip); int getHeight(int mip); }
     public static final class TextureView {}
     public interface Device { Encoder createCommandEncoder(); }
-    public interface Encoder { Pass createRenderPass(java.util.function.Supplier<String> name, TextureView color, java.util.Optional<?> clear, TextureView depth, java.util.OptionalDouble clearDepth); }
+    static void bindRenderPassLayout(Map<String, Class<?>> types) {
+        types.put("com/mojang/renderpearl/api/pipeline/RenderPassLayout", PassLayout.class);
+        types.put("net/minecraft/client/renderer/RenderPassLayouts", PassLayouts.class);
+    }
+    public enum PassLayout { COLOR_DEPTH }
+    public static final class PassLayouts {
+        public static final PassLayout COLOR_DEPTH = PassLayout.COLOR_DEPTH;
+    }
+    public interface Encoder {
+        Pass createRenderPass(java.util.function.Supplier<String> name, TextureView color,
+                java.util.Optional<?> clear, TextureView depth, java.util.OptionalDouble clearDepth);
+        default Pass createRenderPass(java.util.function.Supplier<String> name, PassLayout layout,
+                TextureView color, TextureView... attachments) {
+            if (layout != PassLayout.COLOR_DEPTH || attachments.length != 1) {
+                throw new AssertionError("Expected one depth attachment for the compiled preview pass");
+            }
+            return createRenderPass(name, color, java.util.Optional.empty(), attachments[0], java.util.OptionalDouble.empty());
+        }
+    }
     public interface Pass extends AutoCloseable { void close(); }
     public static final class RenderSystem {
         public static TextureView outputColorTextureOverride;

@@ -91,8 +91,8 @@
     "iconBlur": false
   },
   "plugins": {
-    "loom": "1.17.17",
-    "modDevGradle": "2.0.143",
+    "loom": "1.19.4",
+    "modDevGradle": "2.0.148",
     "forgeGradle": "6.0.54",
     "librarian": "1.2.0",
     "mixinGradle": "0.7.38",
@@ -118,7 +118,7 @@
   },
   "gradleFamilies": {
     "modern": {
-      "version": "9.6.0",
+      "version": "9.9.1",
       "wrapperPath": "."
     },
     "forgeLegacy": {
@@ -308,6 +308,42 @@
           "serverPlayerInfoPublication": "player-info-initialize-v1"
         }
       },
+      "identifier-extraction-context-authlib12": {
+        "minecraftEpoch": "26.4",
+        "javaRelease": 25,
+        "clientProviderClass": "com.naocraftlab.skins.compat.client.identifier.IdentifierClientCapabilityProvider",
+        "clientProviderBundle": "client-provider-extraction",
+        "accessBundles": {
+          "fabric": "access-extraction-fabric",
+          "neoforge": "access-extraction-neoforge"
+        },
+        "previewCapabilities": {
+          "fabric": "avatar-pip-extraction-simple-model-no-attack-time-fabric",
+          "neoforge": "avatar-pip-extraction-simple-model-no-attack-time-neoforge"
+        },
+        "serverSignalCapabilities": {
+          "fabric": "fabric-typed-identifier-v1",
+          "neoforge": "neoforge-identifier-v1"
+        },
+        "serverSignalReceiverCapabilities": {
+          "fabric": "fabric-serverbound-identifier-receiver-v1",
+          "neoforge": "neoforge-identifier-receiver-v1"
+        },
+        "capabilities": {
+          "gui": "identifier-extraction-context-input-constants",
+          "textures": "identifier-provider-texture-registry",
+          "appearance": "cape-foil-combined-stage-selector",
+          "session": "minecraft-user-v1",
+          "clientExecutor": "minecraft-client-executor-v1",
+          "filePicker": "sdl-dialog-safe-v1",
+          "bundledSkin": "vanilla-pack-identifier-provider",
+          "currentAppearance": "avatar-state-current-player",
+          "serverProfileVerification": "profile-verification-authlib-v10",
+          "serverProfileMutation": "profile-mutation-authlib-v9",
+          "serverTracking": "tracking-chunkmap-level-v2",
+          "serverPlayerInfoPublication": "player-info-initialize-v1"
+        }
+      },
       "identifier-extraction-authlib10": {
         "minecraftEpoch": "26.3",
         "javaRelease": 25,
@@ -385,6 +421,7 @@
         "neoforge-26.1": "fFHN1j51",
         "fabric-26.2": "klnLackF",
         "neoforge-26.2": "boNjhV6Y",
+        "fabric-26.4": "cxjd3tij",
         "fabric-26.3": "y57itTtd",
         "neoforge-26.3": "bl0g58z6"
       },
@@ -443,6 +480,11 @@
           "versionId": "boNjhV6Y",
           "file": "CustomPlayerModels-26.2-0.6.27c.jar",
           "sha512": "e0ad7ef3896c3b3b05b2e24a96ac2f310bbe3a08f9fb849c0479b7567f16adf7d8b6cbddea3f088d17883cd8abe352a5e695ecc13ef991eff1a893f1bfe694d0"
+        },
+        "fabric-26.4": {
+          "versionId": "cxjd3tij",
+          "file": "CustomPlayerModels-Fabric-26.4-0.6.27a.jar",
+          "sha512": "5a97b2c68e7e5e84ae5d643d8aaef6d9b7b7473d6fe0e440e472bbd9be729bae72906e1ef2a39e66cb69648572612c15204a6208399e4c792232954083858d84"
         },
         "fabric-26.3": {
           "versionId": "y57itTtd",
@@ -629,6 +671,7 @@
           "maven.modrinth:CVT4pFB2:LMoAqWbb",
           "maven.modrinth:J81TRJWm:fCKk8Tai"
         ],
+        "fabric-26.4": [],
         "fabric-26.3": [
           "maven.modrinth:Wq5SjeWM:CBLbyHzH",
           "maven.modrinth:CVT4pFB2:gjl2Yw81",
@@ -641,6 +684,7 @@
         ]
       },
       "runtimeUnavailableTargets": [
+        "fabric-26.4",
         "fabric-26.1",
         "neoforge-26.1"
       ],
@@ -668,6 +712,7 @@
         "neoforge-26.1": "EEE7nXWy",
         "fabric-26.2": "EEE7nXWy",
         "neoforge-26.2": "EEE7nXWy",
+        "fabric-26.4": "EEE7nXWy",
         "fabric-26.3": "EEE7nXWy",
         "neoforge-26.3": "EEE7nXWy"
       },
@@ -713,6 +758,7 @@
         "neoforge-26.1": "3.9.6+26.1-neoforge",
         "fabric-26.2": "3.9.6+26.2-fabric",
         "neoforge-26.2": "3.9.6+26.2-neoforge",
+        "fabric-26.4": "3.9.10+26.4-fabric",
         "fabric-26.3": "3.9.6+26.3-fabric",
         "neoforge-26.3": "3.9.7+26.3-neoforge"
       }
@@ -1122,6 +1168,22 @@
       "side": "client",
       "requires": []
     },
+    "extraction-api-callback-context": {
+      "java": [
+        "compat/capabilities/gui/extraction-api-callback-context/src/main/java"
+      ],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "extraction-api-extractor-context": {
+      "java": [
+        "compat/capabilities/gui/extraction-api-extractor-context/src/main/java"
+      ],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
     "extraction-api-menu-tab": {
       "java": ["compat/capabilities/gui/extraction-api-menu-tab/src/main/java"],
       "resources": [],
@@ -1132,7 +1194,7 @@
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-tab-navigation", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
+      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-callback-context", "extraction-api-tab-navigation", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
     },
     "extraction-screen-glfw-input": {
       "java": ["compat/capabilities/gui/extraction-screen-glfw/src/main/java"],
@@ -1144,7 +1206,7 @@
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-menu-tab", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
+      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-callback-context", "extraction-api-menu-tab", "extraction-screen-glfw-input", "configuration-link-string-package-util"]
     },
     "extraction-screen-input-constants": {
       "java": ["compat/capabilities/gui/extraction-screen-input-constants/src/main/java"],
@@ -1152,11 +1214,23 @@
       "side": "client",
       "requires": []
     },
+    "identifier-extraction-context-input-constants": {
+      "java": [],
+      "resources": [],
+      "side": "client",
+      "requires": [
+        "screen-keybindings-event-input",
+        "extraction-shared",
+        "extraction-api-extractor-context",
+        "extraction-screen-input-constants",
+        "configuration-link-uri-blaze3d"
+      ]
+    },
     "identifier-extraction-menu-tab-input-constants": {
       "java": [],
       "resources": [],
       "side": "client",
-      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-menu-tab", "extraction-screen-input-constants", "configuration-link-uri-blaze3d"]
+      "requires": ["screen-keybindings-event-input", "extraction-shared", "extraction-api-callback-context", "extraction-api-menu-tab", "extraction-screen-input-constants", "configuration-link-uri-blaze3d"]
     },
     "resource-location-legacy": {
       "java": ["compat/capabilities/textures/resource-location-legacy/src/main/java"],
@@ -1173,6 +1247,24 @@
     "identifier-texture-registry": {
       "java": ["compat/capabilities/textures/identifier/src/main/java"],
       "resources": [],
+      "side": "client",
+      "requires": ["dynamic-texture-upload"]
+    },
+    "dynamic-texture-upload": {
+      "java": ["compat/capabilities/textures/dynamic-texture-upload/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "identifier-provider-texture-registry": {
+      "java": ["compat/capabilities/textures/identifier/src/main/java", "compat/capabilities/textures/provider-texture-upload/src/main/java"],
+      "resources": [],
+      "side": "client",
+      "requires": []
+    },
+    "cape-gui-foil-extraction-combined-pipeline": {
+      "java": ["compat/capabilities/gui/cape-gui-foil-extraction-combined-pipeline/src/main/java"],
+      "resources": ["compat/capabilities/gui/cape-gui-foil-extraction-combined/src/main/resources"],
       "side": "client",
       "requires": []
     },
@@ -1344,11 +1436,23 @@
       "side": "client",
       "requires": ["cape-layer-translucent", "cape-entity-shader-position-fog", "wavey-capes-entity", "cape-pass-mesh"]
     },
-    "avatar-state-local-player-skin": {
+    "avatar-state-local-player-skin-common": {
       "java": ["compat/capabilities/appearance/local-player-skin/src/main/java"],
-      "resources": ["compat/capabilities/appearance/local-player-skin/src/main/resources"],
+      "resources": [],
       "side": "client",
       "requires": []
+    },
+    "avatar-state-local-player-skin": {
+      "java": ["compat/capabilities/appearance/local-player-skin/src/dynamic-texture/main/java"],
+      "resources": ["compat/capabilities/appearance/local-player-skin/src/dynamic-texture/main/resources"],
+      "side": "client",
+      "requires": ["avatar-state-local-player-skin-common"]
+    },
+    "avatar-state-registered-player-skin-provider": {
+      "java": ["compat/capabilities/appearance/local-player-skin/src/provider-registration/main/java"],
+      "resources": ["compat/capabilities/appearance/local-player-skin/src/provider-registration/main/resources"],
+      "side": "client",
+      "requires": ["avatar-state-local-player-skin-common", "identifier-provider-texture-registry"]
     },
     "cape-pass-capture": {
       "java": ["compat/capabilities/appearance/cape-pass-capture/src/main/java"],
@@ -1496,10 +1600,26 @@
       "requires": []
     },
     "cape-foil-combined": {
-      "java": ["compat/capabilities/appearance/cape-foil-combined/src/main/java"],
+      "java": ["compat/capabilities/appearance/cape-foil-combined/src/main/java", "compat/capabilities/appearance/cape-foil-combined/src/oit-set/main/java"],
       "resources": ["compat/capabilities/appearance/cape-foil-combined/src/main/resources"],
       "side": "client",
       "requires": ["avatar-state-local-player-skin", "cape-pass-capture", "cape-draw-render-pass", "wavey-capes-render-state"]
+    },
+    "cape-foil-combined-stage-selector": {
+      "java": [
+        "compat/capabilities/appearance/cape-foil-combined/src/main/java",
+        "compat/capabilities/appearance/cape-foil-combined/src/staged/main/java"
+      ],
+      "resources": [
+        "compat/capabilities/appearance/cape-foil-combined/src/main/resources"
+      ],
+      "side": "client",
+      "requires": [
+        "avatar-state-registered-player-skin-provider",
+        "cape-pass-capture",
+        "cape-draw-render-pass",
+        "wavey-capes-render-state"
+      ]
     },
     "fabric-client-common": {
       "java": ["loader/fabric/common/src/main/java"],
@@ -1829,6 +1949,8 @@
     }
   },
   "capabilityImplementations": {
+    "identifier-extraction-context-input-constants": {"bundle": "identifier-extraction-context-input-constants", "abiImplementation": "identifier-extraction-context-input-constants"},
+    "cape-foil-combined-stage-selector": {"bundle": "cape-foil-combined-stage-selector", "abiImplementation": "cape-foil-combined-stage-selector"},
     "cape-gui-foil-immediate": {"bundle": "cape-gui-foil-immediate", "abiImplementation": "cape-gui-foil-immediate"},
     "cape-gui-foil-immediate-buffer": {"bundle": "cape-gui-foil-immediate-buffer", "abiImplementation": "cape-gui-foil-immediate-buffer"},
     "cape-gui-foil-submission": {"bundle": "cape-gui-foil-submission", "abiImplementation": "cape-gui-foil-submission"},
@@ -1848,6 +1970,8 @@
     "resource-location-legacy": {"bundle": "resource-location-legacy", "abiImplementation": "resource-location-legacy"},
     "resource-location-modern": {"bundle": "resource-location-modern", "abiImplementation": "resource-location-modern"},
     "identifier-texture-registry": {"bundle": "identifier-texture-registry", "abiImplementation": "identifier-texture-registry"},
+    "identifier-provider-texture-registry": {"bundle": "identifier-provider-texture-registry", "abiImplementation": "identifier-provider-texture-registry"},
+    "cape-gui-foil-extraction-combined-pipeline": {"bundle": "cape-gui-foil-extraction-combined-pipeline", "abiImplementation": "cape-gui-foil-extraction-combined-pipeline"},
     "remote-player-preview": {"bundle": "remote-player-preview", "abiImplementation": "remote-player-preview"},
     "player-skin-preview": {"bundle": "player-skin-preview", "abiImplementation": "player-skin-preview"},
     "avatar-pip-submission-fabric": {"bundle": "avatar-pip-submission-fabric", "abiImplementation": "avatar-pip-submission"},
@@ -1938,8 +2062,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.5",
-        "predicate": ">=0.19.5",
+        "version": "0.20.1",
+        "predicate": ">=0.20.1",
         "apiVersion": "0.92.11+1.20.1",
         "apiPredicate": ">=0.92.11+1.20.1",
         "modMenuVersion": "7.2.2"
@@ -1947,7 +2071,7 @@
       "java": {
         "release": 17,
         "classfileMajor": 61,
-        "buildJdk": 21
+        "buildJdk": 25
       },
       "development": {
         "serverPort": 25565
@@ -2080,8 +2204,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.5",
-        "predicate": ">=0.19.5",
+        "version": "0.20.1",
+        "predicate": ">=0.20.1",
         "apiVersion": "0.116.15+1.21.1",
         "apiPredicate": ">=0.116.15+1.21.1",
         "modMenuVersion": "11.0.4"
@@ -2089,7 +2213,7 @@
       "java": {
         "release": 21,
         "classfileMajor": 65,
-        "buildJdk": 21
+        "buildJdk": 25
       },
       "development": {
         "serverPort": 25567
@@ -2222,8 +2346,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.5",
-        "predicate": ">=0.19.5",
+        "version": "0.20.1",
+        "predicate": ">=0.20.1",
         "apiVersion": "0.141.6+1.21.11",
         "apiPredicate": ">=0.141.6+1.21.11",
         "modMenuVersion": "17.0.0"
@@ -2231,7 +2355,7 @@
       "java": {
         "release": 21,
         "classfileMajor": 65,
-        "buildJdk": 21
+        "buildJdk": 25
       },
       "development": {
         "serverPort": 25573
@@ -2364,8 +2488,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.5",
-        "predicate": ">=0.19.5",
+        "version": "0.20.1",
+        "predicate": ">=0.20.1",
         "apiVersion": "0.145.1+26.1",
         "apiPredicate": ">=0.145.1+26.1",
         "modMenuVersion": "18.0.0"
@@ -2438,9 +2562,9 @@
           "26.1.2"
         ],
         "loaderVersions": {
-          "26.1": "0.19.5",
-          "26.1.1": "0.19.5",
-          "26.1.2": "0.19.5"
+          "26.1": "0.20.1",
+          "26.1.1": "0.20.1",
+          "26.1.2": "0.20.1"
         },
         "serverPorts": {
           "26.1": 25569,
@@ -2566,8 +2690,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.5",
-        "predicate": ">=0.19.5",
+        "version": "0.20.1",
+        "predicate": ">=0.20.1",
         "apiVersion": "0.156.0+26.2",
         "apiPredicate": ">=0.156.0+26.2",
         "modMenuVersion": "20.0.1"
@@ -2708,8 +2832,8 @@
       },
       "loader": {
         "id": "fabric",
-        "version": "0.19.5",
-        "predicate": ">=0.19.5",
+        "version": "0.20.1",
+        "predicate": ">=0.20.1",
         "apiVersion": "0.161.0+26.3",
         "apiPredicate": ">=0.161.0+26.3",
         "modMenuVersion": "21.0.0-beta.1"
@@ -2761,6 +2885,98 @@
         "remapJar": false,
         "mavenArtifactId": "nclskins-fabric-26.3",
         "automaticModuleName": "com.naocraftlab.skins.fabric.identifier.extraction.plainmodel"
+      }
+    },
+    {
+      "id": "fabric-26.4",
+      "releaseEligible": false,
+      "epochProfile": "identifier-extraction-context-authlib12",
+      "loaderProfile": "fabric-loader",
+      "integrationProfile": "fabric-extraction",
+      "buildProfile": "fabric-loom-single",
+      "path": "targets/26.4/fabric",
+      "minecraft": {
+        "version": "26.4",
+        "predicate": ">=26.4-alpha.10",
+        "epoch": "26.4",
+        "compileVersion": "26.4-snapshot-10",
+        "runtimeVersion": "26.4-alpha.10",
+        "minimumRuntimeVersion": "26.4-alpha.10"
+      },
+      "loader": {
+        "id": "fabric",
+        "version": "0.20.1",
+        "predicate": ">=0.20.1",
+        "apiVersion": "0.166.3+26.4",
+        "apiPredicate": ">=0.166.3+26.4",
+        "modMenuVersion": "22.0.0-alpha.7"
+      },
+      "java": {
+        "release": 25,
+        "classfileMajor": 69,
+        "buildJdk": 25
+      },
+      "development": {
+        "serverPort": 25581
+      },
+      "gradleFamily": "modern",
+      "sourceLayout": "single",
+      "capabilities": {
+        "gui": "identifier-extraction-context-input-constants",
+        "guiCapeMaterial": "cape-gui-foil-extraction-combined-pipeline",
+        "textures": "identifier-provider-texture-registry",
+        "preview": "avatar-pip-extraction-simple-model-no-attack-time-fabric",
+        "appearance": "cape-foil-combined-stage-selector",
+        "loaderScreen": "fabric-extraction",
+        "updateNotification": "modmenu-static-catalog",
+        "session": "minecraft-user-v1",
+        "clientExecutor": "minecraft-client-executor-v1",
+        "filePicker": "sdl-dialog-safe-v1",
+        "bundledSkin": "vanilla-pack-identifier-provider",
+        "currentAppearance": "avatar-state-current-player",
+        "serverSignal": "fabric-typed-identifier-v1",
+        "serverSignalReceiver": "fabric-serverbound-identifier-receiver-v1",
+        "serverProfileVerification": "profile-verification-authlib-v10",
+        "serverProfileMutation": "profile-mutation-authlib-v9",
+        "serverTracking": "tracking-chunkmap-level-v2",
+        "serverPlayerInfoPublication": "player-info-initialize-v1",
+        "serverLoader": "fabric-server-v1",
+        "skinExtensionEnvironment": "fabric-resource-stack-v1"
+      },
+      "metadata": {
+        "files": [
+          "fabric.mod.json",
+          "resourcepacks/mojang_collections/pack.mcmeta"
+        ],
+        "entrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricClient",
+        "modMenuEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsModMenuApi",
+        "serverEntrypoint": "com.naocraftlab.skins.loader.fabric.NclSkinsFabricServer",
+        "accessWidener": "nclskins.accesswidener",
+        "packFormat": [
+          104,
+          0
+        ],
+        "mixins": [
+          "nclskins.player-skin-providers.mixins.json",
+          "nclskins.cape-foil-combined.mixins.json",
+          "nclskins.cape-pass-prepared.mixins.json",
+          "nclskins.identifier-extraction.mixins.json",
+          "nclskins.keybindings.mixins.json",
+          "nclskins.cpm.mixins.json"
+        ],
+        "serverMixins": [
+          "nclskins.authlib9.mixins.json"
+        ]
+      },
+      "artifact": {
+        "file": "nclskins-{modVersion}+26.4-fabric.jar",
+        "remapJar": false,
+        "mavenArtifactId": "nclskins-fabric-26.4",
+        "automaticModuleName": "com.naocraftlab.skins.fabric.identifier.extraction.context"
+      },
+      "compileOnlyOptionalReferences": {
+        "fancymenu": "fabric-26.3",
+        "waveycapes": "fabric-26.3"
       }
     },
     {

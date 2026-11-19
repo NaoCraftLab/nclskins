@@ -43,13 +43,20 @@ class PreAlphaSkinCaptureVerifierTest {
     }
 
     @Test
-    void modernArtifactGateAcceptsRegistrationWrapperAndRejectsWrongTargetOrLatePublication() {
+    void modernArtifactGateRejectsLegacyAssetPublicationBeforeOrAfterScheduling() {
         [[epoch: '1.21.11', loader: 'fabric', process: 'method_65863', register: 'method_65860'],
          [epoch: '26.2', loader: 'neoforge', process: 'processLegacySkin', register: 'registerTextureInManager']].each { Map mapping ->
-            assertTrue(modernArtifactErrors(mapping, mapping.register, true).isEmpty())
+            assertFalse(modernArtifactErrors(mapping, mapping.register, true).isEmpty())
             assertFalse(modernArtifactErrors(mapping, 'upload', true).isEmpty())
             assertFalse(modernArtifactErrors(mapping, mapping.register, false).isEmpty())
         }
+    }
+
+    @Test
+    void providerRegistryRejectsPublicationUsingTheAssetBeforeNativeRegistration() {
+        Map mapping = [epoch: '26.4', loader: 'fabric', process: 'processLegacySkin',
+                       register: 'registerTextureInManager', textures: 'identifier-provider-texture-registry']
+        assertFalse(modernArtifactErrors(mapping, mapping.register, true).isEmpty())
     }
 
     private List<String> modernArtifactErrors(Map mapping, String register, boolean before) {
@@ -99,10 +106,10 @@ class PreAlphaSkinCaptureVerifierTest {
             }
         }
         List<String> errors = []
+        Map target = [id: mapping.loader + '-' + mapping.epoch, minecraft: [epoch: mapping.epoch],
+                      loader: [id: mapping.loader], capabilities: [textures: mapping.textures]]
         new ZipFile(jar.toFile()).withCloseable { ZipFile zip ->
-            ArtifactVerifier.verifyPreAlphaSkinCapture(zip,
-                    [id: mapping.loader + '-' + mapping.epoch, minecraft: [epoch: mapping.epoch], loader: [id: mapping.loader]],
-                    entries.keySet().toList(), errors)
+            ArtifactVerifier.verifyPreAlphaSkinCapture(zip, target, entries.keySet().toList(), errors)
         }
         errors
     }

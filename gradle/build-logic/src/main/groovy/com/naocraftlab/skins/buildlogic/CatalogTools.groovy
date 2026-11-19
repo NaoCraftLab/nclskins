@@ -25,7 +25,8 @@ final class CatalogTools {
         'sourceLayout', 'capabilities', 'metadata', 'artifact', 'epochProfile',
         'loaderProfile', 'integrationProfile', 'buildProfile', 'releaseEligible'
     ] as Set
-    static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility'] as Set
+    static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility', 'compileOnlyOptionalReferences'] as Set
+    private static final Set<String> COMPILE_REFERENCE_MODS = ['fancymenu', 'waveycapes'] as Set
     static final Set<String> MOD_KEYS = [
             'id', 'name', 'group', 'license', 'localization', 'descriptions', 'contact', 'links', 'platforms',
             'authors', 'icon', 'iconBlur'
@@ -125,8 +126,45 @@ final class CatalogTools {
 
     static List<Map> releaseTargets(Map catalog) {
         (catalog.targets as List<Map>).findAll { Map target ->
-            target.releaseEligible == true
+            target.releaseEligible == true && !target.containsKey('compileOnlyOptionalReferences')
         }
+    }
+
+    static String optionalCompileTargetId(Map catalog, Map target, String dependency) {
+        if (!target.containsKey('compileOnlyOptionalReferences')) return target.id.toString()
+        Map references = validateOptionalCompileReferences(catalog, target)
+        (references[dependency] ?: target.id).toString()
+    }
+
+    private static Map validateOptionalCompileReferences(Map catalog, Map target) {
+        if (!target.containsKey('compileOnlyOptionalReferences')) return [:]
+        Object raw = target.compileOnlyOptionalReferences
+        if (!(raw instanceof Map) || !raw || !COMPILE_REFERENCE_MODS.containsAll(raw.keySet())
+                || target.id != 'fabric-26.4' || target.releaseEligible != false || target.loader?.id != 'fabric'
+                || minecraftExperimentalRuntimeVersion(target.minecraft?.version?.toString() ?: '',
+                        target.minecraft?.compileVersion?.toString() ?: '') == null) {
+            throw new IllegalArgumentException("${target.id}: optional compile references require an experimental Fabric target and recognized mods")
+        }
+        Map optional = catalog.optionalDependencies as Map
+        raw.each { String dependency, Object donorId ->
+            if (!(donorId instanceof String) || donorId != 'fabric-26.3') {
+                throw new IllegalArgumentException("${target.id}: invalid ${dependency} compile reference donor")
+            }
+            Map donor = selectTarget(catalog, donorId.toString())
+            Map pins = dependency == 'fancymenu' ? optional.fancymenu?.versions as Map
+                    : optional.waveycapes?.artifacts as Map
+            if (donor.loader?.id != target.loader.id || donor.releaseEligible != true
+                    || donor.containsKey('compileOnlyOptionalReferences') || !pins?.get(donorId)
+                    || pins.containsKey(target.id)) {
+                throw new IllegalArgumentException("${target.id}: ambiguous or incompatible ${dependency} compile reference donor")
+            }
+            if (dependency == 'fancymenu' &&
+                    (optional.fancymenu?.runtimeArtifacts?.get(target.id) != [] ||
+                    !optional.fancymenu?.runtimeUnavailableTargets?.contains(target.id))) {
+                throw new IllegalArgumentException("${target.id}: FancyMenu compile reference cannot have runtime artifacts")
+            }
+        }
+        raw as Map
     }
 
     static Map withCapabilityProbe(Map catalog, Map target, String rawOverride) {
@@ -557,8 +595,18 @@ final class CatalogTools {
         }
         Map fancy = catalog.optionalDependencies?.fancymenu instanceof Map ? catalog.optionalDependencies.fancymenu as Map : [:]
         Set fancyTargets = (catalog.targets as List).collect { it.id.toString() } as Set
+        Map<String, Set<String>> referenceTargets = COMPILE_REFERENCE_MODS.collectEntries { [(it): [] as Set] }
+        (catalog.targets as List).findAll { it instanceof Map }.each { Map target ->
+            try {
+                validateOptionalCompileReferences(catalog, target).keySet().each { String dependency ->
+                    referenceTargets[dependency].add(target.id.toString())
+                }
+            } catch (IllegalArgumentException error) {
+                errors.add(error.message)
+            }
+        }
         if (fancy.side != 'client' || !(fancy.versions instanceof Map)
-                || (fancy.versions.keySet() as Set) != fancyTargets
+                || (fancy.versions.keySet() as Set) != (fancyTargets - referenceTargets.fancymenu)
                 || !(fancy.runtimeArtifacts instanceof Map)
                 || (fancy.runtimeArtifacts.keySet() as Set) != fancyTargets
                 || !(fancy.runtimeUnavailableTargets instanceof List)
@@ -609,7 +657,7 @@ final class CatalogTools {
             if ((wavey.keySet() as Set) != ['projectId', 'sourceCommit', 'artifacts'] as Set
                     || wavey.projectId != 'kYuIpRLv'
                     || wavey.sourceCommit != '46362c5bc2b0169dd8a658262b8194bdf0b0a11b'
-                    || (waveyArtifacts.keySet() as Set) != waveyTargetIds
+                    || (waveyArtifacts.keySet() as Set) != (waveyTargetIds - referenceTargets.waveycapes)
                     || waveyArtifacts.any { Object id, Object raw ->
                         !(raw instanceof Map)
                                 || ((raw as Map).keySet() as Set) != ['versionId', 'version', 'file', 'sha512', 'renderFactory', 'capeSource'] as Set

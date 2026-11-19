@@ -45,7 +45,9 @@ final class CpmPreviewScreenSlice {
         names.put("net/minecraft/client/gui/GuiGraphics", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
         names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
         if (textConsumers) {
-            names.put("net/minecraft/client/gui/screens/Screen", internal(CpmOwnedPreviewDispatchProbe.ScreenTerminal.class));
+            String screen = internal(CpmOwnedPreviewDispatchProbe.ScreenTerminal.class);
+            names.put("net/minecraft/client/gui/screens/Screen", screen);
+            if (internalOwner.contains("/extraction/")) names.put(namespace + "GuiExtraction$ScreenHost", screen);
             names.put("net/minecraft/client/Minecraft", internal(CpmOwnedPreviewDispatchProbe.ClientTerminal.class));
             names.put("net/minecraft/client/gui/Font", internal(CpmOwnedPreviewDispatchProbe.FontTerminal.class));
             for (String type : List.of("net/minecraft/network/chat/Component", "net/minecraft/network/chat/FormattedText", "net/minecraft/util/FormattedCharSequence")) {
@@ -149,14 +151,17 @@ final class CpmPreviewScreenSlice {
         if (!textConsumers && branches != 2) throw new AssertionError("Both production loaded/borrowed predicates must remain executable: " + branches);
     }
 
-    private static void verifyPaintOrdering(ClassNode node) {
+    private static void verifyPaintOrdering(ClassNode node) throws IOException {
         boolean immediate = node.name.endsWith("NclSkinsImmediateScreen");
         boolean submission = node.name.contains("submission");
-        String entry = immediate || submission ? "render" : "extractRenderState";
+        String entry = immediate || submission ? "render" : "extractFrame";
         String preview = immediate || submission ? "renderPreviews" : "drawPreviews";
         String reconcile = immediate ? "synchronizeWidgets" : submission ? "refresh" : "snapshotChanged";
         String controls = immediate ? "pointerOwnerAt" : submission ? "renderWidgetsClipped" : "extractRenderablesClipped";
-        var method = node.methods.stream().filter(candidate -> candidate.name.equals(entry)).findFirst().orElseThrow();
+        var matches = node.methods.stream().filter(candidate -> candidate.name.equals(entry)).toList();
+        if (matches.size() != 1) throw new AssertionError("Exact compiled paint body is absent or ambiguous: " + node.name + "." + entry);
+        var method = matches.get(0);
+        if (!immediate && !submission) verifyExtractionCallback(node, method);
         int previewAt = -1, reconcileAt = -1, controlsAt = -1, index = 0;
         for (var instruction : method.instructions) {
             if (instruction instanceof MethodInsnNode call && call.owner.equals(node.name)) {
@@ -169,6 +174,27 @@ final class CpmPreviewScreenSlice {
         if (!(previewAt >= 0 && reconcileAt > previewAt && controlsAt > reconcileAt)) {
             throw new AssertionError("Actual compiled paint must reconcile native widgets after preview and before controls: " + node.name);
         }
+    }
+
+    private static void verifyExtractionCallback(ClassNode node, MethodNode frame) throws IOException {
+        String graphics = "Lnet/minecraft/client/gui/GuiGraphicsExtractor;";
+        String frameDescriptor = "(" + graphics + "IIF)V";
+        String hostName = node.name.substring(0, node.name.lastIndexOf('/') + 1) + "GuiExtraction$ScreenHost";
+        if (!node.superName.equals(hostName) || !frame.desc.equals(frameDescriptor)) {
+            throw new AssertionError("Extraction paint must remain behind the exact native screen adapter");
+        }
+        var host = new ClassNode(Opcodes.ASM9);
+        try (var input = CpmPreviewScreenSlice.class.getClassLoader().getResourceAsStream(hostName + ".class")) {
+            if (input == null) throw new AssertionError("Missing compiled extraction host: " + hostName);
+            new ClassReader(input).accept(host, 0);
+        }
+        var callbacks = host.methods.stream().filter(method -> method.name.equals("extractRenderState")
+                && (method.desc.equals(frameDescriptor) || method.desc.equals("(" + graphics + ")V"))).toList();
+        if (callbacks.size() != 1) throw new AssertionError("Extraction host must expose one exact native callback");
+        long dispatches = java.util.stream.StreamSupport.stream(callbacks.get(0).instructions.spliterator(), false)
+                .filter(instruction -> instruction instanceof MethodInsnNode call && call.getOpcode() == Opcodes.INVOKEVIRTUAL
+                        && call.owner.equals(hostName) && call.name.equals(frame.name) && call.desc.equals(frameDescriptor)).count();
+        if (dispatches != 1) throw new AssertionError("Native extraction callback must dispatch to the shared frame exactly once");
     }
 
     private static void verifyRetirementWiring(ClassNode node) {

@@ -495,7 +495,8 @@ def providerFrameFamily = [
         'identifier-submission': 'submission',
         'identifier-extraction-tab-navigation-glfw': 'extraction',
         'identifier-extraction-menu-tab-glfw': 'extraction',
-        'identifier-extraction-menu-tab-input-constants': 'extraction'
+        'identifier-extraction-menu-tab-input-constants': 'extraction',
+        'identifier-extraction-context-input-constants': 'extraction'
 ][spec.capabilities.gui.toString()]
 if (providerFrameFamily == null) throw new GradleException('Unknown provider frame binding: ' + spec.capabilities.gui)
 def providerFrameSource = repositoryRoot.file(providerFrameFamily == 'immediate'

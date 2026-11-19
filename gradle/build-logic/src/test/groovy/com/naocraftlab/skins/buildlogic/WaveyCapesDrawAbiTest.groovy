@@ -47,7 +47,7 @@ class WaveyCapesDrawAbiTest {
         catalog.targets.each { Map target ->
             def sources = CatalogTools.resolveTargetSources(repository, catalog, target)
             String appearance = target.capabilities.appearance
-            List expected = appearance == 'cape-foil-combined' ? ['cape-draw-render-pass']
+            List expected = appearance in ['cape-foil-combined', 'cape-foil-combined-stage-selector'] ? ['cape-draw-render-pass']
                     : appearance == 'cape-foil-pipeline-bind-groups' ? ['cape-draw-staged'] : []
             assertEquals(expected, sources.bundles.findAll { it in ['cape-draw-staged', 'cape-draw-render-pass'] }, target.id.toString())
             int draws = sources.bundles.sum { String bundle ->

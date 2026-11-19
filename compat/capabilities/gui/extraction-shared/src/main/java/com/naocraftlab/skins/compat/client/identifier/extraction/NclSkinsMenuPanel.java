@@ -13,9 +13,7 @@ import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.PauseScreen;
@@ -84,7 +82,7 @@ public final class NclSkinsMenuPanel {
                 .filter(AbstractWidget.class::isInstance)
                 .map(AbstractWidget.class::cast)
                 .filter(widget -> widget != excluded)
-                .filter(widget -> widget.visible)
+                .filter(GuiExtraction::isVisible)
                 .filter(widget -> widget.getWidth() >= MIN_MAIN_ROW_WIDTH)
                 .filter(widget -> widget.getHeight() >= MIN_MAIN_ROW_HEIGHT)
                 .filter(widget -> widget.getHeight() <= MAX_MAIN_ROW_HEIGHT)
@@ -99,7 +97,7 @@ public final class NclSkinsMenuPanel {
                         widget.getX(), widget.getY(), widget.getWidth(), widget.getHeight()));
     }
 
-    private static final class PlayerPreviewUnderlay implements Renderable, AutoCloseable {
+    private static final class PlayerPreviewUnderlay extends GuiExtraction.UnderlayHost implements AutoCloseable {
         private final Screen screen;
         private final MenuPreviewPlacement placement;
         private final AvatarPipPreviewRenderer renderer =
@@ -117,8 +115,7 @@ public final class NclSkinsMenuPanel {
         }
 
         @Override
-        public void extractRenderState(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawUnderlay(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
             if (NclSkinsExtractionClientRuntime.closed()) {
                 action.applyBounds(Optional.empty());
                 return;
@@ -172,7 +169,7 @@ public final class NclSkinsMenuPanel {
     }
 
 
-    private static final class NoChromeAction extends AbstractButton {
+    private static final class NoChromeAction extends GuiExtraction.ButtonHost {
         private final Screen screen;
         private final Runnable onPress;
 
@@ -220,8 +217,7 @@ public final class NclSkinsMenuPanel {
         }
 
         @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawContents(GuiGraphicsExtractor graphics) {
 
         }
 
@@ -234,7 +230,7 @@ public final class NclSkinsMenuPanel {
             for (GuiEventListener child : screen.children()) {
                 if (child instanceof AbstractWidget widget
                         && widget != this
-                        && widget.visible
+                        && GuiExtraction.isVisible(widget)
                         && widget.isMouseOver(mouseX, mouseY)) {
                     return true;
                 }

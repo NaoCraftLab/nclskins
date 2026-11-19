@@ -108,6 +108,7 @@
     "fabric-1.21.11": "modmenu-static-catalog",
     "fabric-26.1": "modmenu-static-catalog",
     "fabric-26.2": "modmenu-static-catalog",
-    "fabric-26.3": "modmenu-static-catalog"
+    "fabric-26.3": "modmenu-static-catalog",
+    "fabric-26.4": "modmenu-static-catalog"
   }
 }
