@@ -25,6 +25,10 @@ final class PluginOnlyReleaseTest {
     @Test void rejectsUnapprovedSourceBranch() { verifyPlugin('branch') }
     @Test void rejectsTagDriftBeforeMutation() { verifyPlugin('tag') }
     @Test void rejectsHistoricalAssetDriftBeforeMutation() { verifyPlugin('mod') }
+    @Test void rejectsHistoricalAssetRemovalBeforeMutation() { verifyPlugin('missing-mod') }
+    @Test void rejectsUnknownHistoricalAssetDuringPlanning() { verifyPlugin('unknown-mod') }
+    @Test void preservesAbsentHistoricalBodyWithoutPatch() { verifyPlugin('null-body') }
+    @Test void verifiesHistoricalBodyBeforeRemovingThePreviousPlugin() { verifyPlugin('body-drift') }
     @Test void rejectsDuplicateInventoryBeforeMutation() { verifyPlugin('duplicate') }
     @Test void replacesPreviousPluginOnlyAfterVerifiedUploadAndResumes() { verifyPlugin('replacement') }
     @Test void resumesUploadThatCompletedBeforeTransportFailure() { verifyPlugin('resume') }
@@ -43,7 +47,12 @@ final class PluginOnlyReleaseTest {
             def project = ProjectBuilder.builder().withProjectDir(root).build()
             def platforms = project.tasks.create('preflightReleasePlatforms', EmptyPlatforms)
             def github = project.tasks.create('preflightGithubRelease', HistoricalGithub)
-            github.release.assets.first().name = AssembleReleaseTask.artifactName(CatalogTools.releaseTargets(CatalogTools.loadCatalog(source)).first(), '1.0.0')
+            String historicalName = 'nclskins-1.0.0+1.19.4-fabric.jar'
+            assertFalse(CatalogTools.releaseTargets(CatalogTools.loadCatalog(source)).any {
+                AssembleReleaseTask.artifactName(it, '1.0.0') == historicalName
+            })
+            github.release.assets.first().name = historicalName
+            if (fault == 'null-body') github.release.body = null
             github.tagCommit = ReleaseSelection.git(source, ['rev-parse', 'refs/tags/1.0.0']).trim()
             github.sourceCommit = ReleaseSelection.git(source, ['rev-parse', 'HEAD']).trim()
             def planner = project.tasks.create('planFixture', PlanReleaseTask)
@@ -67,7 +76,16 @@ final class PluginOnlyReleaseTest {
                 assertTrue(github.mutations.isEmpty())
                 return
             }
-            if (fault in ['replacement', 'resume']) github.release.assets.add([id: 'previous-plugin', name: 'nclskins-plugin-1.0.0.1.jar', sha256: 'b' * 64])
+            if (fault in ['replacement', 'resume', 'body-drift']) {
+                github.release.assets.add([id: 'previous-plugin', name: 'nclskins-plugin-1.0.0.1.jar', sha256: 'b' * 64])
+            }
+            if (fault == 'unknown-mod') {
+                github.release.assets.first().name = 'nclskins-2.0.0+1.19.4-fabric.jar'
+                assertEquals('Unknown or duplicate existing GitHub asset',
+                        assertThrows(IllegalStateException) { planner.planRelease() }.message)
+                assertTrue(github.mutations.isEmpty())
+                return
+            }
             if (fault == 'workflow-fresh') {
                 ReleaseSelection.git(source, ['checkout', '--detach', github.sourceCommit])
                 planner.workflowAdmission.set(true)
@@ -95,7 +113,10 @@ final class PluginOnlyReleaseTest {
             assertNull(plan.release.notes)
             assertEquals('Plugin fix\n', plan.pluginNotes)
             assertEquals(fault == 'local' ? 0 : 1, plan.preservedGithub.size())
-            if (fault != 'local') assertEquals('historical-mod', plan.preservedGithub.first().id)
+            if (fault != 'local') {
+                assertEquals([[file: historicalName, id: 'historical-mod', sha256: 'a' * 64]], plan.preservedGithub)
+                assertEquals(['server-plugin'], platforms.components*.id)
+            }
             def exporter = project.tasks.create('exportFixture', ExportReleaseComponentTask)
             exporter.repositoryDirectory.set(source)
             exporter.planFile.set(new File(root, 'plan/release-plan.json'))
@@ -201,12 +222,21 @@ final class PluginOnlyReleaseTest {
                 assertThrows(IllegalStateException) { platforms.publish() }
                 return
             }
-            if (fault in ['tag', 'mod', 'duplicate', 'source', 'behind', 'diverged', 'unrelated', 'wrong-base', 'wrong-ref']) {
+            if (fault in ['tag', 'mod', 'missing-mod', 'duplicate', 'source', 'behind', 'diverged', 'unrelated', 'wrong-base', 'wrong-ref']) {
                 if (fault == 'tag') github.tagCommit = '0' * 40
                 if (fault == 'mod') github.release.assets.first().sha256 = 'c' * 64
+                if (fault == 'missing-mod') github.release.assets.clear()
                 if (fault == 'duplicate') github.release.assets.add(new LinkedHashMap(github.release.assets.first()))
                 assertThrows(IllegalStateException) { github.publish() }
                 assertTrue(github.mutations.isEmpty())
+                return
+            }
+            if (fault == 'body-drift') {
+                github.driftBodyAfterUpload = true
+                assertEquals('Historical GitHub Release changed since planning',
+                        assertThrows(IllegalStateException) { github.publish() }.message)
+                assertEquals(['POST'], github.mutations)
+                assertTrue(github.release.assets.any { it.id == 'previous-plugin' })
                 return
             }
             if (fault == 'resume') {
@@ -218,7 +248,9 @@ final class PluginOnlyReleaseTest {
             github.publish()
             List<String> expected = fault in ['replacement', 'resume'] ? ['POST', 'DELETE'] : ['POST']
             assertEquals(expected, github.mutations)
-            assertEquals('Historical body', github.release.body)
+            assertEquals(fault == 'null-body' ? null : 'Historical body', github.release.body)
+            assertEquals([[name: historicalName, id: 'historical-mod', sha256: 'a' * 64]],
+                    github.release.assets.findAll { it.name == historicalName })
             github.publish()
             assertEquals(expected, github.mutations)
             File receipt = new File(bundle, 'receipts/server-plugin.receipt.json')
@@ -373,6 +405,7 @@ tasks.register('assembleFixture', AssemblePlannedReleaseTask) {
     abstract static class HistoricalGithub extends PublishGithubReleaseTask {
         boolean forbidRequests
         boolean failAfterUpload
+        boolean driftBodyAfterUpload
         String tagCommit
         String sourceCommit
         String comparisonBase
@@ -381,7 +414,7 @@ tasks.register('assembleFixture', AssemblePlannedReleaseTask) {
         String branchRef = 'refs/heads/main'
         List<String> mutations = []
         Map release = [id: 1, name: 'Historical release', body: 'Historical body', prerelease: false,
-                assets: [[id: 'historical-mod', name: 'nclskins-fabric-1.20.1-1.0.0.jar', sha256: 'a' * 64]]]
+                assets: [[id: 'historical-mod', name: 'nclskins-1.0.0+1.19.4-fabric.jar', sha256: 'a' * 64]]]
         @Override String requireEnvironment(String name) { 'fixture-token' }
         @Override String requireRepository() { 'fixture/repository' }
         @Override Map findRelease(String api, String repo, String tag, String token) {
@@ -411,6 +444,7 @@ tasks.register('assembleFixture', AssemblePlannedReleaseTask) {
             String name = URLDecoder.decode(url.substring(url.indexOf('?name=') + 6), 'UTF-8')
             Map asset = [id: name, name: name, sha256: CatalogTools.sha256(body)]
             release.assets.add(asset)
+            if (driftBodyAfterUpload) release.body = 'Changed during upload'
             if (failAfterUpload) {
                 failAfterUpload = false
                 throw new IllegalStateException('fixture lost upload response')

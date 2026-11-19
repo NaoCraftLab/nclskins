@@ -1,7 +1,5 @@
 package com.naocraftlab.skins.buildlogic
 
-import groovy.json.JsonOutput
-import groovy.json.JsonSlurper
 import org.junit.jupiter.api.Test
 import static org.junit.jupiter.api.Assertions.*
 

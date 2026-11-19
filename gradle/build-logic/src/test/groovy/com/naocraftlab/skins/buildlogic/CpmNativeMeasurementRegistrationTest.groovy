@@ -123,12 +123,16 @@ final class CpmNativeMeasurementRegistrationTest {
         }
     }
 
-    @Test void actualCatalogRootsAndCompileDependenciesKeepBothPlayerModelFamiliesOnEars() {
+    @Test void actualCatalogRootsAndCompileDependenciesSelectTheMatchingMeasurementAbi() {
         File repository = new File('../..').canonicalFile
         String conventions = new File(repository, 'gradle/target-conventions.gradle').text
         String selection = conventions.substring(conventions.indexOf('def rootBundleIds ='), conventions.indexOf('nclskinsNativeModelTests.configure('))
-        String registration = conventions.substring(conventions.indexOf('def nativeMeasurementTask ='), conventions.indexOf('def isolationTask ='))
-        for (String family : ['fabric', 'neoforge']) for (String version : ['26.1', '26.2']) {
+        String registration = conventions.readLines().find { it.startsWith('def cpmRuntimeAvailable =') } + '\n' + conventions.substring(conventions.indexOf('def nativeMeasurementTask ='), conventions.indexOf('def isolationTask ='))
+        def targets = CatalogTools.loadCatalog(repository).targets.findAll { it.minecraft.version in ['26.1', '26.2', '26.3', '26.4'] }
+        assertEquals(7, targets.size())
+        targets.each { target ->
+            String family = target.loader.id
+            String version = target.minecraft.version
             File root = directory.resolve('roots-' + family + '-' + version).toFile(); root.mkdirs()
             def project = ProjectBuilder.builder().withProjectDir(root).build()
             project.pluginManager.apply('java')
@@ -136,7 +140,8 @@ final class CpmNativeMeasurementRegistrationTest {
             project.sourceSets.create('client')
             project.ext.repositoryRoot = project.layout.projectDirectory.dir(repository.absolutePath)
             project.ext.catalog = CatalogTools.loadCatalog(repository)
-            project.ext.spec = project.ext.catalog.targets.find { it.id == family + '-' + version }
+            project.ext.spec = target
+            project.ext.targetId = target.id
             File script = new File(root, 'selection.gradle')
             script.text = selection + registration
             project.apply(from: script)
@@ -144,12 +149,21 @@ final class CpmNativeMeasurementRegistrationTest {
             def roots = selected.java.srcDirs
             File concrete = new File(repository, 'compat/capabilities/preview/avatar-pip-ears-measurement/src/main/java')
             File fallback = new File(repository, 'compat/capabilities/preview/avatar-pip-extraction-player-model/src/main/java')
-            assertTrue(roots.contains(concrete), family + '-' + version + ' concrete Ears selection')
+            boolean upstreamUnavailable = version == '26.4'
+            assertEquals(upstreamUnavailable, project.ext.catalog.optionalDependencies.earsThermite.runtimeUnavailableTargets.contains(target.id))
+            assertEquals(!upstreamUnavailable, roots.contains(concrete), target.id + ' concrete Ears selection')
             assertEquals(version == '26.1', roots.contains(fallback), family + '-' + version + ' player-model capture selection')
             String facade = 'com/naocraftlab/skins/compat/client/identifier/measurement/AvatarEarsFitMode.java'
             assertEquals(1, roots.count { new File(it, facade).isFile() }, 'exactly one erased Ears binding')
             def dependencies = project.configurations.getByName(selected.compileOnlyConfigurationName).dependencies
-            assertEquals(1, dependencies.count { it.group == 'maven.modrinth' && it.name == 'mfzaZK3Z' })
+            assertEquals(upstreamUnavailable ? [] : ['Tdfeeflh'], dependencies.findAll { it.group == 'maven.modrinth' && it.name == 'mfzaZK3Z' }*.version)
+            assertEquals(!upstreamUnavailable, target.metadata.mixins.contains('nclskins.ears-measurement.mixins.json'))
+            assertEquals(version != '26.1', target.metadata.mixins.contains('nclskins.preview-fit.mixins.json'))
+            assertEquals(upstreamUnavailable, target.metadata.mixins.contains('nclskins.preview-fit-builder-format.mixins.json'))
+            assertEquals(!upstreamUnavailable, project.tasks.findByName('verifyCpmNativeMeasurement') != null)
+            def integration = project.tasks.findByName('verifyCpmIntegration')
+            assertEquals(!upstreamUnavailable, integration != null)
+            if (integration != null) assertTrue(integration.nativeBodyProof.isPresent())
         }
     }
 
@@ -157,7 +171,7 @@ final class CpmNativeMeasurementRegistrationTest {
         File repository = new File('../..').canonicalFile
         def catalog = CatalogTools.loadCatalog(repository)
         String conventions = new File(repository, 'gradle/target-conventions.gradle').text
-        String registration = conventions.substring(conventions.indexOf('def nativeMeasurementTask ='), conventions.indexOf('def isolationTask ='))
+        String registration = conventions.readLines().find { it.startsWith('def cpmRuntimeAvailable =') } + '\n' + conventions.substring(conventions.indexOf('def nativeMeasurementTask ='), conventions.indexOf('def isolationTask ='))
         def targets = catalog.targets.findAll { it.minecraft.version in ['26.1', '26.2', '26.3'] && it.loader.id in ['fabric', 'neoforge'] }
         assertEquals(6, targets.size())
         def missing = []
@@ -170,6 +184,8 @@ final class CpmNativeMeasurementRegistrationTest {
             project.ext.abiSourceSet = project.sourceSets.main
             project.ext.resolvedBundleIds = ['avatar-pip-ears-measurement']
             project.ext.spec = target
+            project.ext.catalog = catalog
+            project.ext.targetId = target.id
             new File(root, 'registration.gradle').with { text = registration; project.apply(from: it) }
             def integration = project.tasks.getByName('verifyCpmIntegration')
             def nativeBody = project.tasks.findByName('verifyCpmNativeMeasurement')
@@ -252,13 +268,15 @@ final class CpmNativeMeasurementRegistrationTest {
         File repository=new File('../..').canonicalFile
         def catalog=CatalogTools.loadCatalog(repository)
         String conventions=new File(repository,'gradle/target-conventions.gradle').text
-        String registration=conventions.substring(conventions.indexOf('def nativeMeasurementTask ='),conventions.indexOf('def isolationTask ='))
+        String registration=conventions.readLines().find { it.startsWith('def cpmRuntimeAvailable =') } + '\n' + conventions.substring(conventions.indexOf('def nativeMeasurementTask ='),conventions.indexOf('def isolationTask ='))
         for (String family : ['fabric','neoforge']) for (String version : ['26.1','26.2']) {
             File root=directory.resolve(family+'-'+version).toFile().canonicalFile;root.mkdirs()
             def project=ProjectBuilder.builder().withProjectDir(root).build()
             project.pluginManager.apply('java')
             project.pluginManager.apply(NclSkinsBuildToolsPlugin)
             project.ext.spec=catalog.targets.find { it.id==family+'-'+version }
+            project.ext.catalog=catalog
+            project.ext.targetId=project.ext.spec.id
             File script=new File(root,'registration.gradle')
             script.text="""
 ext.repositoryRoot = layout.projectDirectory

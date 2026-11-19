@@ -221,6 +221,9 @@ public final class CpmBakedDisplayProbe {
             check(query.displayKind() == (positive ? PreviewRenderer.DisplayKind.ORDINARY : PreviewRenderer.DisplayKind.UNCONFIRMED), scenario + " actual baked display truth");
             if (positive) {
                 check(draws == 1 && observed.stream().filter(k -> k == PreviewRenderer.DisplayKind.ORDINARY).count() == 1, "one primary draw and ordinary transition");
+                Object targetOwner = extracting ? field(field(dispatcher, "context"), "owner")
+                        : preparedSubmissionOwner(targetType, dispatcher);
+                check(targetOwner != null && targetOwner != dispatcher, "prepare binds a GUI context owner, not the dispatcher");
                 int notifications = observed.size();
                 Object previous = queued[0];
                 CpmExtractionBodyProbe.cached = true;
@@ -228,12 +231,23 @@ public final class CpmBakedDisplayProbe {
                 check(previous.equals(queued[0]), "unchanged authority preserves baked state/cache identity");
                 prepare(nativePrepare, dispatcher, queued[0], late);
                 check(draws == 1 && observed.size() == notifications, "cached unchanged pass does not draw or publish again");
-                Object targetOwner = extracting ? field(field(dispatcher, "context"), "owner") : dispatcher;
-                targetType.getMethod("release", Object.class).invoke(target, targetOwner);
-                check(query.displayKind() == PreviewRenderer.DisplayKind.UNCONFIRMED, "released target revokes ordinary proof");
+                check(query.displayKind() == PreviewRenderer.DisplayKind.UNCONFIRMED,
+                        "cached no-primary pass invalidates the previous ordinary proof before resubmission");
+                CpmExtractionBodyProbe.cached = false;
+                call(render, main, graphics, request);
+                prepare(nativePrepare, dispatcher, queued[0], late);
+                check(draws == 2 && query.displayKind() == PreviewRenderer.DisplayKind.ORDINARY,
+                        "fresh primary draw restores ordinary proof before release");
+                var release = targetType.getMethod("release", Object.class);
+                release.invoke(target, dispatcher);
+                check(query.displayKind() == PreviewRenderer.DisplayKind.ORDINARY, "foreign release must not revoke ordinary proof");
+                release.invoke(target, targetOwner);
+                check(query.displayKind() == PreviewRenderer.DisplayKind.UNCONFIRMED, "released live target revokes ordinary proof");
+                CpmExtractionBodyProbe.cached = true;
                 call(render, main, graphics, request);
                 prepare(nativePrepare, dispatcher, queued[0], late);
                 check(query.displayKind() == PreviewRenderer.DisplayKind.UNCONFIRMED, "cached/no-primary return cannot authorize replacement");
+                System.out.println("PASS baked " + scenario + " context release: foreign dispatcher no-op, exact owner revokes ordinary proof");
             } else if (java.util.Set.of("closed", "no-texture", "cached-first", "target-closed").contains(scenario)) {
                 check(draws == 0, scenario + " must not execute a primary draw");
             }
@@ -1137,7 +1151,9 @@ public final class CpmBakedDisplayProbe {
                     Graphics.framePayloads.clear();var materials=CpmExtractionBodyProbe.queuedMaterials();materials.clear();
                     int[] pointer=pointers[frame];boolean background=false;
                     if(root) {
-                        hostType.getMethod("extractRenderState",Graphics.class,int.class,int.class,float.class).invoke(host,graphics,pointer[0],pointer[1],0F);
+                        graphics.pointerX = pointer[0];
+                        graphics.pointerY = pointer[1];
+                        hostType.getMethod("extractFrame",Graphics.class,int.class,int.class,float.class).invoke(host,graphics,pointer[0],pointer[1],0F);
                         var publish=subject.runtime.getClass().getDeclaredMethod("publish");publish.setAccessible(true);publish.invoke(subject.runtime);
                         System.out.println("ROOT returned + actual runtime publication/subscriber; rebuilds="+((CpmOwnedPreviewDispatchProbe.ScreenTerminal)host).rebuilds+" foreground="+rootPainted.size()+" blits="+graphics.blits.size());
                     }
@@ -2048,6 +2064,12 @@ public final class CpmBakedDisplayProbe {
     }
 
     private static final Map<Object, CpmExtractionBodyProbe.GuiRenderState> prepareContexts = new java.util.WeakHashMap<>();
+
+    private static Object preparedSubmissionOwner(Class<?> targetType, Object dispatcher) throws ReflectiveOperationException {
+        var contexts = targetType.getDeclaredField("CONTEXTS");
+        contexts.setAccessible(true);
+        return ((Map<?, ?>) contexts.get(null)).get(prepareContexts.get(dispatcher));
+    }
 
     private static void prepareRaw(java.lang.reflect.Method method, Object owner, Object state, boolean late) {
         var context = prepareContexts.computeIfAbsent(owner, ignored -> new CpmExtractionBodyProbe.GuiRenderState());
@@ -3575,6 +3597,7 @@ public final class CpmBakedDisplayProbe {
             loader.types.put("net/minecraft/client/gui/screens/PauseScreen", PauseMenu.class);
             loader.types.put("net/minecraft/client/gui/components/AbstractWidget", MenuWidget.class);
             loader.types.put("net/minecraft/client/gui/components/events/GuiEventListener", MenuWidget.class);
+            if (extracting) loader.types.put("net/minecraft/client/gui/components/Renderable", CpmMenuPanelSlice.Renderable.class);
             loader.types.put((prefix+(extracting?"NclSkinsMenuPanel$NoChromeAction":"NclSkinsMenuPanel$State$Action")).replace('.','/'), MenuAction.class);
             loader.types.put((prefix+(extracting?"NclSkinsExtractionClientRuntime":"SubmissionClientRuntime")).replace('.','/'), MenuRuntime.class);
             Class<?> panel = loader.loadClass(prefix + "NclSkinsMenuPanel");
@@ -3588,8 +3611,12 @@ public final class CpmBakedDisplayProbe {
             set(underlay,"screen",screen);set(underlay,"action",action);set(underlay,"renderer",baked);
             set(underlay,"placement",com.naocraftlab.skins.core.config.MenuPreviewPlacement.RIGHT);
             enqueue = owner -> queued.add(call(replace,null,owner,new VanillaState()));
-            var extract = type.getDeclaredMethod(extracting?"extractRenderState":"render",Graphics.class,int.class,int.class,float.class);extract.setAccessible(true);
-            call(extract,underlay,new Graphics(),0,0,0F);
+            var extract = extracting ? CpmMenuPanelSlice.extractionCallback(type, Graphics.class)
+                    : type.getDeclaredMethod("render", Graphics.class, int.class, int.class, float.class);
+            extract.setAccessible(true);
+            var graphics = new Graphics();
+            if (extract.getParameterCount() == 1) call(extract, underlay, graphics);
+            else call(extract, underlay, graphics, 0, 0, 0F);
             if (anchor) check(action.bounds.equals(java.util.Optional.of(
                     new com.naocraftlab.skins.runtime.Bounds(531,142,104,116))), "actual native menu layout and action bounds");
             check(queued.size() == (expectedQueue ? 1 : 0), "actual native menu selected baked queue admission");
@@ -3699,6 +3726,7 @@ public final class CpmBakedDisplayProbe {
             types.put("net/minecraft/client/renderer/RenderPipelines", CpmExtractionBodyProbe.Pipelines.class);
             types.put("com/mojang/blaze3d/pipeline/RenderPipeline", CpmExtractionBodyProbe.Pipeline.class);
             types.put("com/mojang/renderpearl/api/pipeline/RenderPipeline", CpmExtractionBodyProbe.Pipeline.class);
+            types.put("net/minecraft/client/gui/GuiPipeline", CpmExtractionBodyProbe.Pipeline.class);
             types.put("net/minecraft/client/gui/navigation/ScreenRectangle", Rectangle.class);
             types.put("net/minecraft/client/gui/render/state/pip/PictureInPictureRenderState", PipState.class);
             types.put("net/minecraft/client/renderer/state/gui/pip/PictureInPictureRenderState", PipState.class);
@@ -3731,6 +3759,7 @@ public final class CpmBakedDisplayProbe {
             types.put("com/mojang/renderpearl/api/textures/GpuTextureView", CpmExtractionBodyProbe.TextureView.class);
             types.put("com/mojang/renderpearl/api/device/GpuDevice", CpmExtractionBodyProbe.Device.class);
             types.put("com/mojang/renderpearl/api/commands/CommandEncoder", CpmExtractionBodyProbe.Encoder.class);
+            CpmExtractionBodyProbe.bindRenderPassLayout(types);
             types.put("com/mojang/renderpearl/api/commands/RenderPass", CpmExtractionBodyProbe.Pass.class);
             types.put((prefix+"VanillaPreviewModels").replace('.', '/'), Models.class);
             types.put((prefix+"VanillaPreviewModels$AttachmentModels").replace('.', '/'), ExtractionAttachments.class);
@@ -3769,8 +3798,10 @@ public final class CpmBakedDisplayProbe {
                             && !method.name.startsWith("lambda$topMainAction$") && !method.name.equals("<clinit>"));
                 } else if(name.equals(prefix+"NclSkinsMenuPanel$PlayerPreviewUnderlay") || name.equals(prefix+"NclSkinsMenuPanel$State")) {
                     node.interfaces.clear();node.interfaces.add("java/lang/AutoCloseable");
-                    node.methods.removeIf(method -> !java.util.Set.of("extractRenderState","render","updateLayout","close").contains(method.name)
+                    node.methods.removeIf(method -> !java.util.Set.of("drawUnderlay","render","updateLayout","close").contains(method.name)
                             && !method.name.startsWith("lambda$updateLayout$") && !method.name.startsWith("lambda$render$"));
+                } else if (name.equals(prefix + "GuiExtraction")) {
+                    CpmPreviewScreenSlice.sliceGuiAdapter(node, java.util.Set.of("isVisible", "setVisible", "blit"));
                 }
                 if (pip && physical) for (var method : node.methods) for (var instruction : method.instructions) {
                     if (instruction instanceof org.objectweb.asm.tree.MethodInsnNode call && call.owner.equals("com/mojang/blaze3d/systems/GpuDevice") && call.itf) interfaceDevice = true;
@@ -3937,6 +3968,8 @@ public final class CpmBakedDisplayProbe {
     }
     public static class MenuWidget {
         public boolean visible=true;
+        public boolean isVisible() { return visible; }
+        public void setVisible(boolean value) { visible = value; }
         public int getX(){return 327;}public int getY(){return 142;}public int getWidth(){return 200;}public int getHeight(){return 20;}
         public int getRight(){return getX()+getWidth();}public int getBottom(){return getY()+getHeight();}
     }

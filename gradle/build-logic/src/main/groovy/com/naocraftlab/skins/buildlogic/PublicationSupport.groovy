@@ -31,8 +31,13 @@ final class PublicationSupport {
         if (manifest.schemaVersion == 5 && !(manifest.releasePlanDigest ==~ /[0-9a-f]{64}/)) {
             throw new IllegalStateException('Current release manifest requires a pinned release plan')
         }
-        if (manifest.schemaVersion == 4 && manifest.mode == 'local') {
-            throw new IllegalStateException('Legacy manifest cannot represent local preparation')
+        if (manifest.schemaVersion == 4 && (manifest.mode == 'local' || manifest.componentKind == 'plugin-only')) {
+            throw new IllegalStateException('Legacy manifest cannot represent selected plugin-only or local preparation')
+        }
+        if (manifest.componentKind == 'plugin-only' && (manifest.targets != [] ||
+                manifest.serverPlugin.publish != true || manifest.releaseNotes.text != '' ||
+                (manifest.mode != 'local' && (manifest.mode != 'backfill' || manifest.existingRelease?.id == null)))) {
+            throw new IllegalStateException('Invalid plugin-only release manifest')
         }
         if (manifest.pluginReplacement != null && manifest.releasePlanDigest == null) {
             throw new IllegalStateException('Plugin replacement requires a pinned release plan')
@@ -189,8 +194,9 @@ final class PublicationSupport {
         boolean validVersion = (server.pluginVersion != null && publicationVersion == server.pluginVersion) || publicationVersion == manifestVersion ||
                 (preserved && publicationVersion ==~ /${java.util.regex.Pattern.quote(manifestVersion)}\.[1-9][0-9]*/)
         Map versionParts = ServerPluginVersion.parts(publicationVersion ?: '')
-        validVersion = validVersion && ServerPluginReleaseState.compareVersions(
-                versionParts.base.toString(), manifestVersion) <= 0
+        validVersion = manifest.componentKind == 'plugin-only'
+                ? publicationVersion == manifest.requestedVersion && versionParts.base == manifestVersion
+                : validVersion && ServerPluginReleaseState.compareVersions(versionParts.base.toString(), manifestVersion) <= 0
         String expectedFile = "nclskins-plugin-${publicationVersion}.jar"
         boolean validFile = artifact.file == expectedFile || (preserved && versionParts.build == 1 &&
                 artifact.file == "nclskins-plugin-${versionParts.base}.jar")

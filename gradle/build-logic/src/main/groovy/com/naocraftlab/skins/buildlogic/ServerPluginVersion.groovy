@@ -46,9 +46,8 @@ final class ServerPluginVersion {
         }
         Map plugin = parts(pluginVersion)
         Map requested = parts(requestedVersion)
-        boolean full = requestedVersion ==~ /\d+\.\d+\.\d+\.[1-9][0-9]*(?:-(?:alpha|beta)\.[1-9][0-9]*)?/
         String kind
-        if (full) {
+        if (isFullVersion(requestedVersion)) {
             if (requested.build <= 1 || requestedVersion != pluginVersion) {
                 throw new IllegalArgumentException('Plugin-only release requires exact configured full version with build > 1')
             }
@@ -73,6 +72,10 @@ final class ServerPluginVersion {
         Map b = parts(right)
         int base = ServerPluginReleaseState.compareVersions(a.base.toString(), b.base.toString())
         base != 0 ? base : a.build <=> b.build
+    }
+
+    static boolean isFullVersion(String version) {
+        version != null && version ==~ /\d+\.\d+\.\d+\.[1-9][0-9]*(?:-(?:alpha|beta)\.[1-9][0-9]*)?/
     }
 
     private ServerPluginVersion() {}

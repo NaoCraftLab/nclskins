@@ -5,6 +5,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.naocraftlab.skins.compat.client.identifier.measurement.AvatarBodyCapture;
+import com.naocraftlab.skins.compat.client.identifier.measurement.BodyMeshFormat;
 import net.minecraft.client.renderer.StagedVertexBuffer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -18,10 +19,10 @@ abstract class StagedVertexBufferMixin {
         MeshData mesh = original.call(builder);
         if (mesh != null && AvatarBodyCapture.collecting()) {
             var draw = mesh.drawState();
-            var format = draw.format();
+            var format = BodyMeshFormat.resolve(builder, draw);
             var bytes = mesh.vertexBuffer().duplicate().order(java.nio.ByteOrder.nativeOrder());
-            int stride = format.getVertexSize();
-            int position = format.getElement("Position").offset();
+            int stride = format.stride();
+            int position = format.positionOffset();
             for (int i = 0; i < draw.vertexCount(); i++) {
                 int offset = i * stride + position;
                 AvatarBodyCapture.vertex(bytes.getFloat(offset), bytes.getFloat(offset + 4), bytes.getFloat(offset + 8));

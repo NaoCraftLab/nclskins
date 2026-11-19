@@ -1,18 +1,18 @@
 package com.naocraftlab.skins.compat.client.identifier.mixin;
 
-import com.naocraftlab.skins.compat.client.identifier.SneakyUnmodifiedSkinPixels;
-import com.naocraftlab.skins.compat.client.identifier.SkinTextureRegistrationOwner;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.naocraftlab.skins.client.NativeTextureRegistration;
+import com.naocraftlab.skins.compat.client.identifier.SkinTextureRegistrationOwner;
+import com.naocraftlab.skins.compat.client.identifier.SneakyUnmodifiedSkinPixels;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
-import org.spongepowered.asm.mixin.Unique;
-import com.mojang.blaze3d.platform.NativeImage;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.client.renderer.texture.SkinTextureDownloader;
 import net.minecraft.core.ClientAsset;
 import org.spongepowered.asm.mixin.Mixin;
-import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(SkinTextureDownloader.class)
 abstract class SkinTextureDownloaderProviderMixin implements SkinTextureRegistrationOwner {
@@ -46,7 +46,8 @@ abstract class SkinTextureDownloaderProviderMixin implements SkinTextureRegistra
         }
     }
 
-    @WrapMethod(method = "processLegacySkin(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/lang/String;)Lcom/mojang/blaze3d/platform/NativeImage;")
+    @WrapMethod(method = "processLegacySkin(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/lang/String;)Lcom/mojang/blaze3d/platform/NativeImage;",
+            require = 1, expect = 1, allow = 1)
     private static NativeImage nclskins$raw(NativeImage image, String url, Operation<NativeImage> original) {
         nclskins$rememberUnmodifiedSkinPixels(image);
         return original.call(image, url);

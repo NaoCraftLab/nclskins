@@ -1023,6 +1023,8 @@ public final class CpmOwnedPreviewDispatchProbe {
             for(boolean hover:List.of(true,false)) {
                 var graphics=new Graphics();
                 int x=hover?b.x()+b.width()/2:-100,y=hover?b.y()+b.height()/2:-100;
+                graphics.pointerX = x;
+                graphics.pointerY = y;
                 invoke(type,host,"nclskins$paintRoot",new Class<?>[]{Graphics.class,int.class,int.class,float.class,ViewSpec.class},graphics,x,y,0F,view);
                 int overlay=-1,button=-1;
                 for(int i=0;i<graphics.fills.size();i++) {
@@ -1173,11 +1175,15 @@ public final class CpmOwnedPreviewDispatchProbe {
             }
             var widget=(WidgetTerminal)constructor.newInstance(args.toArray());
             ((ScreenTerminal)screen).setFocused(widget);
-            var paint=button.getDeclaredMethod(immediate?"renderWidget":"extractContents",Graphics.class,int.class,int.class,float.class);paint.setAccessible(true);
+            var paint = immediate ? button.getDeclaredMethod("renderWidget", Graphics.class, int.class, int.class, float.class)
+                    : button.getDeclaredMethod("drawContents", Graphics.class);
+            paint.setAccessible(true);
             for(boolean keyboard:List.of(false,true)) for(boolean hover:List.of(false,true)) {
                 ClientTerminal.instance.lastInputType=keyboard?net.minecraft.client.InputType.KEYBOARD_TAB:net.minecraft.client.InputType.MOUSE;
                 type.getField("keyboardNavigation").setBoolean(screen,keyboard);widget.isHovered=hover;
-                var graphics=new Graphics();paint.invoke(widget,graphics,hover?15:-100,hover?25:-100,0F);
+                var graphics = new Graphics();
+                if (immediate) paint.invoke(widget, graphics, hover ? 15 : -100, hover ? 25 : -100, 0F);
+                else paint.invoke(widget, graphics);
                 boolean hoverFrame=name.equals("IconButtonWidget") || name.equals("PassiveIndicatorWidget");
                 check(graphics.fills.stream().anyMatch(f->f[4]==0xFFFFFFFF)==(keyboard || hoverFrame&&hover),"Actual same-field inner paint modality/hover: "+owner+"$"+name+" keyboard="+keyboard+" hover="+hover);
                 check(widget.isFocused(),"Inner paint never clears logical focus");
@@ -1632,7 +1638,7 @@ public final class CpmOwnedPreviewDispatchProbe {
         void acceptedRuntimeOffset(double offset);
     }
 
-    public static final class ScrollTerminal implements ScrollPort {
+    public static final class ScrollTerminal implements ScrollPort, RenderFrame {
         private Optional<ViewSpec.ScrollSurface> surface = Optional.empty();
         private double offset;
         public void synchronize(Optional<ViewSpec.ScrollSurface> next) { surface = next; offset = next.map(ViewSpec.ScrollSurface::offsetPixels).orElse(0.0); }
@@ -1656,6 +1662,8 @@ public final class CpmOwnedPreviewDispatchProbe {
         default void extractRenderState(CpmBakedDisplayProbe.Graphics graphics,int mouseX,int mouseY,float tick) { render(graphics,mouseX,mouseY,tick); }
         default void render(Graphics graphics,int mouseX,int mouseY,float tick) { throw new AssertionError("Unbound root button paint"); }
         default void extractRenderState(Graphics graphics,int mouseX,int mouseY,float tick) { render(graphics,mouseX,mouseY,tick); }
+        default void extractRenderState(CpmBakedDisplayProbe.Graphics graphics) { render(graphics, graphics.mouseX(), graphics.mouseY(), 0F); }
+        default void extractRenderState(Graphics graphics) { render(graphics, graphics.mouseX(), graphics.mouseY(), 0F); }
     }
 
     public static class WidgetTerminal implements InputListener, RenderFrame {
@@ -1687,6 +1695,8 @@ public final class CpmOwnedPreviewDispatchProbe {
         public void render(CpmPreviewScopeProbe.Graphics graphics, int mouseX, int mouseY, float tick) { CpmPreviewScopeProbe.framePaint(this); }
         private boolean focused;
         public boolean active = true, visible = true;
+        public boolean isVisible() { return visible; }
+        public void setVisible(boolean value) { visible = value; }
         public WidgetTerminal() {}
         public WidgetTerminal(boolean focused) {this.focused=focused;}
         public boolean isFocused() {return focused;}
@@ -1805,6 +1815,15 @@ public final class CpmOwnedPreviewDispatchProbe {
     public enum HoveredTextEffects { NONE }
 
     public static class Graphics {
+        int pointerX, pointerY;
+        public int mouseX() { return pointerX; }
+        public int mouseY() { return pointerY; }
+        public void extractWithoutMouse(Runnable draw) {
+            int x = pointerX, y = pointerY;
+            pointerX = pointerY = -1_000_000;
+            try { draw.run(); }
+            finally { pointerX = x; pointerY = y; }
+        }
         public void setColor(float red,float green,float blue,float alpha) {}
         public void blit(Text texture,int x,int y,float u,float v,int width,int height,int tw,int th) {blits.add(texture.getString());}
         public void blit(Object pipeline,Text texture,int x,int y,float u,float v,int width,int height,int tw,int th,int color) {blits.add(texture.getString());}

@@ -27,7 +27,7 @@ final class ReleaseMetadata {
     }
 
     static Map validate(File versionFile, File changelogFile, String releaseTag) {
-        if (releaseTag != null && releaseTag ==~ /\d+\.\d+\.\d+\.[1-9][0-9]*(?:-(?:alpha|beta)\.[1-9][0-9]*)?/) {
+        if (ServerPluginVersion.isFullVersion(releaseTag)) {
             return prepare(versionFile, new File(versionFile.parentFile, 'plugin-version.properties'),
                     changelogFile, new File(changelogFile.parentFile, 'PLUGIN_CHANGELOG.md'), releaseTag)
         }

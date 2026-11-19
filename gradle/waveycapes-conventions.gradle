@@ -1,5 +1,7 @@
 Map wavey = targetCatalog.optionalDependencies.waveycapes
-Map pin = wavey.artifacts[targetSpec.id]
+String waveyCompileTarget = nclskinsCatalogTools.optionalCompileTargetId(targetCatalog, targetSpec, 'waveycapes')
+Map pin = wavey.artifacts[waveyCompileTarget]
+boolean compileReferenceOnly = waveyCompileTarget != targetSpec.id
 String compileScope = targetSpec.loader.id == 'fabric' && configurations.findByName('modCompileOnly') != null
         ? 'modCompileOnly' : 'compileOnly'
 def publicAbi = configurations.create('waveyCapesPublicAbi') {
@@ -71,13 +73,20 @@ def verifyCompileAbi = tasks.register('verifyWaveyCapesCompileAbi', JavaCompile)
 }
 tasks.named('check').configure { dependsOn verifyCompileAbi }
 
+if (compileReferenceOnly) {
+    verifyCompileAbi.configure {
+        doLast { logger.lifecycle('WaveyCapes runtime verification unavailable: using a compile-only API reference') }
+    }
+    return
+}
+
 String appearance = targetSpec.capabilities.appearance.toString()
 boolean loaderPrepareOnly = nclskinsCatalogTools.getClassLoader()
         .loadClass('com.naocraftlab.skins.buildlogic.WaveyLoaderComposition')
         .parsePrepareOnly(project.findProperty('nclskinsWaveyLoaderPrepareOnly'),
                 project.hasProperty('nclskinsWaveyLoaderPrepareOnly'))
 boolean prepared = appearance == 'cape-foil-pipeline-bind-groups'
-boolean combined = appearance == 'cape-foil-combined'
+boolean combined = appearance in ['cape-foil-combined', 'cape-foil-combined-stage-selector']
 if (combined) {
     def bundles = nclskinsCatalogTools.resolveTargetSources(file('../../..'), targetCatalog, targetSpec).bundles
     if (!bundles.containsAll(['cape-pass-prepared', 'cape-draw-render-pass']))

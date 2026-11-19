@@ -687,6 +687,7 @@ class CapeProviderCoordinatorTest {
             assertEquals(semanticOwner, CapeProjection.resolveSelf(self, "Self").orElseThrow().capeAssetOwner());
         }
         assertEquals(3, sink.rawLocations.size(), "three distinct native frames must be installed");
+        assertEquals(3, Set.copyOf(sink.rawLocations).size());
         assertFalse(sink.live(first), "the native registry retires frame zero after frame two");
         String third = sink.rawLocations.get(2);
         assertNotEquals(first, third);
@@ -701,7 +702,7 @@ class CapeProviderCoordinatorTest {
         assertFalse(semanticOwner.ownsFrame(first));
         assertTrue(semanticOwner.isActive(), "timeline frame replacement must not retire its asset owner");
 
-        for (long millis : new long[]{300, 400}) {
+        for (long millis : new long[]{600, 700}) {
             now.set(TimeUnit.MILLISECONDS.toNanos(millis));
             CapeProjection.resolveSelf(self, "Self");
             drainHeld(worker);
@@ -799,7 +800,7 @@ class CapeProviderCoordinatorTest {
         }
         String second = sink.rawLocations.get(beforeFrames);
         String third = sink.rawLocations.get(beforeFrames + 1);
-        assertEquals(3, Set.of(first, second, third).size(), provider.name());
+        assertEquals(3, Set.copyOf(List.of(first, second, third)).size(), provider.name());
         assertFalse(sink.live(first), provider.name());
         assertEquals(third, CapeProjection.resolveSelf(self, "Self").orElseThrow().capeLocation(),
                 provider.name());
@@ -907,7 +908,8 @@ class CapeProviderCoordinatorTest {
                 new SecureRandom(), directory.resolve("mc-scratch"));
         fixture.coordinator = CapeTestComposition.create(fixture.session, fixture.storage,
                 new TextureCache(fixture.storage), fixture.sink, new ImmediateClient(), Runnable::run,
-                fixture.reader(), new SkinMcCapeReader(fixture.storage.layout().root().resolve("test-skinmc-staging")), reader, (id, capeId) -> Optional.empty(), now::get);
+                fixture.reader(), new SkinMcCapeReader(fixture.storage.layout().root().resolve("test-skinmc-staging")),
+                reader, (id, capeId) -> Optional.empty(), now::get);
         fixture.coordinator.start();
         int registrations = fixture.sink.registrations;
         String location = "nclskins:minecraftcapes/" + self;

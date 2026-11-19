@@ -42,6 +42,7 @@ final class ProviderRowClippingRegistrationTest {
 import groovy.json.JsonSlurper
 ext.repositoryRoot = layout.projectDirectory
 ext.abiSourceSet = sourceSets.main
+ext.cpmRuntimeAvailable = true
 ext.spec = [capabilities: [gui: 'BINDING'], java: [release: 17]]
 '''.replace('BINDING', binding[0]) + registration + '''
 def capabilityAbiTask = tasks.register('verifyCapabilityAbi')

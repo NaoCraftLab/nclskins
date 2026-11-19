@@ -45,13 +45,16 @@ public final class ReferenceBodyHost {
         if(data==null)return;var state=data.drawState();var bytes=data.vertexBuffer().order(java.nio.ByteOrder.nativeOrder());var format=state.format();int stride=format.getVertexSize(),offset=format.getElement("Position").offset();
         for(int i=0;i<state.vertexCount();i++){float y=bytes.getFloat(i*stride+offset+4);PipMaterialProbe.check(Float.isFinite(y),"real CPU buffer vertex finite");meshMin=Math.min(meshMin,y);meshMax=Math.max(meshMax,y);}meshVertices+=state.vertexCount();
     }
+    private static void bindLoadingBlit(AbstractInsnNode instruction) {
+        if(instruction instanceof MethodInsnNode call && call.name.equals("blit")
+                && call.owner.equals("net/minecraft/client/gui/GuiGraphicsExtractor"))
+            call.desc=CpmExtractionBodyProbe.loadingDescriptor(call.desc);
+    }
     static byte[] methodBytes(MethodNode method){
         var pin=new MethodNode(Opcodes.ASM9,method.access,method.name,method.desc,method.signature,method.exceptions.toArray(String[]::new));
         method.accept(pin);
         for(var instruction:pin.instructions.toArray()) {
-            if(instruction instanceof MethodInsnNode call && call.name.equals("blit")
-                    && call.owner.equals("net/minecraft/client/gui/GuiGraphicsExtractor"))
-                call.desc=CpmExtractionBodyProbe.loadingDescriptor(call.desc);
+            bindLoadingBlit(instruction);
             if(instruction instanceof MethodInsnNode constructor
                     && constructor.owner.equals(Type.getInternalName(EditorPreviewSession.Gallery.class))
                     && constructor.name.equals("<init>") && constructor.desc.equals("(Ljava/util/function/LongSupplier;)V")
@@ -193,6 +196,9 @@ public final class ReferenceBodyHost {
                     for(var instruction:available.instructions.toArray()) if(instruction.getOpcode()==Opcodes.IRETURN)
                         available.instructions.insertBefore(instruction,new MethodInsnNode(Opcodes.INVOKESTATIC,Type.getInternalName(ReferenceBodyHost.class),"earsAvailability","(Z)Z",false));
                 }
+                if(name.equals(PREFIX+"GuiExtraction"))
+                    for(var m:node.methods)if(m.name.equals("blit") && m.desc.endsWith("IIFFIIIIIII)V"))
+                        for(var instruction:m.instructions.toArray())bindLoadingBlit(instruction);
                 var writer=new ClassWriter(0);node.accept(new ClassRemapper(writer,new Remapper(Opcodes.ASM9){@Override public String map(String n){var c=mappings.get(n);return c==null?n:Type.getInternalName(c);}}));var bytes=writer.toByteArray();
                 var output=Path.of(System.getProperty("probe.dir"),"current-host",name.replace('.','/')+".class");Files.createDirectories(output.getParent());Files.write(output,bytes);type=defineClass(name,bytes,0,bytes.length);
             }catch(Exception e){throw new ClassNotFoundException(name,e);}

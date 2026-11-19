@@ -55,19 +55,25 @@ final class CpmMenuPanelSlice implements AutoCloseable {
         names.put(namespace.replace('.','/') + "ImmediateClientRuntime",internal(ImmediateBoundary.class));
         names.put("com/mojang/blaze3d/systems/RenderSystem",internal(Device.class));
         String owner = namespace + (immediate ? "NclSkinsMenuPreview" : "NclSkinsMenuPanel");
+        String extractionAdapter = namespace + "GuiExtraction";
         String support = "com.naocraftlab.skins.compat.gui.immediate.MenuScreenSupport";
         var loader = new ClassLoader(parent) {
             @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-                if (!name.equals(owner) && !name.startsWith(owner + "$") && !(immediate && (name.equals(support) || name.startsWith(support + "$")))) return super.loadClass(name,resolve);
+                if (!name.equals(owner) && !name.startsWith(owner + "$")
+                        && !(namespace.endsWith(".extraction.") && (name.equals(extractionAdapter) || name.startsWith(extractionAdapter + "$")))
+                        && !(immediate && (name.equals(support) || name.startsWith(support + "$")))) return super.loadClass(name,resolve);
                 var type = findLoadedClass(name);
                 if (type == null) {
                     try (var input = getParent().getResourceAsStream(name.replace('.','/') + ".class")) {
                         if (input == null) throw new ClassNotFoundException(name);
                         var original = input.readAllBytes();
                         var writer = new ClassWriter(0);
-                        new ClassReader(original).accept(new ClassRemapper(writer,new Remapper(Opcodes.ASM9) {
+                        var node = new org.objectweb.asm.tree.ClassNode(Opcodes.ASM9);
+                        new ClassReader(original).accept(node, 0);
+                        if (name.equals(extractionAdapter)) CpmPreviewScreenSlice.sliceGuiAdapter(node, Set.of("isVisible", "setVisible"));
+                        node.accept(new ClassRemapper(writer,new Remapper(Opcodes.ASM9) {
                             @Override public String map(String value) { return names.getOrDefault(value,value); }
-                        }),0);
+                        }));
                         var bytes = writer.toByteArray();
                         System.out.println("Menu caller class " + name + " original=" + digest(original) + " terminalBound=" + digest(bytes));
                         type = defineClass(name,bytes,0,bytes.length);
@@ -115,14 +121,32 @@ final class CpmMenuPanelSlice implements AutoCloseable {
     }
     void draw(Object graphics) throws Exception {
         Object underlay = screen.renderables.get(0);
-        var method = underlay.getClass().getDeclaredMethod(immediate || panel.getName().contains("submission") ? "render" : "extractRenderState",graphicsType,int.class,int.class,float.class);
+        boolean extraction = panel.getName().contains(".extraction.");
+        var method = extraction ? extractionCallback(underlay.getClass(), graphicsType)
+                : underlay.getClass().getDeclaredMethod("render", graphicsType, int.class, int.class, float.class);
         method.setAccessible(true);
-        try { method.invoke(underlay,graphics,pointerX,pointerY,0F); }
+        try {
+            if (method.getParameterCount() == 1) {
+                var extractor = (CpmOwnedPreviewDispatchProbe.Graphics) graphics;
+                extractor.pointerX = pointerX;
+                extractor.pointerY = pointerY;
+                method.invoke(underlay, graphics);
+            } else method.invoke(underlay, graphics, pointerX, pointerY, 0F);
+        }
         catch (InvocationTargetException failure) {
             if (failure.getCause() instanceof RuntimeException cause) throw cause;
             if (failure.getCause() instanceof Error cause) throw cause;
             throw failure;
         }
+    }
+    static java.lang.reflect.Method extractionCallback(Class<?> underlay, Class<?> graphics) {
+        var methods = Arrays.stream(underlay.getSuperclass().getDeclaredMethods())
+                .filter(method -> method.getName().equals("extractRenderState") && method.getReturnType() == void.class)
+                .filter(method -> Arrays.equals(method.getParameterTypes(), new Class<?>[]{graphics})
+                        || Arrays.equals(method.getParameterTypes(), new Class<?>[]{graphics, int.class, int.class, float.class}))
+                .toList();
+        if (methods.size() != 1) throw new AssertionError("Expected exact native menu extraction callback: " + underlay);
+        return methods.get(0);
     }
     void dimensions(int width,int height) { screen.width=width; screen.height=height; }
     void pointer(int x,int y) { pointerX=x; pointerY=y; }
@@ -151,6 +175,8 @@ final class CpmMenuPanelSlice implements AutoCloseable {
     public static final class Pause extends MenuScreen {}
     public static class Widget implements Listener {
         public boolean active=true,visible=true;
+        public boolean isVisible() { return visible; }
+        public void setVisible(boolean value) { visible = value; }
         protected int x,y,width,height;
         private boolean focused;
         public Widget(int x,int y,int width,int height,Text text) { this.x=x;this.y=y;this.width=width;this.height=height; }

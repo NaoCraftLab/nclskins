@@ -7,13 +7,8 @@ import com.naocraftlab.skins.runtime.VanillaListSurface;
 import java.util.List;
 import java.util.Optional;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.resources.Identifier;
-import static net.minecraft.client.gui.screens.Screen.HEADER_SEPARATOR;
-import static net.minecraft.client.gui.screens.Screen.INWORLD_HEADER_SEPARATOR;
-import static net.minecraft.client.gui.screens.Screen.FOOTER_SEPARATOR;
-import static net.minecraft.client.gui.screens.Screen.INWORLD_FOOTER_SEPARATOR;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.resources.Identifier;
 
 final class NativeSurfaceAdapter {
     private static final Identifier MENU_BACKGROUND =
@@ -27,6 +22,15 @@ final class NativeSurfaceAdapter {
     private static final Identifier TAB_HEADER_BACKGROUND =
             Identifier.withDefaultNamespace("textures/gui/tab_header_background.png");
 
+    private static final Identifier HEADER_SEPARATOR =
+            Identifier.withDefaultNamespace("textures/gui/header_separator.png");
+    private static final Identifier FOOTER_SEPARATOR =
+            Identifier.withDefaultNamespace("textures/gui/footer_separator.png");
+    private static final Identifier INWORLD_HEADER_SEPARATOR =
+            Identifier.withDefaultNamespace("textures/gui/inworld_header_separator.png");
+    private static final Identifier INWORLD_FOOTER_SEPARATOR =
+            Identifier.withDefaultNamespace("textures/gui/inworld_footer_separator.png");
+
     private NativeSurfaceAdapter() {}
 
     static void drawVanillaListPanel(
@@ -39,8 +43,7 @@ final class NativeSurfaceAdapter {
                 ? MENU_LIST_BACKGROUND
                 : INWORLD_MENU_LIST_BACKGROUND;
         VanillaListSurface.Sample sample = VanillaListSurface.sample(view, panel);
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
+        GuiExtraction.blit(graphics,
                 background,
                 bounds.x(),
                 bounds.y(),
@@ -53,12 +56,10 @@ final class NativeSurfaceAdapter {
         Identifier top = Minecraft.getInstance().level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR;
         Identifier bottom = Minecraft.getInstance().level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR;
         VanillaListSurface.Boundaries boundaries = VanillaListSurface.boundaries(bounds);
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
+        GuiExtraction.blit(graphics,
                 top,
                 bounds.x(), boundaries.topY(), 0.0F, 0.0F, bounds.width(), 2, 32, 2);
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
+        GuiExtraction.blit(graphics,
                 bottom,
                 bounds.x(), boundaries.bottomY(),
                 0.0F, 0.0F, bounds.width(), 2, 32, 2);
@@ -78,8 +79,7 @@ final class NativeSurfaceAdapter {
                 : INWORLD_HEADER_SEPARATOR;
         Optional<Bounds> selectedVerticalTabBounds = VerticalTabStyle.selectedBounds(view);
         VerticalTabStyle.backgroundSegments(bounds)
-                .forEach(segment -> graphics.blit(
-                        RenderPipelines.GUI_TEXTURED,
+                .forEach(segment -> GuiExtraction.blit(graphics,
                         background,
                         segment.x(),
                         segment.y(),
@@ -97,8 +97,7 @@ final class NativeSurfaceAdapter {
                     graphics.pose().pushMatrix();
                     graphics.pose().translate(segment.x(), segment.bottom());
                     graphics.pose().rotate((float) (-Math.PI / 2.0));
-                    graphics.blit(
-                            RenderPipelines.GUI_TEXTURED,
+                    GuiExtraction.blit(graphics,
                             separator,
                             0, 0, 0.0F, 0.0F,
                             segment.height(), segment.width(), 32, 2);
@@ -116,8 +115,7 @@ final class NativeSurfaceAdapter {
                 continue;
             }
             Bounds bounds = panel.bounds();
-            graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
+            GuiExtraction.blit(graphics,
                     background,
                     bounds.x(),
                     bounds.y(),
@@ -134,8 +132,7 @@ final class NativeSurfaceAdapter {
         Identifier header = Minecraft.getInstance().level == null ? HEADER_SEPARATOR : INWORLD_HEADER_SEPARATOR;
         Identifier footer = Minecraft.getInstance().level == null ? FOOTER_SEPARATOR : INWORLD_FOOTER_SEPARATOR;
         if (view.surfaceRole() == ViewSpec.SurfaceRole.TABBED_MENU) {
-            graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
+            GuiExtraction.blit(graphics,
                     footer,
                     0,
                     height - 33,
@@ -152,8 +149,7 @@ final class NativeSurfaceAdapter {
             Bounds bounds = panel.bounds();
             if (panel.style() == ViewSpec.Panel.Style.VANILLA_HEADER
                     && !tabBarOwnsHeaderSeparator) {
-                graphics.blit(
-                        RenderPipelines.GUI_TEXTURED,
+                GuiExtraction.blit(graphics,
                         header,
                         bounds.x(),
                         bounds.bottom() - 2,
@@ -164,8 +160,7 @@ final class NativeSurfaceAdapter {
                         32,
                         2);
             } else if (panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER) {
-                graphics.blit(
-                        RenderPipelines.GUI_TEXTURED,
+                GuiExtraction.blit(graphics,
                         footer,
                         bounds.x(),
                         bounds.y(),
@@ -180,8 +175,7 @@ final class NativeSurfaceAdapter {
     }
 
     static void drawCreateWorldTabBackground(GuiGraphicsExtractor graphics, int width) {
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
+        GuiExtraction.blit(graphics,
                 TAB_HEADER_BACKGROUND,
                 0,
                 0,
@@ -197,7 +191,7 @@ final class NativeSurfaceAdapter {
         Bounds underlay = VerticalTabStyle.selectedUnderlay(bounds);
         Identifier background = Minecraft.getInstance().level == null
                 ? MENU_BACKGROUND : INWORLD_MENU_BACKGROUND;
-        graphics.blit(RenderPipelines.GUI_TEXTURED, background,
+        GuiExtraction.blit(graphics, background,
                 underlay.x(), underlay.y(), underlay.x(), underlay.y(),
                 underlay.width(), underlay.height(), 32, 32);
     }

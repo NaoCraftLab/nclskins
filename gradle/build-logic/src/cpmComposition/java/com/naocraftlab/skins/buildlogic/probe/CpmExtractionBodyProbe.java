@@ -153,6 +153,7 @@ public final class CpmExtractionBodyProbe {
         types.put("com/mojang/renderpearl/api/textures/GpuTextureView", TextureView.class);
         types.put("com/mojang/renderpearl/api/device/GpuDevice", Device.class);
         types.put("com/mojang/renderpearl/api/commands/CommandEncoder", Encoder.class);
+        bindRenderPassLayout(types);
         types.put("com/mojang/renderpearl/api/commands/RenderPass", Pass.class);
         types.put("com/mojang/blaze3d/systems/GpuDevice", LegacyDevice.class);
         types.put("com/mojang/blaze3d/systems/CommandEncoder", LegacyEncoder.class);
@@ -170,6 +171,7 @@ public final class CpmExtractionBodyProbe {
         types.put("com/mojang/blaze3d/pipeline/RenderPipeline", Pipeline.class);
         types.put("com/mojang/renderpearl/api/pipeline/RenderPipeline", Pipeline.class);
         types.put("net/minecraft/client/renderer/RenderPipelines", Pipelines.class);
+        types.put("net/minecraft/client/gui/GuiPipeline", Pipeline.class);
         types.put("net/minecraft/client/gui/render/TextureSetup", TextureSetup.class);
         types.put("net/minecraft/client/renderer/state/gui/BlitRenderState", Blit.class);
         types.put("net/minecraft/client/gui/navigation/ScreenRectangle", Rectangle.class);
@@ -2445,6 +2447,15 @@ public final class CpmExtractionBodyProbe {
                         if (!found) throw new AssertionError("Pinned raw native caller is missing: " + name);
                     }
                     var node = new ClassNode(); new ClassReader(original).accept(node, 0);
+                    if (name.equals(PREFIX + "GuiExtraction")) {
+                        CpmPreviewScreenSlice.sliceGuiAdapter(node, java.util.Set.of("blit"));
+                        for (var method : node.methods) for (var instruction : method.instructions) {
+                            if (instruction instanceof org.objectweb.asm.tree.MethodInsnNode call && call.name.equals("blit")
+                                    && call.owner.equals("net/minecraft/client/gui/GuiGraphicsExtractor")) {
+                                call.desc = loadingDescriptor(call.desc);
+                            }
+                        }
+                    }
                     if (name.equals(PREFIX + "AvatarRenderStatePreviewRenderer")) {
                         rendererTerminals(node);
                         rendererOperands.accept(node);
@@ -2677,7 +2688,8 @@ public final class CpmExtractionBodyProbe {
     static String loadingDescriptor(String descriptor) {
         String suffix="Lnet/minecraft/resources/Identifier;IIFFIIIIIII)V";
         if (descriptor.equals("(Lcom/mojang/blaze3d/pipeline/RenderPipeline;"+suffix)
-                || descriptor.equals("(Lcom/mojang/renderpearl/api/pipeline/RenderPipeline;"+suffix))
+                || descriptor.equals("(Lcom/mojang/renderpearl/api/pipeline/RenderPipeline;"+suffix)
+                || descriptor.equals("(Lnet/minecraft/client/gui/GuiPipeline;"+suffix))
             return "(Ljava/lang/Object;Ljava/lang/Object;IIFFIIIIIII)V";
         return descriptor.replace("Lnet/minecraft/resources/Identifier;","Ljava/lang/Object;");
     }
@@ -2797,6 +2809,7 @@ public final class CpmExtractionBodyProbe {
     }
     public static final class Graphics {
         static final java.util.List<CpmBakedDisplayProbe.LoadingFrame> loadingFrames = new java.util.ArrayList<>();
+
         public void blit(Object pipeline, CpmOwnedPreviewDispatchProbe.Text texture, int x, int y, float u, float v,
                 int width, int height, int sourceWidth, int sourceHeight, int textureWidth, int textureHeight, int color) {
             loadingFrames.add(new CpmBakedDisplayProbe.LoadingFrame(texture.getString(), x, y, u, v, width, height,
@@ -2949,6 +2962,7 @@ public final class CpmExtractionBodyProbe {
         public MainRenderTarget getMainRenderTarget() { return new MainRenderTarget(); }
         public Dispatcher getEntityRenderDispatcher() { return new Dispatcher(); }
     }
+
     public static final class Connection {}
     public static final class Options {
         final java.util.Set<CpmPreviewScopeProbe.Part> parts = java.util.EnumSet.allOf(CpmPreviewScopeProbe.Part.class);
@@ -2987,7 +3001,10 @@ public final class CpmExtractionBodyProbe {
     public enum Filter { NEAREST }
     public static final class Sampler {}
     public static final class SamplerCache { public Sampler getRepeat(Filter filter) { return new Sampler(); } }
-    public static final class Pipeline { public static void updateSortKeySeed() {} }
+    public static final class Pipeline {
+        public static final Pipeline TEXTURED_PREMULTIPLIED_ALPHA = new Pipeline();
+        public static void updateSortKeySeed() {}
+    }
     public static final class Pipelines { public static final Pipeline GUI_TEXTURED = new Pipeline(); public static final Pipeline GUI_TEXTURED_PREMULTIPLIED_ALPHA = new Pipeline(); }
     public record TextureSetup(TextureView view) {
         public static TextureSetup singleTexture(TextureView view, Sampler sampler) { return new TextureSetup(view); }
@@ -3046,8 +3063,23 @@ public final class CpmExtractionBodyProbe {
             public void close() { passClose.run(); }
         }; }
         default void clearColorAndDepthTextures(GpuTexture color, org.joml.Vector4fc clear, GpuTexture depth, double clearDepth) { ((LegacyTexture) color).data = null; }
+        default Pass createRenderPass(java.util.function.Supplier<String> name, PassLayout layout,
+                TextureView color, TextureView... attachments) {
+            if (layout != PassLayout.COLOR_DEPTH || attachments.length != 1) {
+                throw new AssertionError("Expected one depth attachment for the compiled preview pass");
+            }
+            return createRenderPass(name, color, java.util.Optional.empty(), attachments[0], java.util.OptionalDouble.empty());
+        }
     }
     public interface Pass extends AutoCloseable { default TextureView target() { return null; } void close(); }
+    static void bindRenderPassLayout(Map<String, Class<?>> types) {
+        types.put("com/mojang/renderpearl/api/pipeline/RenderPassLayout", PassLayout.class);
+        types.put("net/minecraft/client/renderer/RenderPassLayouts", PassLayouts.class);
+    }
+    public enum PassLayout { COLOR_DEPTH }
+    public static final class PassLayouts {
+        public static final PassLayout COLOR_DEPTH = PassLayout.COLOR_DEPTH;
+    }
     public static final class RenderSystem {
         public static LegacyDeviceApi getLegacyDevice() { return new LegacyDevice(); }
         public static void queueFencedTask(Runnable completion) {

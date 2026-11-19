@@ -3,10 +3,12 @@ package com.naocraftlab.skins.compat.client.identifier.extraction;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.tabs.GridLayoutTab;
 import net.minecraft.client.gui.components.tabs.Tab;
 import net.minecraft.client.gui.components.tabs.TabManager;
 import net.minecraft.client.gui.components.tabs.TabNavigationBar;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EntityType;
 
 public final class ExtractionGuiApi {
@@ -24,9 +26,13 @@ public final class ExtractionGuiApi {
         minecraft.setScreen(screen);
     }
 
-    static TabNavigationBar buildTabBar(TabManager manager, int width, Iterable<Tab> tabs) {
+    static ExtractionTab createTab(Component label) {
+        return new ExtractionTab(new GridLayoutTab(label), label);
+    }
+
+    static TabNavigationBar buildTabBar(TabManager manager, int width, Iterable<ExtractionTab> tabs) {
         List<Tab> collected = new ArrayList<>();
-        tabs.forEach(collected::add);
+        tabs.forEach(entry -> collected.add(entry.tab()));
         return TabNavigationBar.builder(manager, width)
                 .addTabs(collected.toArray(Tab[]::new))
                 .build();

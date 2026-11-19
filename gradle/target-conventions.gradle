@@ -481,13 +481,15 @@ if (spec.loader.id == 'forge') {
     }
 }
 
+def cpmRuntimeAvailable = nclskinsCatalogTools.cpmArtifact(catalog, spec, true) != null
 def providerFrameFamily = [
         'immediate-resource-location-player-info': 'immediate',
         'immediate-resource-location-skin-lookup': 'immediate',
         'identifier-submission': 'submission',
         'identifier-extraction-tab-navigation-glfw': 'extraction',
         'identifier-extraction-menu-tab-glfw': 'extraction',
-        'identifier-extraction-menu-tab-input-constants': 'extraction'
+        'identifier-extraction-menu-tab-input-constants': 'extraction',
+        'identifier-extraction-context-input-constants': 'extraction'
 ][spec.capabilities.gui.toString()]
 if (providerFrameFamily == null) throw new GradleException('Unknown provider frame binding: ' + spec.capabilities.gui)
 def providerFrameSource = repositoryRoot.file(providerFrameFamily == 'immediate'
@@ -529,7 +531,8 @@ def providerRowClippingTask = tasks.register('verifyProviderRowClipping', JavaEx
     description = 'Executes the target-compiled provider frame and clipping methods with independent pixel sentinels.'
     dependsOn compileProviderRowClippingProbe
     classpath = files(compileProviderRowClippingProbe.flatMap { it.destinationDirectory },
-            configurations.cpmCompositionRuntime, abiSourceSet.output, sourceSets.main.output, abiSourceSet.compileClasspath)
+            configurations.cpmCompositionRuntime, abiSourceSet.output, sourceSets.main.output,
+            cpmRuntimeAvailable ? abiSourceSet.compileClasspath : abiSourceSet.runtimeClasspath)
     javaLauncher.set(javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(spec.java.release as int) })
     mainClass.set('com.naocraftlab.skins.buildlogic.probe.ProviderRowClippingProbe')
     inputs.file(providerFrameSource)
@@ -557,14 +560,21 @@ if (resolvedBundleIds.contains('avatar-pip-ears-ward-measurement')) {
     earsCompile.transitive = false
     dependencies.add(abiSourceSet.compileOnlyConfigurationName, earsCompile)
 }
+def thermiteCoordinate = null
 if (resolvedBundleIds.contains('avatar-pip-ears-measurement')) {
-    def earsCompile = dependencies.create('maven.modrinth:mfzaZK3Z:Tdfeeflh')
+    def ears = catalog.optionalDependencies.earsThermite
+    def version = ears.versions[targetId]
+    if (!version || ears.runtimeUnavailableTargets.contains(targetId)) {
+        throw new GradleException("Missing compatible Ears Thermite measurement pin for ${targetId}")
+    }
+    thermiteCoordinate = "maven.modrinth:${ears.projectId}:${version}"
+    def earsCompile = dependencies.create(thermiteCoordinate)
     earsCompile.transitive = false
     dependencies.add(abiSourceSet.compileOnlyConfigurationName, earsCompile)
 }
-if (spec.minecraft.version in ['26.1', '26.2', '26.3']) {
+if (cpmRuntimeAvailable && thermiteCoordinate != null && spec.minecraft.version in ['26.1', '26.2', '26.3']) {
     def nativeRuntime = configurations.create('cpmNativeMeasurementRuntime') { transitive = false }
-    dependencies.add(nativeRuntime.name, 'maven.modrinth:mfzaZK3Z:Tdfeeflh')
+    dependencies.add(nativeRuntime.name, thermiteCoordinate)
     def nativeOs = System.getProperty('os.name').toLowerCase(Locale.ROOT)
     def nativeArm = System.getProperty('os.arch') in ['aarch64', 'arm64']
     def nativeClassifier = nativeOs.contains('mac') ? (nativeArm ? 'natives-macos-arm64' : 'natives-macos')
@@ -586,7 +596,7 @@ if (spec.minecraft.version in ['26.1', '26.2', '26.3']) {
         delegate.workDirectory.set(layout.buildDirectory.dir('verification/cpm-native-measurement'))
     }
 }
-def cpmIntegrationTask = tasks.register('verifyCpmIntegration', nclskinsVerifyCpmIntegrationTaskType) {
+def cpmIntegrationTask = cpmRuntimeAvailable ? tasks.register('verifyCpmIntegration', nclskinsVerifyCpmIntegrationTaskType) {
     group = 'verification'
     delegate.stringUserProfileId.set(spec.capabilities.session == 'minecraft-user-string-profile-id')
     dependsOn tasks.named(abiSourceSet.classesTaskName), tasks.named('processResources')
@@ -602,7 +612,7 @@ def cpmIntegrationTask = tasks.register('verifyCpmIntegration', nclskinsVerifyCp
         delegate.nativeBodyProfile.set(nativeMeasurementTask.flatMap { it.nativeProfile })
         delegate.nativeBodyLoader.set(nativeMeasurementTask.flatMap { it.loaderFamily })
     }
-}
+} : null
 
 def isolationTask = tasks.register('verifyDedicatedServerIsolation') {
     group = 'verification'
@@ -700,7 +710,7 @@ tasks.named('check').configure {
     if (modMenuAbiTask != null) dependsOn modMenuAbiTask
     dependsOn fancyMenuAbiTask
     dependsOn providerRowClippingTask
-    dependsOn cpmIntegrationTask
+    if (cpmIntegrationTask != null) dependsOn cpmIntegrationTask
     dependsOn isolationTask
 }
 

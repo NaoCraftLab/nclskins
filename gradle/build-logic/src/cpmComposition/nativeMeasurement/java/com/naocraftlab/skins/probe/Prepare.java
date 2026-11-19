@@ -11,10 +11,11 @@ import java.security.*;
 
 public final class Prepare implements Opcodes {
     static final String B = "com/naocraftlab/skins/probe/EarsProbe";
+    private static final String TEXTURE_BACKEND = "com/naocraftlab/skins/compat/client/identifier/IdentifierNativeTextureBackend";
     static Path out;
     public static void main(String[] args) throws Exception {
         out = Path.of(args[0]);
-        for (String name : List.of("net/minecraft/TracingExecutor", "net/minecraft/client/renderer/texture/DynamicTexture", "net/minecraft/client/renderer/rendertype/RenderTypes", "net/minecraft/client/model/geom/ModelPart", "diy/y2k/five/thermite/EarsLayerRenderer$1", "diy/y2k/five/thermite/EarsLayerRenderer", "net/minecraft/client/renderer/texture/SkinTextureDownloader", "net/minecraft/client/renderer/texture/TextureManager", "com/mojang/blaze3d/platform/NativeImage", "com/naocraftlab/skins/compat/client/identifier/IdentifierTextureRegistry", "com/naocraftlab/skins/compat/client/identifier/IdentifierTextureRegistry$NativeTexture")) {
+        for (String name : List.of("net/minecraft/TracingExecutor", "net/minecraft/client/renderer/texture/DynamicTexture", "net/minecraft/client/renderer/rendertype/RenderTypes", "net/minecraft/client/model/geom/ModelPart", "diy/y2k/five/thermite/EarsLayerRenderer$1", "diy/y2k/five/thermite/EarsLayerRenderer", "net/minecraft/client/renderer/texture/SkinTextureDownloader", "net/minecraft/client/renderer/texture/TextureManager", "com/mojang/blaze3d/platform/NativeImage", "com/naocraftlab/skins/compat/client/identifier/IdentifierTextureRegistry", "com/naocraftlab/skins/compat/client/identifier/IdentifierTextureRegistry$NativeTexture", TEXTURE_BACKEND)) {
             ClassNode c = new ClassNode();
             try (var in = Prepare.class.getClassLoader().getResourceAsStream(name + ".class")) { new ClassReader(in).accept(c, 0); }
             if (name.endsWith("/ModelPart")) {
@@ -83,7 +84,7 @@ public final class Prepare implements Opcodes {
                     method.instructions.insertBefore(instruction,new MethodInsnNode(INVOKESTATIC,B,"downloaded","(Ljava/util/concurrent/CompletableFuture;)Ljava/util/concurrent/CompletableFuture;",false));
             }
             ClassWriter w = new ClassWriter(ClassWriter.COMPUTE_MAXS);
-            if(name.endsWith("/SkinTextureDownloader")||name.endsWith("/TextureManager")||name.startsWith("com/naocraftlab/skins/compat/client/identifier/IdentifierTextureRegistry")) c.accept(new ClassRemapper(w,new SimpleRemapper(Map.of("net/minecraft/client/Minecraft",B+"$Host")))); else c.accept(w);
+            if(name.endsWith("/SkinTextureDownloader")||name.endsWith("/TextureManager")||name.startsWith("com/naocraftlab/skins/compat/client/identifier/IdentifierTextureRegistry")||name.equals(TEXTURE_BACKEND)) c.accept(new ClassRemapper(w,new SimpleRemapper(Map.of("net/minecraft/client/Minecraft",B+"$Host")))); else c.accept(w);
             Path target = out.resolve(name + ".class");Files.createDirectories(target.getParent());Files.write(target,w.toByteArray());
             ClassNode original=new ClassNode();try(var in=Prepare.class.getClassLoader().getResourceAsStream(name+".class")){new ClassReader(in).accept(original,0);}
             ClassNode emitted=new ClassNode();new ClassReader(w.toByteArray()).accept(emitted,0);

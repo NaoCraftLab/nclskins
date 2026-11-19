@@ -86,6 +86,8 @@ final class CpmPreviewScreenSlice {
     private static Class<?> load(String owner, boolean textConsumers, Class<?> rendererType, boolean inputConsumers, boolean lifecycleConsumers, boolean rootPaint, Map<String,String> terminals) throws Exception {
         String internalOwner = owner.replace('.', '/');
         String namespace = internalOwner.substring(0, internalOwner.lastIndexOf('/') + 1);
+        boolean extraction = internalOwner.contains("/extraction/");
+        String guiAdapter = namespace.replace('/', '.') + "GuiExtraction";
         Map<String, String> names = new HashMap<>();
         names.put("net/minecraft/client/gui/GuiGraphics", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
         names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
@@ -192,6 +194,13 @@ final class CpmPreviewScreenSlice {
             }
         }
         names.putAll(terminals);
+        if (extraction) {
+            names.put("net/minecraft/client/gui/GuiPipeline", "java/lang/Object");
+            names.put(namespace + "GuiExtraction$ScreenHost", internal(CpmOwnedPreviewDispatchProbe.ScreenTerminal.class));
+            names.put(namespace + "GuiExtraction$ButtonHost", internal(CpmOwnedPreviewDispatchProbe.WidgetTerminal.class));
+            names.put("net/minecraft/client/gui/components/Renderable", internal(CpmOwnedPreviewDispatchProbe.RenderFrame.class));
+            names.put("net/minecraft/client/gui/components/AbstractWidget", internal(CpmOwnedPreviewDispatchProbe.WidgetTerminal.class));
+        }
         ClassLoader loader = new ClassLoader(rendererType == null ? CpmPreviewScreenSlice.class.getClassLoader() : rendererType.getClassLoader()) {
             @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
                 boolean components = textConsumers && (name.equals(namespace.replace('/', '.') + "SubmissionComponents")
@@ -199,6 +208,10 @@ final class CpmPreviewScreenSlice {
                         || (inputConsumers || lifecycleConsumers) && name.equals(namespace.replace('/', '.') + "ExtractionInputAdapter");
                 boolean nativeButton = textConsumers && inputConsumers && (name.equals("net.minecraft.client.gui.components.AbstractButton")
                         || name.equals("net.minecraft.client.gui.components.WidgetSprites"));
+                if (extraction && name.equals(guiAdapter)) {
+                    return loadGuiAdapter(name, resolve, names, Set.of("blit", "blitSprite", "isVisible", "setVisible", "extract"),
+                            findLoadedClass(name), this::defineClass, this::resolveClass, getParent());
+                }
                 if (!name.equals(owner) && !name.startsWith(owner + "$") && !components && !nativeButton) return super.loadClass(name, resolve);
                 Class<?> type = findLoadedClass(name);
                 if (type == null) {
@@ -210,7 +223,7 @@ final class CpmPreviewScreenSlice {
                         if (nativeButton && name.endsWith("AbstractButton")) node.methods.removeIf(method -> !List.of("<init>","<clinit>",
                                 "renderDefaultSprite","renderDefaultLabel","onClick","onPress","renderContents","setOverrideRenderHighlightedSprite").contains(method.name));
                         if (textConsumers && inputConsumers && List.of("CatalogCardWidget","CapeCardWidget","IconButtonWidget","PassiveIndicatorWidget").stream().anyMatch(s->name.equals(owner+"$"+s)) && !owner.contains("submission"))
-                            node.methods.removeIf(method -> !List.of("<init>","<clinit>","renderWidget","extractContents").contains(method.name));
+                            node.methods.removeIf(method -> !List.of("<init>","<clinit>","renderWidget","drawContents").contains(method.name));
                         if (name.equals(owner)) {
                             verifyRetirementWiring(node);
                             verifyPaintOrdering(node);
@@ -254,7 +267,9 @@ final class CpmPreviewScreenSlice {
     }
 
     static Class<?> loadSurface(String owner) throws Exception {
-        String name = owner.substring(0, owner.lastIndexOf('.') + 1) + "NativeSurfaceAdapter";
+        String namespace = owner.substring(0, owner.lastIndexOf('.') + 1);
+        String name = namespace + "NativeSurfaceAdapter";
+        String guiAdapter = namespace + "GuiExtraction";
         Map<String,String> names = new HashMap<>();
         names.put("net/minecraft/client/gui/GuiGraphics", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
         names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
@@ -265,6 +280,7 @@ final class CpmPreviewScreenSlice {
         names.put("com/mojang/blaze3d/pipeline/RenderPipeline", "java/lang/Object");
         names.put("com/mojang/renderpearl/api/pipeline/RenderPipeline", "java/lang/Object");
         names.put("net/minecraft/client/multiplayer/ClientLevel", "java/lang/Object");
+        names.put("net/minecraft/client/gui/GuiPipeline", "java/lang/Object");
         names.put("net/minecraft/client/renderer/RenderPipelines", internal(CpmOwnedPreviewDispatchProbe.PipelinesTerminal.class));
         var node = new ClassNode(Opcodes.ASM9);
         try (var input = CpmPreviewScreenSlice.class.getClassLoader().getResourceAsStream(name.replace('.', '/') + ".class")) {
@@ -281,8 +297,50 @@ final class CpmPreviewScreenSlice {
         }));
         byte[] bytes = writer.toByteArray();
         return new ClassLoader(CpmPreviewScreenSlice.class.getClassLoader()) {
+            @Override protected Class<?> loadClass(String requested, boolean resolve) throws ClassNotFoundException {
+                if (!requested.equals(guiAdapter)) return super.loadClass(requested, resolve);
+                return loadGuiAdapter(requested, resolve, names, Set.of("blit"),
+                        findLoadedClass(requested), this::defineClass, this::resolveClass, getParent());
+            }
             Class<?> define() { return defineClass(name,bytes,0,bytes.length); }
         }.define();
+    }
+
+    @FunctionalInterface
+    private interface DefineClass {
+        Class<?> define(String name, byte[] bytes, int offset, int length);
+    }
+
+    private static Class<?> loadGuiAdapter(String name, boolean resolve, Map<String, String> names, Set<String> methods,
+            Class<?> type, DefineClass define, java.util.function.Consumer<Class<?>> resolveClass, ClassLoader parent)
+            throws ClassNotFoundException {
+        if (type == null) try (var input = parent.getResourceAsStream(name.replace('.', '/') + ".class")) {
+            if (input == null) throw new ClassNotFoundException(name);
+            var node = new ClassNode(Opcodes.ASM9);
+            new ClassReader(input).accept(node, 0);
+            sliceGuiAdapter(node, methods);
+            var writer = new ClassWriter(0);
+            node.accept(new ClassRemapper(writer, new Remapper(Opcodes.ASM9) {
+                @Override public String map(String value) { return names.getOrDefault(value, value); }
+            }));
+            byte[] bytes = writer.toByteArray();
+            type = define.define(name, bytes, 0, bytes.length);
+        } catch (IOException failure) { throw new ClassNotFoundException(name, failure); }
+        if (resolve) resolveClass.accept(type);
+        return type;
+    }
+
+    static void sliceGuiAdapter(ClassNode adapter, Set<String> methods) {
+        adapter.methods.removeIf(method -> !methods.contains(method.name)
+                && !(methods.contains("extract") && method.name.startsWith("lambda$extract$")));
+        for (var method : adapter.methods) for (var instruction : method.instructions) {
+            if (instruction instanceof FieldInsnNode field && field.owner.equals("net/minecraft/client/gui/GuiPipeline")
+                    && field.name.equals("TEXTURED") && field.desc.equals("Lnet/minecraft/client/gui/GuiPipeline;")) {
+                field.owner = "net/minecraft/client/renderer/RenderPipelines";
+                field.name = "GUI_TEXTURED";
+                field.desc = "Lcom/mojang/renderpearl/api/pipeline/RenderPipeline;";
+            }
+        }
     }
 
     private static void isolate(ClassNode node, boolean textConsumers, boolean inputConsumers, boolean lifecycleConsumers) {
@@ -301,7 +359,7 @@ final class CpmPreviewScreenSlice {
         if (!textConsumers) roots.add(immediate ? "renderBackEquipmentPreviews" : node.name.contains("submission") ? "renderBackEquipment" : "drawBackEquipmentPreviews");
         if (lifecycleConsumers) {
             roots.addAll(immediate || node.name.contains("submission") ? List.of("render", "snapshotChanged") : List.of("init", "snapshotChanged", "clearWidgets", "setInitialFocus"));
-            if (Boolean.getBoolean("nclskins.rootBoundary")) roots.add("extractRenderState");
+            if (Boolean.getBoolean("nclskins.rootBoundary") && node.name.contains("/extraction/")) roots.add("extractFrame");
             if (node.name.contains("submission")) for (var method : node.methods) {
                 if (List.of("renderListPanels","renderCardBackgrounds","renderBackEquipment","renderScrollbar","renderSurfaceOverlays",
                         "renderProgressDecorations","renderIconDecorations","renderTabHighlights","renderTexts","renderStateFrames","renderTooltips","renderPassiveIndicatorTooltip").contains(method.name)) {
@@ -436,6 +494,8 @@ final class CpmPreviewScreenSlice {
                 node.fields.add(new org.objectweb.asm.tree.FieldNode(Opcodes.ACC_PUBLIC,field,"I",null,null));
         }
         node.methods.removeIf(method -> !retained.contains(method.name + method.desc));
+        node.methods.stream().filter(method -> method.name.equals("extractFrame"))
+                .forEach(method -> method.access = (method.access & ~Opcodes.ACC_PROTECTED) | Opcodes.ACC_PUBLIC);
         node.fields.removeIf(field -> !fields.contains(field.name));
         node.fields.forEach(field -> field.access = (field.access & ~(Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED | Opcodes.ACC_FINAL)) | Opcodes.ACC_PUBLIC);
         node.superName = textConsumers || inputConsumers || lifecycleConsumers ? "net/minecraft/client/gui/screens/Screen" : "java/lang/Object";
@@ -456,7 +516,7 @@ final class CpmPreviewScreenSlice {
     }
 
     private static void scrollFrameSlice(ClassNode node) {
-        String name=node.name.endsWith("NclSkinsImmediateScreen") ? "render" : node.name.contains("submission") ? "refresh" : "extractRenderState";
+        String name=node.name.endsWith("NclSkinsImmediateScreen") ? "render" : node.name.contains("submission") ? "refresh" : "extractFrame";
         var parent=node.methods.stream().filter(m -> m.name.equals(name)).findFirst().orElseThrow();
         MethodInsnNode terminal=null;
         for (var insn:parent.instructions) if (insn instanceof MethodInsnNode call && call.name.equals("synchronize")
@@ -488,7 +548,7 @@ final class CpmPreviewScreenSlice {
 
     private static void rootPaintSlice(ClassNode node) {
         boolean immediate = node.name.endsWith("NclSkinsImmediateScreen");
-        var root = node.methods.stream().filter(m -> m.name.equals(immediate || node.name.contains("submission") ? "render" : "extractRenderState")
+        var root = node.methods.stream().filter(m -> m.name.equals(immediate || node.name.contains("submission") ? "render" : "extractFrame")
                 && m.desc.endsWith(";IIF)V")).findFirst().orElseThrow();
         var overlays = java.util.stream.StreamSupport.stream(root.instructions.spliterator(),false)
                 .filter(i -> i instanceof MethodInsnNode call && call.owner.equals(node.name) && call.name.equals("renderSurfaceOverlays")).toList();
@@ -530,16 +590,17 @@ final class CpmPreviewScreenSlice {
         System.out.println("BOUND actual compiled root paint phase " + node.name + "." + root.name + root.desc + " viewLocal=" + view);
     }
 
-    private static void verifyPaintOrdering(ClassNode node) {
+    private static void verifyPaintOrdering(ClassNode node) throws IOException {
         boolean immediate = node.name.endsWith("NclSkinsImmediateScreen");
         boolean submission = node.name.contains("submission");
-        String entry = immediate || submission ? "render" : "extractRenderState";
+        String entry = immediate || submission ? "render" : "extractFrame";
         String preview = immediate || submission ? "renderPreviews" : "drawPreviews";
         String reconcile = immediate ? "synchronizeWidgets" : submission ? "refresh" : "snapshotChanged";
         String controls = immediate ? "pointerOwnerAt" : submission ? "renderWidgetsClipped" : "extractRenderablesClipped";
         var entries = node.methods.stream().filter(candidate -> candidate.name.equals(entry)).toList();
         if (entries.size() != 1) throw new AssertionError("Expected one exact native paint entrypoint: " + node.name);
         var method = entries.get(0);
+        if (!immediate && !submission) verifyExtractionCallback(node, method);
         int previewAt = -1, reconcileAt = -1, controlsAt = -1, index = 0;
         int workspaceAt = -1, staticAt = -1;
         for (var instruction : method.instructions) {
@@ -557,6 +618,27 @@ final class CpmPreviewScreenSlice {
         if (!(previewAt >= 0 && reconcileAt > previewAt && controlsAt > reconcileAt)) {
             throw new AssertionError("Actual compiled paint must reconcile native widgets after preview and before controls: " + node.name);
         }
+    }
+
+    private static void verifyExtractionCallback(ClassNode node, MethodNode frame) throws IOException {
+        String graphics = "Lnet/minecraft/client/gui/GuiGraphicsExtractor;";
+        String frameDescriptor = "(" + graphics + "IIF)V";
+        String hostName = node.name.substring(0, node.name.lastIndexOf('/') + 1) + "GuiExtraction$ScreenHost";
+        if (!node.superName.equals(hostName) || !frame.desc.equals(frameDescriptor)) {
+            throw new AssertionError("Extraction paint must remain behind the exact native screen adapter");
+        }
+        var host = new ClassNode(Opcodes.ASM9);
+        try (var input = CpmPreviewScreenSlice.class.getClassLoader().getResourceAsStream(hostName + ".class")) {
+            if (input == null) throw new AssertionError("Missing compiled extraction host: " + hostName);
+            new ClassReader(input).accept(host, 0);
+        }
+        var callbacks = host.methods.stream().filter(method -> method.name.equals("extractRenderState")
+                && (method.desc.equals(frameDescriptor) || method.desc.equals("(" + graphics + ")V"))).toList();
+        if (callbacks.size() != 1) throw new AssertionError("Extraction host must expose one exact native callback");
+        long dispatches = java.util.stream.StreamSupport.stream(callbacks.get(0).instructions.spliterator(), false)
+                .filter(instruction -> instruction instanceof MethodInsnNode call && call.getOpcode() == Opcodes.INVOKEVIRTUAL
+                        && call.owner.equals(hostName) && call.name.equals(frame.name) && call.desc.equals(frameDescriptor)).count();
+        if (dispatches != 1) throw new AssertionError("Native extraction callback must dispatch to the shared frame exactly once");
     }
 
     private static void verifyRetirementWiring(ClassNode node) {

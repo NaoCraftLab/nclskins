@@ -9,7 +9,8 @@ import java.util.zip.ZipFile
 final class WaveyCapesNativeAbi {
     static void verify(Collection<File> classpath, String implementation) {
         boolean immediate = implementation in ['player-info-cache', 'skin-lookup']
-        boolean prepared = implementation in ['cape-foil-pipeline-bind-groups', 'cape-foil-combined']
+        boolean combined = implementation in ['cape-foil-combined', 'cape-foil-combined-stage-selector']
+        boolean prepared = combined || implementation == 'cape-foil-pipeline-bind-groups'
         List<String> mixins
         String base = 'com/naocraftlab/skins/compat/client/'
         if (immediate) mixins = [base + 'cape/mixin/RenderTypeFlagsMixin']
@@ -21,13 +22,13 @@ final class WaveyCapesNativeAbi {
             if (prepared) mixins += ['CapturedPreparedTypeMixin', 'CapturedDrawGroupMixin'].collect {
                 base + 'identifier/foil/prepared/' + it
             }
-            if (implementation != 'cape-foil-combined') mixins += base + 'identifier/foil/pipeline/OrderedCapeFoilMixin'
+            if (!combined) mixins += base + 'identifier/foil/pipeline/OrderedCapeFoilMixin'
         }
         if (!immediate) {
             if (prepared) verifyPreparedDraw(
                     read(classpath, 'net/minecraft/client/renderer/feature/RenderTypeFeatureRenderer'),
                     read(classpath, base + 'identifier/foil/prepared/CapturedDrawMixin'),
-                    implementation == 'cape-foil-combined')
+                    combined)
             String nativeName = 'net/minecraft/client/renderer/rendertype/RenderType'
             ClassNode nativeType = read(classpath, nativeName)
             MethodNode factory = nativeType.methods.find { it.name == 'create'

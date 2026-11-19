@@ -432,8 +432,21 @@ tasks.register('verifyNativeModels', TargetBuildTask) {
 
 tasks.register('verifyCpmIntegrations', TargetBuildTask) {
     group = 'verification'
-    description = 'Applies CPM Mixins against each catalogued compile API without launching Minecraft.'
-    configureTargetBuild(delegate, requestedTargetId == null ? targetIds : [requestedTargetId], ['verifyCpmIntegration'], false, false)
+    description = 'Runs headless CPM composition for targets with a catalogued CPM runtime pin.'
+    List<String> runtimeIds = targetCatalog.targets.findAll {
+        nclskinsCatalogTools.cpmArtifact(targetCatalog, it, true) != null
+    }.collect { it.id.toString() }
+    configureTargetBuild(delegate, requestedTargetId == null ? runtimeIds : runtimeIds.findAll { it == requestedTargetId },
+            ['verifyCpmIntegration'], false, false)
+    doFirst {
+        if (requestedTargetId != null && !runtimeIds.contains(requestedTargetId)) {
+            if (!targetIds.contains(requestedTargetId)) throw new GradleException("Unknown target: ${requestedTargetId}")
+            throw new GradleException("${requestedTargetId}: CPM runtime verification is unsupported (compile-only reference). Use testTarget for applicable tests and ABI checks.")
+        }
+        if (requestedTargetId == null) {
+            logger.lifecycle("CPM runtime verification excludes compile-only targets: ${targetIds - runtimeIds}")
+        }
+    }
 }
 
 tasks.register('buildAllTargets', TargetBuildTask) {

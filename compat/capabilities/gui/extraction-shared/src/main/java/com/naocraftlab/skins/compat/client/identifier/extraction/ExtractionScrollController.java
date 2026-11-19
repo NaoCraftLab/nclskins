@@ -6,18 +6,17 @@ import com.naocraftlab.skins.runtime.ViewSpec;
 import java.util.Objects;
 import java.util.Optional;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.AbstractScrollArea;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.network.chat.Component;
 
-final class ExtractionScrollController extends AbstractScrollArea {
+final class ExtractionScrollController extends GuiExtraction.ScrollAreaHost {
     private Optional<ViewSpec.ScrollSurface> surface = Optional.empty();
     private final NativeScrollSync synchronization = new NativeScrollSync();
     private int maximum;
     private double wheelStep = 32.0;
 
     ExtractionScrollController() {
-        super(0, 0, 1, 1, Component.empty(), defaultSettings(0));
+        super(Component.empty());
     }
 
     void synchronize(Optional<ViewSpec.ScrollSurface> desired) {
@@ -66,11 +65,8 @@ final class ExtractionScrollController extends AbstractScrollArea {
     }
 
     @Override
-    protected void extractWidgetRenderState(
-            GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        if (surface.isPresent()) {
-            extractScrollbar(graphics, mouseX, mouseY);
-        }
+    protected boolean shouldExtractScrollbar() {
+        return surface.isPresent();
     }
 
     @Override

@@ -119,6 +119,6 @@ final class ReleaseProcessTest {
         Map selection = ServerPluginVersion.select('1.4.0', '1.4.0', '1.2.0.1')
         [schemaVersion: 2, version: '1.4.0', requestedVersion: '1.4.0', componentKind: 'mod-only',
          sourceCommit: 'a' * 40, tagCommit: 'b' * 40, components: [], buildTargetIds: [], buildPlugin: false,
-         serverState: [schemaVersion: 2, sealed: true, activeVersion: '1.2.0'] + selection]
+         serverState: [schemaVersion: 2, sealed: true, activeVersion: '1.2.0', reason: 'mod-only', publish: false] + selection]
     }
 }

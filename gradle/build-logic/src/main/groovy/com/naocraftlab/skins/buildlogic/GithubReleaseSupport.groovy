@@ -5,12 +5,16 @@ final class GithubReleaseSupport {
         Map<String, Map> canonical = desiredAssets(manifest).collectEntries { Map asset ->
             [(asset.file.toString()): asset]
         }
-        Map<String, Map> preserved = (manifest.preservedGithub ?: []).collectEntries { Map asset ->
+        List<Map> preservedRecords = manifest.preservedGithub ?: []
+        Map<String, Map> preserved = preservedRecords.collectEntries { Map asset ->
             [(asset.assetFile?.toString() ?: asset.file.toString()): asset]
         }
-        if (preserved.any { String file, Map entry ->
-            (manifest.componentKind != 'plugin-only' && !canonical.containsKey(file)) ||
-                    (canonical.containsKey(file) && entry.sha256 != canonical[file].sha256)
+        Map<String, Map> historical = manifest.componentKind == 'plugin-only' ? preserved.findAll { String file, Map entry ->
+            entry.file == file && entry.assetFile == null && ReleasePlan.historicalModAsset(file, manifest.version.toString())
+        } : [:]
+        if (preserved.size() != preservedRecords.size() || preserved.any { String file, Map entry ->
+            historical.containsKey(file) ? entry.id == null || !(entry.sha256 ==~ /[0-9a-f]{64}/) :
+                    !canonical.containsKey(file) || entry.sha256 != canonical[file].sha256
         }) {
             throw new IllegalStateException('Preserved GitHub assets differ from release assets')
         }
@@ -46,9 +50,9 @@ final class GithubReleaseSupport {
                         remoteSha256.call(old) == replacement.sha256
                 actions.add([action: exact ? 'delete-previous-plugin' : 'conflict', file: name,
                              remoteId: requiredId(old), reason: exact ? 'superseded plugin build' : 'previous plugin changed'])
-            } else if (manifest.componentKind == 'plugin-only' && preserved.containsKey(name) && !canonical.containsKey(name)) {
+            } else if (historical.containsKey(name)) {
                 Map old = entries.first()
-                Map expected = preserved[name]
+                Map expected = historical[name]
                 actions.add([action: requiredId(old) == expected.id.toString() && remoteSha256.call(old) == expected.sha256 ? 'keep' : 'conflict',
                         file: name, remoteId: requiredId(old), reason: 'historical mod asset'])
             } else if (!desired.containsKey(name)) {
@@ -56,12 +60,8 @@ final class GithubReleaseSupport {
                              reason: 'unknown existing release asset'])
             }
         }
-        if (manifest.componentKind == 'plugin-only') {
-            preserved.each { String name, Map entry ->
-                if (!canonical.containsKey(name) && !remoteByName.containsKey(name)) {
-                    actions.add([action: 'conflict', file: name, reason: 'preserved historical mod asset disappeared'])
-                }
-            }
+        historical.keySet().findAll { !remoteByName.containsKey(it) }.each { String name ->
+            actions.add([action: 'conflict', file: name, reason: 'preserved historical mod asset disappeared'])
         }
         desired.each { String name, Map expectation ->
             Map asset = expectation.asset as Map

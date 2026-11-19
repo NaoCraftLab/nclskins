@@ -58,8 +58,13 @@ final class BuildLogicTest {
                         tasks: project.tasks, configurations: project.configurations, sourceSets: project.sourceSets,
                         layout: project.layout, repositoryRoot: project.layout.projectDirectory,
                         abiSourceSet: project.sourceSets.main, spec: target, nativeMeasurementTask: null,
+                        cpmRuntimeAvailable: CatalogTools.cpmArtifact(catalog, target, true) != null,
                         nclskinsVerifyCpmIntegrationTaskType: VerifyCpmIntegrationTask])
                 new GroovyShell(getClass().classLoader, binding).evaluate(registration)
+                if (target.id == 'fabric-26.4') {
+                    assertFalse(project.tasks.names.contains('verifyCpmIntegration'), 'compile-only CPM must not register runtime composition')
+                    continue
+                }
                 def task = project.tasks.named('verifyCpmIntegration', VerifyCpmIntegrationTask).get()
                 assertEquals(target.capabilities.session == 'minecraft-user-string-profile-id', task.stringUserProfileId.get())
                 assertNotNull(task.inputs.properties['stringUserProfileId'])
@@ -284,7 +289,8 @@ public final class TmpProbe {
         catalog.targets.each { Map target ->
             Map resolved = CatalogTools.resolveTargetSources(repository, catalog, target)
             List roots = resolved.java.findAll { it.startsWith('compat/capabilities/configuration-link/') }
-            String api = target.capabilities.gui == 'identifier-extraction-menu-tab-input-constants'
+            String api = target.capabilities.gui in ['identifier-extraction-menu-tab-input-constants',
+                                                     'identifier-extraction-context-input-constants']
                     ? 'uri-blaze3d'
                     : target.capabilities.gui.toString().startsWith('immediate-')
                             ? 'string-root-util' : 'string-package-util'
@@ -403,13 +409,16 @@ public final class TmpProbe {
                 assertEquals([main: [target.metadata.serverEntrypoint], client: [target.metadata.entrypoint], modmenu: [target.metadata.modMenuEntrypoint]], metadata.entrypoints)
                 assertEquals(catalog.mod.descriptions.en_us, metadata.description)
                 assertEquals(catalog.mod.contact, metadata.contact)
-                assertEquals([
+                Map expectedSuggestions = [
                         modmenu    : ">=${target.loader.modMenuVersion}".toString(),
                         fancymenu: '*',
-                        cpm: '*',
                         sqlite_jdbc              : catalog.optionalDependencies.sqlite_jdbc.predicates.fabric,
                         yet_another_config_lib_v3: CatalogTools.optionalDependencyPredicate(catalog, target, 'yet_another_config_lib_v3')
-                ], metadata.suggests)
+                ]
+                if (target.id != 'fabric-26.4') expectedSuggestions.cpm = '*'
+                assertEquals(expectedSuggestions, metadata.suggests)
+                assertFalse(metadata.depends.containsKey('cpm'))
+                assertTrue(metadata.mixins.any { it == 'nclskins.cpm.mixins.json' || it.config == 'nclskins.cpm.mixins.json' })
                 assertEquals(true, metadata.custom.modmenu.update_checker)
                 assertEquals([
                         'modmenu.modrinth'              : 'https://modrinth.com/mod/nclskins',
@@ -541,9 +550,13 @@ public final class TmpProbe {
         assertEquals(IdeaRunConfigurations.orderedModRuntimes(catalog).size() *
                 IdeaRunConfigurations.RUN_KINDS.size() +
                 catalog.serverPluginTopologies.size(), taskNames.size())
-        assertEquals(82, IdeaRunConfigurations.orderedConfigurationNames(catalog).size())
-        assertTrue(IdeaRunConfigurations.orderedConfigurationNames(catalog)
-                .contains('26.3:paper:runServer'))
+        List<String> configurationNames = IdeaRunConfigurations.orderedConfigurationNames(catalog)
+        assertEquals(86, configurationNames.size())
+        assertEquals(86, configurationNames.toSet().size())
+        assertTrue(configurationNames.containsAll([
+                '26.3:paper:runServer', '26.3:folia:runServer',
+                '26.4:fabric:runClient', '26.4:fabric:runClientLicensed', '26.4:fabric:runServer'
+        ]))
         assertEquals('26.1', IdeaRunConfigurations.displayFolder('26.1'))
         assertEquals('26.1.1', IdeaRunConfigurations.displayFolder('26.1.1'))
         assertEquals('26.1.2', IdeaRunConfigurations.displayFolder('26.1.2'))
@@ -779,7 +792,8 @@ public final class TmpProbe {
                            'Velocity Paper', 'BungeeCord Paper'],
                 '26.2': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
                          'Velocity Paper', 'BungeeCord Paper'],
-                 '26.3': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Velocity Paper', 'BungeeCord Paper']
+                '26.3': ['LAN', 'Fabric', 'NeoForge', 'Paper', 'Purpur', 'Folia',
+                         'Velocity Paper', 'BungeeCord Paper']
         ]
         expectedNames.each { String version, List<String> names ->
             List<Map<String, String>> entries = RunDirectorySupport.serverEntries(catalog, version)
@@ -839,6 +853,67 @@ public final class TmpProbe {
         ], MinecraftServerList.entries(file))
     }
 
+
+    @Test
+    void neoForgeYaclAdaptsOnlyKnownStaleCompatibilityRows() {
+        Path directory = Files.createTempDirectory('nclskins-yacl-ranges-')
+        try {
+            Path input = directory.resolve('yacl.jar')
+            Path output = directory.resolve('patched.jar')
+            String metadata = '''[[mods]]
+    logoFile = "yacl-128x.png"
+    version = "3.9.7+26.3-neoforge"
+    modId = "yet_another_config_lib_v3"
+[["dependencies.yet_another_config_lib_v3"]]
+    versionRange = "[26.2,26.3)"
+    side = "BOTH"
+    ordering = "NONE"
+    mandatory = true
+    modId = "neoforge"
+[["dependencies.yet_another_config_lib_v3"]]
+    versionRange = "[26.2,26.3)"
+    side = "BOTH"
+    ordering = "NONE"
+    mandatory = true
+    modId = "minecraft"
+[["dependencies.yet_another_config_lib_v3"]]
+    versionRange = "[26.2,26.3)"
+    modId = "unrelated"
+'''
+            byte[] nested = [1, 3, 5] as byte[]
+            Closure writeArtifact = { String descriptor ->
+                new ZipOutputStream(Files.newOutputStream(input)).withCloseable { ZipOutputStream zip ->
+                    zip.putNextEntry(new ZipEntry(NeoForgeRuntimeMetadata.METADATA))
+                    zip.write(descriptor.getBytes('UTF-8'))
+                    zip.closeEntry()
+                    zip.putNextEntry(new ZipEntry('META-INF/jarjar/nested.jar'))
+                    zip.write(nested)
+                    zip.closeEntry()
+                }
+            }
+            writeArtifact(metadata)
+            byte[] original = Files.readAllBytes(input)
+            NeoForgeRuntimeMetadata.patchYacl(input, output)
+            new ZipFile(output.toFile()).withCloseable { ZipFile zip ->
+                String actual = zip.getInputStream(zip.getEntry(NeoForgeRuntimeMetadata.METADATA))
+                        .withCloseable { new String(it.readAllBytes(), 'UTF-8') }
+                assertEquals(2, actual.count('[[dependencies.yet_another_config_lib_v3]]'))
+                assertEquals(1, actual.count('[["dependencies.yet_another_config_lib_v3"]]'))
+                assertEquals(1, actual.count('versionRange = "[26.3]"'))
+                assertEquals(1, actual.count('versionRange = "[26.3.0.6-beta]"'))
+                assertEquals(1, actual.count('versionRange = "[26.2,26.3)"'))
+                assertArrayEquals(nested, zip.getInputStream(zip.getEntry('META-INF/jarjar/nested.jar'))
+                        .withCloseable { it.readAllBytes() })
+            }
+            assertArrayEquals(original, Files.readAllBytes(input))
+            writeArtifact(metadata.replace('modId = "minecraft"', 'modId = "not-minecraft"'))
+            Path rejected = directory.resolve('rejected.jar')
+            assertThrows(GradleException) { NeoForgeRuntimeMetadata.patchYacl(input, rejected) }
+            assertFalse(Files.exists(rejected))
+        } finally {
+            directory.toFile().deleteDir()
+        }
+    }
 
 
     @Test

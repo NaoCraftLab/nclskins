@@ -49,13 +49,11 @@ import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.client.gui.components.tabs.GridLayoutTab;
 import net.minecraft.client.gui.components.tabs.Tab;
 import net.minecraft.client.gui.components.tabs.TabManager;
 import net.minecraft.client.gui.components.tabs.TabNavigationBar;
@@ -66,11 +64,10 @@ import net.minecraft.client.input.InputWithModifiers;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
-public final class NclSkinsScreen extends Screen {
+public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
     private boolean keyboardNavigation;
     private static final Identifier TAB_HIGHLIGHTED =
             Identifier.withDefaultNamespace("widget/tab_highlighted");
@@ -84,7 +81,6 @@ public final class NclSkinsScreen extends Screen {
     private static final Identifier SCROLLER_BACKGROUND_SPRITE =
             Identifier.withDefaultNamespace("widget/scroller_background");
     private static final int COLLECTION_HEADER_TRAILING_INFO_WIDTH = 14;
-    private static final int OFFSCREEN_MOUSE_COORDINATE = -1_000_000;
     private static final int TEXT_COLOR = 0xFFE8EDF6;
     private static final int MUTED_COLOR = 0xFF9BA8BC;
     private static final int ERROR_COLOR = 0xFFFF9A9A;
@@ -502,7 +498,7 @@ public final class NclSkinsScreen extends Screen {
                 continue;
             }
             Map<Tab, String> idsByTab = new HashMap<>();
-            List<Tab> tabs = new ArrayList<>();
+            List<ExtractionTab> tabs = new ArrayList<>();
             TabManager manager = new TabManager(
                     ignored -> {},
                     ignored -> {},
@@ -518,8 +514,8 @@ public final class NclSkinsScreen extends Screen {
             int selectedIndex = -1;
             for (int index = 0; index < group.tabs().size(); index++) {
                 ViewSpec.Tab spec = group.tabs().get(index);
-                Tab tab = new GridLayoutTab(MinecraftClientComponents.resolve(spec.label()));
-                idsByTab.put(tab, spec.id());
+                ExtractionTab tab = ExtractionGuiApi.createTab(MinecraftClientComponents.resolve(spec.label()));
+                idsByTab.put(tab.tab(), spec.id());
                 tabs.add(tab);
                 if (spec.selected()) {
                     selectedIndex = index;
@@ -531,7 +527,8 @@ public final class NclSkinsScreen extends Screen {
                 bar.setTabActiveState(index, group.tabs().get(index).enabled());
             }
 
-            NativeTabGroup nativeGroup = new NativeTabGroup(manager, bar, List.copyOf(tabs));
+            NativeTabGroup nativeGroup = new NativeTabGroup(
+                    manager, bar, tabs.stream().map(ExtractionTab::tab).toList());
             nativeTabGroups.put(group.id(), nativeGroup);
             addNclTabBar(bar);
             selectNativeTab(nativeGroup, selectedIndex);
@@ -545,7 +542,7 @@ public final class NclSkinsScreen extends Screen {
                 continue;
             }
             widget.active = spec.enabled();
-            widget.visible = spec.visible() || ownsDecoration(view, spec.id());
+            GuiExtraction.setVisible(widget, spec.visible() || ownsDecoration(view, spec.id()));
             Bounds bounds = spec.bounds();
             widget.setRectangle(bounds.width(), bounds.height(), bounds.x(), bounds.y());
             if (widget instanceof IconButtonWidget iconButton) {
@@ -639,7 +636,7 @@ public final class NclSkinsScreen extends Screen {
 
     private boolean focusWidget(String widgetId) {
         AbstractWidget target = nativeWidgets.get(widgetId);
-        if (target != null && target.visible && target.active) {
+        if (target != null && GuiExtraction.isVisible(target) && target.active) {
             setFocused(target);
             return true;
         }
@@ -656,11 +653,10 @@ public final class NclSkinsScreen extends Screen {
     }
 
     @Override
-    public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+    protected void prepareBackground(int mouseX, int mouseY) {
         if (!runtime.closed()) {
             currentView = runtime.view(width, height, mouseX, mouseY);
         }
-        super.extractBackground(graphics, mouseX, mouseY, partialTick);
     }
 
     @Override
@@ -674,7 +670,7 @@ public final class NclSkinsScreen extends Screen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+    protected void extractFrame(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 
         if (runtime.closed()) {
             return;
@@ -682,8 +678,8 @@ public final class NclSkinsScreen extends Screen {
         lastMouseX = mouseX;
         lastMouseY = mouseY;
         ViewSpec initialView = runtime.view(width, height, mouseX, mouseY);
-        scrollController.synchronize(ViewHostPolicy.nativeScrollSurface(initialView,scrollController.surfaceId()));
-        scrollController.extractRenderState(graphics, mouseX, mouseY, partialTick);
+        scrollController.synchronize(ViewHostPolicy.nativeScrollSurface(initialView, scrollController.surfaceId()));
+        GuiExtraction.extract(scrollController, graphics, mouseX, mouseY, partialTick, true);
         if (ExtractionInputAdapter.focusBeforeScrollPublication()) {
             applyFocusRequest(initialView);
         }
@@ -845,10 +841,10 @@ public final class NclSkinsScreen extends Screen {
                             CapeGuiFoilMaterial.draw(graphics, location, b.x(), b.y(), b.width(), b.height(),
                                     u, v, sw, sh, w, h);
                         } else {
-                            graphics.blit(RenderPipelines.GUI_TEXTURED, location, b.x(), b.y(), u, v,
+                            GuiExtraction.blit(graphics, location, b.x(), b.y(), u, v,
                                     b.width(), b.height(), sw, sh, w, h, -1);
                         }
-                        if (texture.skin() && texture.overlay()) graphics.blit(RenderPipelines.GUI_TEXTURED, location, b.x(), b.y(), w * 40 / 64.0F, v, b.width(), b.height(), sw, sh, w, h, -1);
+                        if (texture.skin() && texture.overlay()) GuiExtraction.blit(graphics, location, b.x(), b.y(), w * 40 / 64.0F, v, b.width(), b.height(), sw, sh, w, h, -1);
                         renderProviderArrows(graphics, view, decoration, mouseX, mouseY);
                     });
                     continue;
@@ -874,8 +870,7 @@ public final class NclSkinsScreen extends Screen {
             Bounds bounds = decoration.bounds();
             int textureWidth = decoration.icon().baseCanvas();
             int textureHeight = decoration.icon().canvasHeight();
-            drawClipped(graphics, view, decoration.id(), () -> graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
+            drawClipped(graphics, view, decoration.id(), () -> GuiExtraction.blit(graphics,
                     iconTexture(decoration.icon()),
                     bounds.x(),
                     bounds.y(),
@@ -911,7 +906,7 @@ public final class NclSkinsScreen extends Screen {
             boolean highlighted = button.orElseThrow().bounds().contains(mouseX, mouseY)
                     || (keyboardNavigation && Optional.ofNullable(nativeWidgets.get(id)).map(AbstractWidget::isFocused).orElse(false));
             String sprite = "transferable_list/" + (action.equals("remove") ? "unselect" : "move_" + action) + (highlighted ? "_highlighted" : "");
-            graphics.blitSprite(RenderPipelines.GUI_TEXTURED, Identifier.withDefaultNamespace(sprite), b.x(), b.y(), 32, 32);
+            GuiExtraction.blitSprite(graphics, Identifier.withDefaultNamespace(sprite), b.x(), b.y(), 32, 32);
         }
     }
 
@@ -973,21 +968,15 @@ public final class NclSkinsScreen extends Screen {
         for (Renderable renderable : orderedRenderables) {
             String widgetId = nativeIds.get(renderable);
             if (widgetId == null) {
-                renderable.extractRenderState(graphics, mouseX, mouseY, partialTick);
+                GuiExtraction.extract(renderable, graphics, mouseX, mouseY, partialTick, true);
                 continue;
             }
             boolean receivesPointer = pointerOwner.map(widgetId::equals).orElse(true)
                     || ViewHostPolicy.compositeCardHovered(
                             view, widgetId, mouseX, mouseY);
             boolean pointerInsideClip = pointerInsideClip(view, widgetId, mouseX, mouseY);
-            int widgetMouseX = receivesPointer && pointerInsideClip
-                    ? mouseX
-                    : OFFSCREEN_MOUSE_COORDINATE;
-            int widgetMouseY = receivesPointer && pointerInsideClip
-                    ? mouseY
-                    : OFFSCREEN_MOUSE_COORDINATE;
-            drawClipped(graphics, view, widgetId, () -> renderable.extractRenderState(
-                    graphics, widgetMouseX, widgetMouseY, partialTick));
+            drawClipped(graphics, view, widgetId, () -> GuiExtraction.extract(
+                    renderable, graphics, mouseX, mouseY, partialTick, receivesPointer && pointerInsideClip));
         }
     }
 
@@ -1170,7 +1159,7 @@ public final class NclSkinsScreen extends Screen {
         long now = System.nanoTime();
         if (!com.naocraftlab.skins.client.PreviewLoading.delayed(started, now)) return;
         var frame = com.naocraftlab.skins.client.PreviewLoading.frame(now, bounds.x(), bounds.y(), bounds.width(), bounds.height(), size);
-        graphics.blit(RenderPipelines.GUI_TEXTURED, Identifier.parse(frame.resource()), frame.left(), frame.top(),
+        GuiExtraction.blit(graphics, Identifier.parse(frame.resource()), frame.left(), frame.top(),
                 (float) frame.u(), (float) frame.v(), frame.size(), frame.size(), frame.width(), frame.height(),
                 frame.textureWidth(), frame.textureHeight(), -1);
     }
@@ -1211,15 +1200,13 @@ public final class NclSkinsScreen extends Screen {
         ViewHostPolicy.scrollbars(view).forEach(scrollbar -> {
             Bounds track = scrollbar.track();
             Bounds thumb = scrollbar.thumb();
-            graphics.blitSprite(
-                    RenderPipelines.GUI_TEXTURED,
+            GuiExtraction.blitSprite(graphics,
                     SCROLLER_BACKGROUND_SPRITE,
                     track.x(),
                     track.y(),
                     track.width(),
                     track.height());
-            graphics.blitSprite(
-                    RenderPipelines.GUI_TEXTURED,
+            GuiExtraction.blitSprite(graphics,
                     SCROLLER_SPRITE,
                     thumb.x(),
                     thumb.y(),
@@ -1429,7 +1416,7 @@ public final class NclSkinsScreen extends Screen {
             CapeGuiFoilMaterial.draw(graphics, location, b.x(), b.y(), b.width(), b.height(),
                     crop.u(), crop.v(), crop.width(), crop.height(), texture.width(), texture.height());
         } else {
-            graphics.blit(RenderPipelines.GUI_TEXTURED, location, b.x(), b.y(), crop.u(), crop.v(),
+            GuiExtraction.blit(graphics, location, b.x(), b.y(), crop.u(), crop.v(),
                     b.width(), b.height(), crop.width(), crop.height(), texture.width(), texture.height(), -1);
         }
     }
@@ -2042,7 +2029,7 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private final class IconButtonWidget extends AbstractButton {
+    private final class IconButtonWidget extends GuiExtraction.ButtonHost {
         private final String widgetId;
         private WidgetIcon icon;
         private final boolean iconOnly;
@@ -2081,8 +2068,7 @@ public final class NclSkinsScreen extends Screen {
         }
 
         @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawContents(GuiGraphicsExtractor graphics) {
             if (tab) {
                 Identifier sprite = selected
                         ? (VerticalTabStyle.highlighted(isHovered, isFocused(), keyboardNavigation) ? TAB_SELECTED_HIGHLIGHTED : TAB_SELECTED)
@@ -2098,8 +2084,7 @@ public final class NclSkinsScreen extends Screen {
                 try {
                     graphics.pose().translate(getX(), getY() + getHeight());
                     graphics.pose().rotate((float) (-Math.PI / 2.0));
-                    graphics.blitSprite(
-                            RenderPipelines.GUI_TEXTURED,
+                    GuiExtraction.blitSprite(graphics,
                             sprite,
                             0,
                             0,
@@ -2139,7 +2124,7 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private final class PassiveIndicatorWidget extends AbstractButton {
+    private final class PassiveIndicatorWidget extends GuiExtraction.ButtonHost {
         private WidgetIcon icon;
         private Optional<Component> narrationDescription;
 
@@ -2164,8 +2149,7 @@ public final class NclSkinsScreen extends Screen {
         }
 
         @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawContents(GuiGraphicsExtractor graphics) {
             extractActionIcon(graphics, getX(), getY(), getWidth(), getHeight(), icon,
                     Math.round(ViewHostPolicy.passiveIndicatorOpacity(icon,
                             isHovered || (keyboardNavigation && isFocused())) * 255.0F) << 24
@@ -2202,8 +2186,7 @@ public final class NclSkinsScreen extends Screen {
             WidgetIcon icon,
             int color) {
         if (icon instanceof NativeGuiIcon nativeIcon) {
-            graphics.blitSprite(
-                    RenderPipelines.GUI_TEXTURED,
+            GuiExtraction.blitSprite(graphics,
                     Identifier.withDefaultNamespace(
                             "pending_invite/" + (nativeIcon == NativeGuiIcon.ACCEPT ? "accept" : "reject")),
                     x + (width - 18) / 2,
@@ -2214,8 +2197,7 @@ public final class NclSkinsScreen extends Screen {
         }
         GuiIcon guiIcon = (GuiIcon) icon;
         int size = guiIcon.baseCanvas();
-        graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
+        GuiExtraction.blit(graphics,
                 iconTexture(guiIcon),
                 x + (width - size) / 2,
                 y + (height - size) / 2,
@@ -2228,7 +2210,7 @@ public final class NclSkinsScreen extends Screen {
                 color);
     }
 
-    private static final class TransparentButtonWidget extends AbstractButton {
+    private static final class TransparentButtonWidget extends GuiExtraction.ButtonHost {
         private final Consumer<InputWithModifiers> onPress;
 
         private TransparentButtonWidget(
@@ -2243,8 +2225,7 @@ public final class NclSkinsScreen extends Screen {
         }
 
         @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawContents(GuiGraphicsExtractor graphics) {
 
         }
 
@@ -2254,7 +2235,7 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private static final class CatalogCardWidget extends AbstractButton {
+    private static final class CatalogCardWidget extends GuiExtraction.ButtonHost {
         private final Runnable onPress;
 
         private CatalogCardWidget(Bounds bounds, Component message, Runnable onPress) {
@@ -2268,8 +2249,7 @@ public final class NclSkinsScreen extends Screen {
         }
 
         @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawContents(GuiGraphicsExtractor graphics) {
             if (keyboardNavigationActive() && isFocused()) {
                 extractCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
@@ -2281,7 +2261,7 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private static final class CapeCardWidget extends AbstractButton {
+    private static final class CapeCardWidget extends GuiExtraction.ButtonHost {
         private final String widgetId;
         private final Runnable onPress;
         private final boolean selectedBackgroundBehindPreview;
@@ -2310,8 +2290,7 @@ public final class NclSkinsScreen extends Screen {
         }
 
         @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawContents(GuiGraphicsExtractor graphics) {
             if (keyboardNavigationActive() && isFocused() && !widgetId.startsWith("providers.row.")) {
                 extractCardFocusFrame(graphics, getX(), getY(), getWidth(), getHeight());
             }
@@ -2343,7 +2322,7 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private static final class InfoButtonWidget extends AbstractButton {
+    private static final class InfoButtonWidget extends GuiExtraction.ButtonHost {
         private final Font font;
         private final Runnable onPress;
 
@@ -2359,8 +2338,7 @@ public final class NclSkinsScreen extends Screen {
         }
 
         @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawContents(GuiGraphicsExtractor graphics) {
             graphics.centeredText(
                     font,
                     Component.literal("i"),
@@ -2375,7 +2353,7 @@ public final class NclSkinsScreen extends Screen {
         }
     }
 
-    private static final class CollectionHeaderWidget extends AbstractButton {
+    private static final class CollectionHeaderWidget extends GuiExtraction.ButtonHost {
         private final Font font;
         private final Runnable onPress;
         private boolean trailingInfo;
@@ -2402,8 +2380,7 @@ public final class NclSkinsScreen extends Screen {
         }
 
         @Override
-        protected void extractContents(
-                GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+        protected void drawContents(GuiGraphicsExtractor graphics) {
             Bounds bounds = new Bounds(getX(), getY(), getWidth(), getHeight());
             CollectionHeaderStyle.Palette palette =
                     CollectionHeaderStyle.palette(active, isHoveredOrFocused());

@@ -167,7 +167,10 @@ abstract class PlanReleaseTask extends DefaultTask {
         String curseKey = local ? null : platforms.requireSecret('CURSEFORGE_API_KEY')
         String curseUploadToken = local ? null : platforms.requireSecret('CURSEFORGE_UPLOAD_TOKEN')
         Map existing = local ? null : github.findRelease(github.apiBase(), repositoryName, version, githubToken)
-        if (pluginOnly && !local && existing == null) throw new IllegalStateException('Plugin-only requires an existing GitHub Release')
+        if (!local && existing == null) {
+            if (pluginOnly) throw new IllegalStateException('Plugin-only requires an existing GitHub Release')
+            if (commit != tagCommit) throw new IllegalStateException('New mod release requires the exact tag checkout')
+        }
         File output = outputDirectory.get().asFile
         if (output.exists() && !output.deleteDir()) throw new IllegalStateException('Cannot reset release plan output')
         Files.createDirectories(new File(output, 'assets').toPath())
@@ -208,17 +211,15 @@ abstract class PlanReleaseTask extends DefaultTask {
         Set<String> matchedGithubNames = githubByComponent.values().findAll { it != null }
                 .collect { it.name.toString() } as Set<String>
         if (replacement != null) matchedGithubNames.add(replacement.file.toString())
-        if ((pluginOnly ? githubAssets.findAll { it.name.toString().startsWith('nclskins-plugin-') }.size() : githubAssets.size()) != matchedGithubNames.size() ||
+        List<Map> historicalMods = pluginOnly ? githubAssets.findAll { ReleasePlan.historicalModAsset(it.name, version) } : []
+        matchedGithubNames.addAll(historicalMods.collect { it.name.toString() })
+        if (matchedGithubNames.size() != githubAssets.size() ||
                 githubAssets.collect { it.name }.toSet().size() != githubAssets.size()) {
             throw new IllegalStateException('Unknown or duplicate existing GitHub asset')
         }
-        List<Map> preservedGithub = []
-        if (pluginOnly) {
-            githubAssets.findAll { !it.name.toString().startsWith('nclskins-plugin-') }.each { Map asset ->
-                Set<String> allowed = CatalogTools.releaseTargets(catalog).collect { AssembleReleaseTask.artifactName(it, version) } as Set<String>
-                if (!allowed.contains(asset.name.toString())) throw new IllegalStateException('Unknown historical mod asset')
-                preservedGithub.add([file: asset.name, id: asset.id, sha256: github.remoteSha256(github.apiBase(), repositoryName, asset, githubToken)])
-            }
+        List<Map> preservedGithub = historicalMods.collect { Map asset ->
+            [file: asset.name, id: asset.id,
+             sha256: github.remoteSha256(github.apiBase(), repositoryName, asset, githubToken)]
         }
         components.each { Map component ->
             Map remote = [modrinth: inventories.modrinth[component.id], curseforge: inventories.curseforge[component.id]]

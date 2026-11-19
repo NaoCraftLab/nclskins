@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Exact release version to create or extend
+        description: Exact mod version or full plugin build version (for example 1.2.0.2)
         required: true
         type: string
       resume_run:

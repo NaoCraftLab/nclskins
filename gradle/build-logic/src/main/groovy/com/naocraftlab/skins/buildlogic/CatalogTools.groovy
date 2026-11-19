@@ -25,7 +25,8 @@ final class CatalogTools {
         'sourceLayout', 'capabilities', 'metadata', 'artifact', 'epochProfile',
         'loaderProfile', 'integrationProfile', 'buildProfile', 'releaseEligible'
     ] as Set
-    static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility'] as Set
+    static final Set<String> TARGET_KEYS = REQUIRED_TARGET_KEYS + ['compatibility', 'compileOnlyOptionalReferences'] as Set
+    private static final Set<String> COMPILE_REFERENCE_MODS = ['fancymenu', 'waveycapes'] as Set
     static final Set<String> MOD_KEYS = [
             'id', 'name', 'group', 'license', 'localization', 'descriptions', 'contact', 'links', 'platforms',
             'authors', 'icon', 'iconBlur'
@@ -125,8 +126,68 @@ final class CatalogTools {
 
     static List<Map> releaseTargets(Map catalog) {
         (catalog.targets as List<Map>).findAll { Map target ->
-            target.releaseEligible == true
+            target.releaseEligible == true && !target.containsKey('compileOnlyOptionalReferences') &&
+                    !(catalog.optionalDependencies?.cpm?.compileOnlyArtifacts?.containsKey(target.id))
         }
+    }
+
+    static Map cpmArtifact(Map catalog, Map target, boolean runtime) {
+        Map cpm = catalog.optionalDependencies.cpm
+        String id = target.id.toString()
+        Map reference = cpm.compileOnlyArtifacts?.get(id) as Map
+        Map exact = cpm.artifacts[id] as Map
+        if (reference != null) {
+            if (cpm.artifacts.containsKey(id) || cpm.versions.containsKey(id)) {
+                throw new IllegalArgumentException("${id}: CPM compile-only and runtime pins overlap")
+            }
+            if (id != 'fabric-26.4' || target.releaseEligible != false || target.loader.id != 'fabric' ||
+                    minecraftExperimentalRuntimeVersion(target.minecraft.version.toString(), minecraftCompileVersion(target)) == null) {
+                throw new IllegalArgumentException("${id}: CPM compile-only pin requires the experimental Fabric target")
+            }
+            if (!reference.versionId) throw new IllegalArgumentException("${id}: missing CPM compile-only pin")
+            return runtime ? null : reference
+        }
+        if (!exact?.versionId || exact.versionId != cpm.versions[id]) {
+            throw new IllegalArgumentException("${id}: missing or inconsistent CPM pin")
+        }
+        exact
+    }
+
+    static String optionalCompileTargetId(Map catalog, Map target, String dependency) {
+        if (!target.containsKey('compileOnlyOptionalReferences')) return target.id.toString()
+        Map references = validateOptionalCompileReferences(catalog, target)
+        (references[dependency] ?: target.id).toString()
+    }
+
+    private static Map validateOptionalCompileReferences(Map catalog, Map target) {
+        if (!target.containsKey('compileOnlyOptionalReferences')) return [:]
+        Object raw = target.compileOnlyOptionalReferences
+        if (!(raw instanceof Map) || !raw || !COMPILE_REFERENCE_MODS.containsAll(raw.keySet())
+                || target.id != 'fabric-26.4' || target.releaseEligible != false || target.loader?.id != 'fabric'
+                || minecraftExperimentalRuntimeVersion(target.minecraft?.version?.toString() ?: '',
+                        target.minecraft?.compileVersion?.toString() ?: '') == null) {
+            throw new IllegalArgumentException("${target.id}: optional compile references require an experimental Fabric target and recognized mods")
+        }
+        Map optional = catalog.optionalDependencies as Map
+        raw.each { String dependency, Object donorId ->
+            if (!(donorId instanceof String) || donorId != 'fabric-26.3') {
+                throw new IllegalArgumentException("${target.id}: invalid ${dependency} compile reference donor")
+            }
+            Map donor = selectTarget(catalog, donorId.toString())
+            Map pins = dependency == 'fancymenu' ? optional.fancymenu?.versions as Map
+                    : optional.waveycapes?.artifacts as Map
+            if (donor.loader?.id != target.loader.id || donor.releaseEligible != true
+                    || donor.containsKey('compileOnlyOptionalReferences') || !pins?.get(donorId)
+                    || pins.containsKey(target.id)) {
+                throw new IllegalArgumentException("${target.id}: ambiguous or incompatible ${dependency} compile reference donor")
+            }
+            if (dependency == 'fancymenu' &&
+                    (optional.fancymenu?.runtimeArtifacts?.get(target.id) != [] ||
+                    !optional.fancymenu?.runtimeUnavailableTargets?.contains(target.id))) {
+                throw new IllegalArgumentException("${target.id}: FancyMenu compile reference cannot have runtime artifacts")
+            }
+        }
+        raw as Map
     }
 
     static Map withCapabilityProbe(Map catalog, Map target, String rawOverride) {
@@ -466,6 +527,7 @@ final class CatalogTools {
 
     static String optionalDependencyPredicate(Map catalog, Map target, String dependencyId) {
         Map declaration = (catalog.optionalDependencies as Map)[dependencyId] as Map
+        if (dependencyId == 'cpm' && cpmArtifact(catalog, target, true) == null) return null
         if (declaration.predicates instanceof Map) {
             Object raw = (declaration.predicates as Map)[target.loader.id]
             return raw == null ? null : raw.toString()

@@ -83,6 +83,6 @@ abstract class AssemblePlannedReleaseTask extends DefaultTask {
         Files.writeString(new File(output, 'release-manifest.json').toPath(), CatalogTools.json(manifest))
         Files.copy(planFile.get().asFile.toPath(), new File(output, 'release-plan.json').toPath(), StandardCopyOption.REPLACE_EXISTING)
         PublicationSupport.loadManifest(output)
-        logger.lifecycle("Assembled ${plan.version}: built ${plan.buildTargetIds}, plugin build=${plan.buildPlugin}, preserved ${manifest.preservedTargetIds}")
+        logger.lifecycle("Assembled ${plan.requestedVersion}: built ${plan.buildTargetIds}, plugin build=${plan.buildPlugin}, preserved ${manifest.preservedTargetIds}")
     }
 }

@@ -29,7 +29,10 @@ final class ReleasePlan {
                 plan.buildTargetIds != plan.components.findAll { it.build && it.id != 'server-plugin' }.collect { it.id } ||
                 plan.buildPlugin != plan.components.any { it.build && it.id == 'server-plugin' } ||
                 plan.components.collect { it.id }.toSet().size() != plan.components.size() ||
-                (plan.componentKind == 'plugin-only' && (plan.components*.id != ['server-plugin'] || plan.release.notes != null))) {
+                state.reason != plan.componentKind || state.publish != (plan.componentKind != 'mod-only') ||
+                (plan.componentKind == 'plugin-only' && (plan.components*.id != ['server-plugin'] ||
+                    plan.components.first().versionNumber != plan.requestedVersion || plan.release.notes != null ||
+                    (plan.mode != 'local' && (plan.mode != 'backfill' || plan.existingRelease?.id == null))))) {
             throw new IllegalStateException('Invalid release plan component selection')
         }
         plan.digest = digest
@@ -68,6 +71,11 @@ final class ReleasePlan {
                         }) {
             throw new IllegalStateException('Release plan belongs to another source commit or version')
         }
+    }
+
+    static boolean historicalModAsset(Object file, String tag) {
+        file instanceof String && PublicationSupport.safeFileName(file) &&
+                file ==~ /nclskins-${java.util.regex.Pattern.quote(tag)}\+[0-9A-Za-z.]+-(fabric|forge|neoforge)\.jar/
     }
 
     static void requireSourceBranch(String branch, String version) {

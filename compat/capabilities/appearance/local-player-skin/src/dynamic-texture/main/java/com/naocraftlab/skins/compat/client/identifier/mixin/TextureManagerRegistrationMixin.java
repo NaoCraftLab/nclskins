@@ -2,6 +2,8 @@ package com.naocraftlab.skins.compat.client.identifier.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.mojang.blaze3d.platform.NativeImage;
+import com.naocraftlab.skins.client.NativePlayerSkinLifecycle;
 import com.naocraftlab.skins.client.NativeTextureRegistration;
 import com.naocraftlab.skins.compat.client.identifier.RegisteredTextureAccess;
 import com.naocraftlab.skins.compat.client.identifier.SneakyUnmodifiedSkinPixels;
@@ -27,26 +29,32 @@ abstract class TextureManagerRegistrationMixin implements RegisteredTextureAcces
 
     @WrapMethod(method = "register(Lnet/minecraft/resources/Identifier;Lnet/minecraft/client/renderer/texture/AbstractTexture;)V",
             require = 1, expect = 1, allow = 1)
-    private void nclskins$registerOwned(Identifier location, AbstractTexture texture, Operation<Void> original) {
+    private void nclskins$publishRegisteredSkin(Identifier location, AbstractTexture texture, Operation<Void> original) {
         NativeTextureRegistration owner = texture instanceof DynamicTexture dynamic
                 ? NativeTextureRegistration.forImage(dynamic.getPixels()) : null;
         if (owner == null) {
             original.call(location, texture);
-            nclskins$publishSkinPixels(location, texture);
-            return;
+        } else {
+            owner.acquire(() -> original.call(location, texture), () -> {
+                if (nclskins$isRegistered(location, texture)) ((TextureManager) (Object) this).release(location);
+            }, texture::close);
+            if (!owner.isCurrent()) return;
         }
-        owner.acquire(() -> original.call(location, texture), () -> {
-            if (nclskins$isRegistered(location, texture)) ((TextureManager) (Object) this).release(location);
-        }, texture::close);
-        if (owner.isCurrent()) nclskins$publishSkinPixels(location, texture);
+        nclskins$publishSkinPixels(location, texture);
     }
 
     @Unique
     private void nclskins$publishSkinPixels(Identifier location, AbstractTexture texture) {
-        if (!nclskins$isRegistered(location, texture) || !(texture instanceof DynamicTexture dynamic)
-                || dynamic.getPixels() == null) return;
-        int[] argb = ((SneakyUnmodifiedSkinPixels) (Object) dynamic.getPixels())
-                .nclskins$takeUnmodifiedSkinPixels();
-        if (argb != null) CapeProjection.skinTextureReady(location.toString(), argb, texture);
+        if (!(texture instanceof DynamicTexture dynamic) || !nclskins$isRegistered(location, texture)) return;
+        NativeImage image = dynamic.getPixels();
+        if (image == null) return;
+        int[] argb = ((SneakyUnmodifiedSkinPixels) (Object) image).nclskins$takeUnmodifiedSkinPixels();
+        if (argb == null) return;
+        String path = location.toString();
+        if (location.getNamespace().equals("nclskins")) {
+            var state = NativePlayerSkinLifecycle.managedState(path).orElse(NativePlayerSkinLifecycle.State.RETIRED);
+            if (state != NativePlayerSkinLifecycle.State.PENDING && state != NativePlayerSkinLifecycle.State.READY) return;
+        }
+        CapeProjection.skinTextureReady(path, argb, texture);
     }
 }

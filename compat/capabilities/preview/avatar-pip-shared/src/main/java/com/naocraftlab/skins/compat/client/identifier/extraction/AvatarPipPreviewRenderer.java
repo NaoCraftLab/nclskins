@@ -172,7 +172,7 @@ final class AvatarPipPreviewRenderer
         if (!session.imageSpinner()) return;
         var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) session.imageFrame() * 100_000_000L,
                 request.left(), request.top(), request.width(), request.height(), 32);
-        graphics.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, Identifier.parse(frame.resource()),
+        GuiExtraction.blit(graphics, Identifier.parse(frame.resource()),
                 frame.left(), frame.top(), (float) frame.u(), (float) frame.v(), frame.size(), frame.size(),
                 frame.width(), frame.height(), frame.textureWidth(), frame.textureHeight(), -1);
     }
@@ -250,7 +250,7 @@ final class AvatarPipPreviewRenderer
         if (imageSession.imageSpinner()) {
             var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) imageSession.imageFrame() * 100_000_000L,
                     request.left(), request.top(), request.width(), request.height(), 32);
-            graphics.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, Identifier.parse(frame.resource()),
+            GuiExtraction.blit(graphics, Identifier.parse(frame.resource()),
                     frame.left(), frame.top(), (float) frame.u(), (float) frame.v(), frame.size(), frame.size(),
                     frame.width(), frame.height(), frame.textureWidth(), frame.textureHeight(), -1);
         }

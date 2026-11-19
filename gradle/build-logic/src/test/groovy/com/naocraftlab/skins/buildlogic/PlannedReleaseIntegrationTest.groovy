@@ -92,6 +92,49 @@ final class PlannedReleaseIntegrationTest {
         } finally { fixture.deleteDir() }
     }
 
+    @Test
+    void newModTagAfterStandalonePluginRequiresExactTagButNoPluginNotesOrBuild() {
+        File fixture = Files.createTempDirectory('mod-after-standalone-plugin-').toFile()
+        try {
+            File source = fixtureRepository(new File(fixture, 'source'), true, false)
+            File pluginVersion = new File(source, 'gradle/plugin-version.properties')
+            pluginVersion.text = 'pluginVersion=1.0.0\npluginBuild=2\n'
+            assertTrue(new File(source, 'PLUGIN_CHANGELOG.md').delete())
+            ReleaseSelection.git(source, ['add', '-A'])
+            new File(source, 'fixture-history.txt').text = 'Next candidate\n'
+            commitFixture(source, 'Continue mod development after plugin fix')
+            String version = CatalogTools.loadVersion(source)
+            String oldTag = ReleaseSelection.git(source, ['rev-parse', "refs/tags/${version}^{commit}"]).trim()
+            def project = ProjectBuilder.builder().withProjectDir(fixture).build()
+            FixturePlatforms platforms = project.tasks.create('preflightReleasePlatforms', FixturePlatforms)
+            platforms.fresh = true
+            FixtureGithub github = project.tasks.create('preflightGithubRelease', FixtureGithub)
+            github.platform = platforms
+            github.commit = oldTag
+            PlanReleaseTask planner = project.tasks.create('planFixture', PlanReleaseTask)
+            planner.workflowAdmission.set(false)
+            planner.repositoryDirectory.set(source)
+            planner.releaseTag.set(version)
+            File output = new File(fixture, 'plan')
+            planner.outputDirectory.set(output)
+            assertEquals('New mod release requires the exact tag checkout',
+                    assertThrows(IllegalStateException) { planner.planRelease() }.message)
+            assertEquals(0, platforms.fetchAllCalls)
+            assertFalse(output.exists())
+
+            ReleaseSelection.git(source, ['tag', '-f', version])
+            github.commit = ReleaseSelection.git(source, ['rev-parse', 'HEAD']).trim()
+            planner.planRelease()
+            Map plan = ReleasePlan.load(new File(output, 'release-plan.json'))
+            assertEquals('mod-only', plan.componentKind)
+            assertFalse(plan.buildPlugin)
+            assertEquals('1.0.0', plan.serverState.activeVersion)
+            assertEquals(CatalogTools.releaseTargets(CatalogTools.loadCatalog(source))*.id, plan.buildTargetIds)
+            assertEquals(plan.buildTargetIds, platforms.components*.id)
+            assertFalse(plan.buildTargetIds.contains('fabric-26.4'))
+        } finally { fixture.deleteDir() }
+    }
+
     private void verifyPlan(boolean replacePlugin, boolean fresh = false, boolean ancestor = false,
                             String wrong = null, boolean recoveredOld = false, boolean localNoTag = false,
                             boolean driftAfterFreeze = false, boolean productionNoTag = false) {

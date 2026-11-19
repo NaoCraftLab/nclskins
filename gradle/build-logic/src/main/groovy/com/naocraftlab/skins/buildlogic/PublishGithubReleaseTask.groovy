@@ -114,8 +114,8 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
                     'POST', "${api}/repos/${repository}/releases", headers(token),
                     JsonOutput.toJson(metadata).getBytes(StandardCharsets.UTF_8),
                     'application/json', [201] as Set<Integer>, token)) as Map
-        } else if (manifest.existingRelease == null ||
-                release.body != metadata.body) {
+        } else if (manifest.componentKind != 'plugin-only' &&
+                (manifest.existingRelease == null || release.body != metadata.body)) {
             Map update = manifest.existingRelease == null ? new LinkedHashMap(metadata) : [body: metadata.body]
             update.remove('tag_name')
             release = json(request(
@@ -137,6 +137,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
 
         if (manifest.pluginReplacement != null) {
             Map afterUpload = findRelease(api, repository, manifest.version.toString(), token)
+            requireHistoricalRelease(manifest, afterUpload)
             Map cleanup = GithubReleaseSupport.plan(manifest, afterUpload.assets as List<Map>,
                     { Map asset -> remoteSha256(api, repository, asset, token) })
             requireNoConflicts(cleanup)
@@ -152,6 +153,7 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
 
         Map finalRelease = findRelease(api, repository, manifest.version.toString(), token)
         if (finalRelease == null) throw new IllegalStateException('GitHub Release disappeared after publication')
+        requireHistoricalRelease(manifest, finalRelease)
         Map finalPlan = GithubReleaseSupport.plan(
                 manifest, finalRelease.assets as List<Map>,
                 { Map asset -> remoteSha256(api, repository, asset, token) })
@@ -163,10 +165,17 @@ abstract class PublishGithubReleaseTask extends DefaultTask {
         appendSummary(manifest, finalPlan)
     }
 
+    static void requireHistoricalRelease(Map manifest, Map release) {
+        if (manifest.componentKind == 'plugin-only' &&
+                (release?.id != manifest.existingRelease.id || release?.body != manifest.existingRelease.body)) {
+            throw new IllegalStateException('Historical GitHub Release changed since planning')
+        }
+    }
+
     static String releaseBody(Map manifest) {
         if (manifest.existingRelease != null) {
+            if (manifest.componentKind == 'plugin-only') return manifest.existingRelease.body as String
             String existing = (manifest.existingRelease.body ?: '').toString()
-            if (manifest.componentKind == 'plugin-only') return existing
             boolean existingPlugin = manifest.pluginReplacement != null ||
                     (manifest.preservedGithub ?: []).any { it.file.toString().startsWith('nclskins-plugin-') }
             if (existingPlugin || manifest.serverPlugin?.publish != true) return existing
