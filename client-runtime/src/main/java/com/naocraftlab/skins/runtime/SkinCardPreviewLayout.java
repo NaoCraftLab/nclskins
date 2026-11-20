@@ -6,14 +6,8 @@ final class SkinCardPreviewLayout {
     private SkinCardPreviewLayout() {
     }
 
-    static Bounds preview(Bounds card, boolean personal) {
-        return personal
-                ? CatalogCardGeometry.previewWithActions(card)
-                : CatalogCardGeometry.preview(card);
-    }
-
     static Bounds modelIcon(Bounds card) {
-        Bounds slot = preview(card, false);
+        Bounds slot = CatalogCardGeometry.preview(card);
         int width = Math.max(1, Math.min(slot.width(),
                 Math.round(CenteredPlayerPreviewGeometry.fittedScale(slot.height(), 1.0F))));
         int height = width * 2;

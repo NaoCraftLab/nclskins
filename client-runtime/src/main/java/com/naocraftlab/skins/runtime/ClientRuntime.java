@@ -485,7 +485,9 @@ public final class ClientRuntime implements AutoCloseable {
         public void catalogCollectionDisclosureChanged(String id, boolean collapsed) { state.uiPreferences = state.uiPreferences.withCollectionCollapsed(id, collapsed); }
         public void catalogDisclosureChanged(Set<String> collapsed) { if (state.uiPreferences != null && collapsed != null) state.uiPreferences = state.uiPreferences.withCollapsedCollectionIds(collapsed); }
         public void externalImportCompleted(ImportOperations.ExternalImportResult result) { state.account = result.account(); galleryFlow.acceptExternalImport(); previewAssets.invalidateCatalogPreviews(); }
-        public void personalSkinRenamed(AccountState account) { state.account = account; }
+        public void submitPersonalSkinRename(String hash, String name, Consumer<Optional<String>> completion) {
+            ClientRuntime.this.submitPersonalSkinRename(hash, name, completion);
+        }
         public void personalSkinDeleted(AccountState account) { state.account = account; }
     });
     private final ProviderRefreshUseCases providerRefresh;
@@ -1489,13 +1491,8 @@ public final class ClientRuntime implements AutoCloseable {
                 cancelPersonalSkinDeletion(InteractionOrigin.PROGRAMMATIC);
                 return;
             }
-            if (editorFlow.editor() != null && editorFlow.editor().capeCatalog() != null && editorFlow.editor().capeCatalog().editing() != null) {
-                UUID entry = editorFlow.editor().capeCatalog().editing();
-                updateEditor(editor -> editor.withCapeCatalog(editor.capeCatalog().cancelEdit()));
-                requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
-                publish();
-                return;
-            }
+            if (catalogImportFlow.closePersonalCatalogMenu()) return;
+            if (editorFlow.cancelCapeCardMode(InteractionOrigin.KEYBOARD)) return;
             if (editorFlow.editor() != null) {
                 cancelEditor();
                 return;
@@ -1593,6 +1590,52 @@ public final class ClientRuntime implements AutoCloseable {
             if (!current) retired.set(true);
             return current;
         }));
+    }
+
+    private void submitPersonalSkinRename(String hash, String name, Consumer<Optional<String>> completion) {
+        var identity = importIdentity;
+        long accountEpoch = importAccountEpoch;
+        var before = state.account;
+        if (before == null || identity == null || !before.accountId().equals(identity.profileId())) {
+            completion.accept(Optional.empty());
+            return;
+        }
+        UUID accountId = before.accountId();
+        try {
+            CompletableFuture.supplyAsync(() -> {
+                try {
+                    if (disposed || accountEpoch != importAccountEpoch || !identity.equals(importIdentity)
+                            || !identity.equals(operations.sessionIdentity())) return null;
+                    return operations.renamePersonalSkin(accountId, hash, name);
+                } catch (Exception failure) {
+                    throw new CompletionException(failure);
+                }
+            }, worker).whenComplete((confirmed, failure) -> onClient(() -> {
+                observeImportIdentity();
+                if (disposed || accountEpoch != importAccountEpoch || !identity.equals(importIdentity)) return;
+                if (failure != null) diagnose(DiagnosticEvent.CLIENT_ASYNC_OPERATION_FAILED, failure);
+                completion.accept(mergePersonalSkinName(accountId, hash, confirmed));
+            }));
+        } catch (java.util.concurrent.RejectedExecutionException failure) {
+            diagnose(DiagnosticEvent.CLIENT_ASYNC_OPERATION_FAILED, failure);
+            completion.accept(Optional.empty());
+        }
+    }
+
+    private Optional<String> mergePersonalSkinName(UUID accountId, String hash, AccountState confirmed) {
+        var account = state.account;
+        if (confirmed == null || account == null || !accountId.equals(account.accountId())
+                || !accountId.equals(confirmed.accountId())) return Optional.empty();
+        var named = confirmed.personalSkins().stream().filter(entry -> entry.sha256().equals(hash)).findFirst().orElse(null);
+        if (named == null) return Optional.empty();
+        var entries = account.personalSkins().stream().map(entry -> entry.sha256().equals(hash)
+                && entry.addedAt().equals(named.addedAt()) && !entry.updatedAt().isAfter(named.updatedAt())
+                ? entry.renamed(named.displayName(), named.updatedAt()) : entry).toList();
+        state.account = new AccountState(account.schemaVersion(), accountId, account.skinAssets(), entries,
+                account.presets(), account.updatedAt().isAfter(confirmed.updatedAt()) ? account.updatedAt() : confirmed.updatedAt(),
+                account.personalCapes());
+        return entries.stream().filter(entry -> entry.sha256().equals(hash) && entry.visible())
+                .map(com.naocraftlab.skins.core.model.PersonalSkinEntry::displayName).findFirst();
     }
 
     private final java.util.Map<UUID, LibraryEditorPort.GalleryScope> pendingGalleryDeletes = new java.util.HashMap<>();
@@ -1938,8 +1981,7 @@ public final class ClientRuntime implements AutoCloseable {
             }
             if (catalogImportFlow.addSource() != null
                     && (catalogImportFlow.addSource().selectedTab() == AddSourceTab.CATALOG
-                        || catalogImportFlow.addSource().importContext().canCancelPending())
-                    && catalogImportFlow.addSource().personalSkinDeletion().isEmpty()) {
+                        || catalogImportFlow.addSource().importContext().canCancelPending())) {
                 double beforePosition = catalogImportFlow.addSourceScrollPosition();
                 double beforeTarget = catalogImportFlow.addSourceScrollTarget();
                 int beforeOffset = catalogImportFlow.addSource().scrollOffset();
@@ -2309,14 +2351,13 @@ public final class ClientRuntime implements AutoCloseable {
 
     public java.util.function.BooleanSupplier previewBodyLifetime(ViewSpec.Preview preview) {
         long account = importAccountEpoch, world = importWorldEpoch, resource = importResourceEpoch;
-        long generation = preview.bodySource().filter(s -> s.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent()
-                ? state.galleryScreenGeneration : state.generation;
         boolean providers = state.providersOpen || !state.providers.galleryAvailable();
         boolean gallery = galleryMainOpen();
+        long generation = previewScreenGeneration(gallery, providers);
         var identity = importIdentity;
         return () -> !disposed && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED
                 && account == importAccountEpoch && world == importWorldEpoch && resource == importResourceEpoch
-                && generation == (gallery ? state.galleryScreenGeneration : state.generation)
+                && generation == previewScreenGeneration(gallery, providers)
                 && providers == (state.providersOpen || !state.providers.galleryAvailable()) && gallery == galleryMainOpen()
                 && Objects.equals(identity, importIdentity);
     }
@@ -2332,11 +2373,18 @@ public final class ClientRuntime implements AutoCloseable {
                     + ":" + preview.capeHasElytra() + ":" + preview.nativeAccessories() + ":" + preview.capeMode()
                     + ":" + preview.variant() + ":" + preview.requiresLoadedSkin() + ":" + preview.ownedPng()
                     + ":" + preview.intent();
-        return (state.providersOpen || !state.providers.galleryAvailable() ? "providers:" : "editor:")
-                + state.generation + ":" + importAccountEpoch + ":" + importWorldEpoch + ":" + importResourceEpoch
+        boolean providers = state.providersOpen || !state.providers.galleryAvailable();
+        return (providers ? "providers:" : "editor:")
+                + previewScreenGeneration(false, providers) + ":" + importAccountEpoch + ":" + importWorldEpoch + ":" + importResourceEpoch
                 + ":" + importEditLifetime + ":" + preview.imageRevision() + ":" + preview.variant()
                 + ":" + preview.skin() + ":" + preview.capeId() + ":" + preview.capeMode()
                 + ":" + preview.outerLayerVisibility() + ":" + preview.nativeAccessories() + ":" + preview.capeHasElytra();
+    }
+
+    private long previewScreenGeneration(boolean gallery, boolean providers) {
+
+        if (gallery) return state.galleryScreenGeneration;
+        return providers ? state.generation : editorFlow.editorPreviewLifetime();
     }
 
     private ViewSpec.Preview bodyPreview;
@@ -2385,9 +2433,9 @@ public final class ClientRuntime implements AutoCloseable {
         bodyAccepted = Objects.requireNonNull(accepted);
         bodyRetired = Objects.requireNonNull(retired);
         bodySource = source;
-        bodyGeneration = galleryMainOpen() ? state.galleryScreenGeneration : state.generation;
         bodyProviders = state.providersOpen || !state.providers.galleryAvailable();
         bodyGallery = galleryMainOpen();
+        bodyGeneration = previewScreenGeneration(bodyGallery, bodyProviders);
         bodyLifetime = previewBodyLifetime(preview);
         try { bodyIdentity = operations.sessionIdentity(); }
         catch (RuntimeException unavailable) { bodyIdentity = null; }
@@ -2468,7 +2516,7 @@ public final class ClientRuntime implements AutoCloseable {
 
     private boolean bodyContextCurrent() {
         if (disposed || state.lifecycle == ClientSnapshot.Lifecycle.CLOSED || destinationLoading()
-                || bodyGeneration != (bodyGallery ? state.galleryScreenGeneration : state.generation) || bodyPreview == null
+                || bodyGeneration != previewScreenGeneration(bodyGallery, bodyProviders) || bodyPreview == null
                 || !Objects.equals(bodySource, previewBodySource(bodyPreview))
                 || bodyProviders != (state.providersOpen || !state.providers.galleryAvailable())
                 || bodyGallery != galleryMainOpen()
@@ -2552,17 +2600,20 @@ public final class ClientRuntime implements AutoCloseable {
                 || state.galleryScreenGeneration != galleryGeneration
                 || accessoryRegistration != null && accessoryRegistration != previousRegistration) return ignored -> {};
         boolean gallerySource = preview.bodySource().filter(s -> s.role() == ViewSpec.BodyRole.GALLERY_MAIN).isPresent();
-        String source = gallerySource ? galleryFlow.accessoryInput() : previewBodySource(preview);
+        boolean providers = state.providersOpen || !state.providers.galleryAvailable();
+        String source = previewAccessorySource(preview, gallerySource, providers);
         if (accessoryCapability == capability && Objects.equals(source, accessorySource) && accessoryPreviewCurrent()) return accessoryCallback;
         if (gallerySource ? !galleryMainOpen() || !galleryFlow.accessoryStillCurrent(preview)
                 : !previewObserverAdmitted(preview)) return ignored -> {};
+        boolean sameEditorInput = !gallerySource && !providers && !accessoryGallery && !accessoryProviders
+                && Objects.equals(source, accessorySource) && accessoryContextCurrent();
         Object registration = new Object();
         accessoryRegistration = registration;
         accessoryPreview = preview;
         accessoryCapability = capability;
         accessorySource = source;
-        accessoryGeneration = galleryMainOpen() ? state.galleryScreenGeneration : state.generation;
-        accessoryProviders = state.providersOpen || !state.providers.galleryAvailable();
+        accessoryGeneration = previewScreenGeneration(galleryMainOpen(), providers);
+        accessoryProviders = providers;
         accessoryGallery = galleryMainOpen();
         java.util.function.Consumer<com.naocraftlab.skins.client.PreviewAccessories> callback = value -> onClient(() -> {
             if (accessoryRegistration == registration) reconcilePreviewAccessories();
@@ -2573,8 +2624,16 @@ public final class ClientRuntime implements AutoCloseable {
         if (registration != accessoryRegistration) return callback;
         accessoryIdentity = identity;
         accessoryCallback = callback;
-        reconcilePreviewAccessories();
+        reconcilePreviewAccessories(sameEditorInput);
         return callback;
+    }
+
+    private String previewAccessorySource(ViewSpec.Preview preview, boolean gallery, boolean providers) {
+        if (gallery) return galleryFlow.accessoryInput();
+        if (providers) return previewBodySource(preview);
+        return "editor-accessories:" + editorFlow.editorPreviewLifetime() + ":" + importAccountEpoch + ":" + importWorldEpoch
+                + ":" + importResourceEpoch + ":" + importEditLifetime + ":" + preview.imageRevision()
+                + ":" + preview.skin() + ":" + preview.variant();
     }
 
     public void invalidatePreviewAccessories(
@@ -2622,8 +2681,8 @@ public final class ClientRuntime implements AutoCloseable {
 
     private boolean accessoryContextCurrent() {
         return !disposed && state.lifecycle != ClientSnapshot.Lifecycle.CLOSED && !destinationLoading()
-                && accessoryGeneration == (accessoryGallery ? state.galleryScreenGeneration : state.generation) && accessoryPreview != null
-                && Objects.equals(accessorySource, accessoryGallery ? galleryFlow.accessoryInput() : previewBodySource(accessoryPreview))
+                && accessoryGeneration == previewScreenGeneration(accessoryGallery, accessoryProviders) && accessoryPreview != null
+                && Objects.equals(accessorySource, previewAccessorySource(accessoryPreview, accessoryGallery, accessoryProviders))
                 && accessoryProviders == (state.providersOpen || !state.providers.galleryAvailable())
                 && accessoryGallery == galleryMainOpen()
                 && (accessoryProviders ? !providerFlow.providerAdding() && providerFlow.previewStillCurrent(accessoryPreview)
@@ -2632,6 +2691,10 @@ public final class ClientRuntime implements AutoCloseable {
     }
 
     private void reconcilePreviewAccessories() {
+        reconcilePreviewAccessories(true);
+    }
+
+    private void reconcilePreviewAccessories(boolean sameEditorInput) {
         Object registration = accessoryRegistration;
         var capability = accessoryCapability;
         if (capability == null) return;
@@ -2654,7 +2717,8 @@ public final class ClientRuntime implements AutoCloseable {
         }
         boolean retiredKnowledge = gallery && !skinExtensionEnvironment.cpmPresent() && galleryFlow.clearAccessoryKnowledge();
         boolean changed = gallery ? current && galleryFlow.acceptAccessories(preview, value)
-                : providers ? providerFlow.acceptAccessories(value) : editorFlow.acceptAccessories(value);
+                : providers ? providerFlow.acceptAccessories(value)
+                        : editorFlow.acceptAccessories(value, current && skinExtensionEnvironment.cpmPresent() && sameEditorInput);
         changed |= retiredKnowledge;
         if (changed && !disposed) publish();
     }
@@ -2919,8 +2983,11 @@ public final class ClientRuntime implements AutoCloseable {
                 && node.pattern() == ViewSpec.NavigationPattern.GRID) {
             galleryFlow.focusCard(node.id());
         }
-        ViewNavigationPolicy.ensureVisibleOffset(current, node)
-                .ifPresent(offset -> applyNavigationScroll(focusTarget, offset));
+        boolean tab = command == ViewSpec.NavigationCommand.TAB_FORWARD || command == ViewSpec.NavigationCommand.TAB_BACKWARD;
+        if (!tab || !ViewNavigationPolicy.viewportTab(node)) {
+            ViewNavigationPolicy.ensureVisibleOffset(current, node)
+                    .ifPresent(offset -> applyNavigationScroll(focusTarget, offset));
+        }
         requestRuntimeFocus(current.screenId(), node.id());
         runtimeFocusTabOrder = node.tabOrder();
         publish();
@@ -3016,8 +3083,7 @@ public final class ClientRuntime implements AutoCloseable {
                 editorFlow.renameDraft(value);
                 publish();
             } else if ("add.catalog.search".equals(widgetId)
-                    && catalogImportFlow.addSource() != null
-                    && catalogImportFlow.addSource().personalSkinDeletion().isEmpty()) {
+                    && catalogImportFlow.addSource() != null) {
                 if (catalogImportFlow.addSource().query().equals(value)) {
                     return;
                 }
@@ -3105,9 +3171,6 @@ public final class ClientRuntime implements AutoCloseable {
                 return;
             }
             if (catalogImportFlow.addSource() != null) {
-                if (catalogImportFlow.addSource().personalSkinDeletion().isPresent()) {
-                    return;
-                }
                 ViewSpec addSource = catalogImportFlow.presentCatalogImport(viewportWidth, viewportHeight);
                 addSource.scrollbar().ifPresent(scrollbar -> {
                     if (scrollbar.orientation() != ViewSpec.Scrollbar.Orientation.VERTICAL
@@ -3166,8 +3229,7 @@ public final class ClientRuntime implements AutoCloseable {
                 editorFlow.dragPreview(deltaX, deltaY);
                 publish();
             } else if (catalogImportFlow.draggingAddSourceScrollbar()
-                    && catalogImportFlow.addSource() != null
-                    && catalogImportFlow.addSource().personalSkinDeletion().isEmpty()) {
+                    && catalogImportFlow.addSource() != null) {
                 catalogImportFlow.presentCatalogImport(viewportWidth, viewportHeight).scrollbar()
                         .ifPresent(scrollbar -> catalogImportFlow.setAddSourceFromScrollbar(scrollbar,
                                 mouseY - catalogImportFlow.addSourceScrollbarGrabOffset()));
@@ -3230,10 +3292,11 @@ public final class ClientRuntime implements AutoCloseable {
                     queueEditorContentScroll(-amount * WHEEL_SCROLL_PIXELS);
                     return;
                 }
+                if (!PointerRouting.interactivePreview(editorView, mouseX, mouseY)) return;
                 Bounds previewBounds = editorView
                         .previews()
                         .get(0)
-                        .bounds();
+                        .anchorBounds();
                 PreviewInteractionModel changed = editorFlow.editor().preview()
                         .scroll(previewBounds, mouseX, mouseY, verticalAmount);
                 if (changed != editorFlow.editor().preview()) {
@@ -3260,9 +3323,6 @@ public final class ClientRuntime implements AutoCloseable {
                 return;
             }
             if (catalogImportFlow.addSource() != null) {
-                if (catalogImportFlow.addSource().personalSkinDeletion().isPresent()) {
-                    return;
-                }
                 ViewSpec addSourceView = view(
                         viewportWidth, viewportHeight, (int) mouseX, (int) mouseY);
                 if (addSourceView.scrollSurfaces().stream()
@@ -3304,8 +3364,7 @@ public final class ClientRuntime implements AutoCloseable {
                     setGalleryPosition(offsetPixels);
                 }
                 case "add.catalog", "add.import" -> {
-                    if (editorFlow.editor() != null || catalogImportFlow.addSource() == null
-                            || catalogImportFlow.addSource().personalSkinDeletion().isPresent()) {
+                    if (editorFlow.editor() != null || catalogImportFlow.addSource() == null) {
                         return;
                     }
                     catalogImportFlow.addSourceSurface().filter(surface -> surface.id().equals(surfaceId))
@@ -4147,7 +4206,11 @@ public final class ClientRuntime implements AutoCloseable {
         if (galleryMetadata && (currentWidget.isEmpty() || !currentWidget.orElseThrow().enabled())) return;
         if (widgetId.equals("providers.edit.CPM") && currentWidget.filter(ViewSpec.Widget::visible)
                 .filter(ViewSpec.Widget::enabled).filter(ViewSpec.Widget::activationEnabled).isEmpty()) return;
-        if (currentWidget.isPresent() && currentWidget.orElseThrow().enabled() && !currentWidget.orElseThrow().activationEnabled()) return;
+        boolean programmaticCardSelection = origin == InteractionOrigin.PROGRAMMATIC
+                && (widgetId.startsWith("gallery.card.") || widgetId.startsWith("add.catalog.skin:"))
+                && currentWidget.filter(widget -> widget.kind() == ViewSpec.WidgetKind.CATALOG_CARD).isPresent();
+        if (!programmaticCardSelection && currentWidget.filter(ViewSpec.Widget::enabled)
+                .filter(widget -> !widget.activationEnabled()).isPresent()) return;
         if (galleryMainOpen() && currentWidget.filter(ViewSpec.Widget::enabled).filter(ViewSpec.Widget::visible).isPresent()) galleryFlow.uiIntentChanged();
         if (dispatchProviderAction(widgetId, reverse, origin)) return;
         if (dispatchGalleryAction(widgetId, reverse, origin)) return;

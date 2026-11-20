@@ -521,24 +521,23 @@ final class CpmAutomaticBaseTransitionTest {
     @Test
     void publicationRestoresOuterFocusAndFractionalScrollAndRejectsAllBusyInput() throws Exception {
         try (Fixture fixture = new Fixture()) {
-            fixture.viewWidth = 240; fixture.viewHeight = 240;
+            fixture.viewWidth = 240; fixture.viewHeight = 180;
             fixture.runtime.dispatchWidget("add.tab.catalog");
             fixture.runtime.dispatchWidget("add.catalog.filter");
             fixture.runtime.dispatchWidget("add.catalog.filter");
             fixture.runtime.dispatchText("add.catalog.search", "e");
-            fixture.runtime.pointerScrolled(50, 140, 0, -0.4140625);
-            assertTrue(fixture.flow().addSourceScrollPosition() > 0);
+            fixture.scrollOuterCatalogFractionally();
             fixture.runtime.dispatchWidget("add.tab.file");
             fixture.seedFocus("add.url.input");
             fixture.runtime.dispatchText("add.player.input", "OuterPlayer");
             fixture.drain();
-            var outerFocus = fixture.runtime.view(240, 240, 0, 0).focusRequest().orElseThrow().widgetId();
+            var outerFocus = fixture.runtime.view(fixture.viewWidth, fixture.viewHeight, 0, 0).focusRequest().orElseThrow().widgetId();
             fixture.outer = fixture.runtime.snapshot().addSource().orElseThrow();
             double position = fixture.flow().addSourceScrollPosition();
             double target = fixture.flow().addSourceScrollTarget();
             fixture.publication = true;
             fixture.startImport(); fixture.readyPublication();
-            assertEquals(outerFocus, fixture.runtime.view(240, 240, 0, 0).focusRequest().orElseThrow().widgetId());
+            assertEquals(outerFocus, fixture.runtime.view(fixture.viewWidth, fixture.viewHeight, 0, 0).focusRequest().orElseThrow().widgetId());
             assertEquals(position, fixture.flow().addSourceScrollPosition());
             assertEquals(target, fixture.flow().addSourceScrollTarget());
             var before = fixture.runtime.snapshot();
@@ -1225,18 +1224,28 @@ final class CpmAutomaticBaseTransitionTest {
         }
 
         void customizeOuter() throws Exception {
-            viewWidth = 240; viewHeight = 240;
+            viewWidth = 240; viewHeight = 180;
             runtime.dispatchWidget("add.tab.catalog");
             runtime.dispatchWidget("add.catalog.filter");
             runtime.dispatchWidget("add.catalog.filter");
             runtime.dispatchText("add.catalog.search", "e");
-            runtime.pointerScrolled(50, 140, 0, -0.4140625);
-            assertTrue(flow().addSourceScrollPosition() > 0);
+            scrollOuterCatalogFractionally();
             runtime.dispatchWidget("add.tab.file");
             seedFocus("add.url.input");
             runtime.dispatchText("add.player.input", "OuterPlayer");
             drain();
             outer = runtime.snapshot().addSource().orElseThrow();
+        }
+
+        void scrollOuterCatalogFractionally() throws Exception {
+            var surface = runtime.view(viewWidth, viewHeight, 0, 0).scrollSurface("add.catalog").orElseThrow();
+            assertTrue(surface.maximumPixels() > 13.25);
+            var viewport = surface.viewport();
+            runtime.pointerScrolled(viewport.x() + viewport.width() / 2.0, viewport.y() + viewport.height() / 2.0, 0, -0.4140625);
+            assertTrue(flow().addSourceScrollPosition() > 0);
+            assertNotEquals(Math.floor(flow().addSourceScrollPosition()), flow().addSourceScrollPosition());
+            assertTrue(flow().addSourceScrollTarget() > 0);
+            assertNotEquals(Math.floor(flow().addSourceScrollTarget()), flow().addSourceScrollTarget());
         }
 
         void enqueueWorker(Runnable action) {

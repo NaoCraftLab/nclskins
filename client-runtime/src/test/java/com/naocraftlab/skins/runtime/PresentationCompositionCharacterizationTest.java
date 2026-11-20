@@ -68,7 +68,8 @@ final class PresentationCompositionCharacterizationTest {
         editor = editor.withPreview(editorTransform).withSelectedEditorTab(EditorTab.CAPE);
         var providerTransform = PreviewInteractionModel.editor(480, PreviewRenderer.CapeMode.CAPE);
         var presenter = new ProvidersPresenter();
-        for (int[] size : List.of(new int[]{320, 240}, new int[]{854, 480}, new int[]{1600, 720}, new int[]{320, 240})) {
+        for (int[] size : List.of(new int[]{320, 240, 180}, new int[]{854, 480, 277},
+                new int[]{1600, 720, 423}, new int[]{320, 240, 180})) {
             int width = size[0];
             int height = size[1];
             var before = editor.present(width, height, 0, 0, ViewChromeMetrics.STANDARD, true);
@@ -78,8 +79,9 @@ final class PresentationCompositionCharacterizationTest {
             for (var view : List.of(before, providers)) {
                 var stage = view.previews().get(0);
                 assertEquals(new Bounds(0, 0, width, height), stage.bounds());
-                assertEquals(new Bounds(0, 0, width / 2, height), stage.anchorBounds());
-                assertEquals(new Bounds(width / 2 - 22, 45, 24, 48), view.tabGroups().get(0).bounds());
+                int divider = view == providers ? width / 2 : size[2];
+                assertEquals(new Bounds(0, 0, divider, height), stage.anchorBounds());
+                assertEquals(new Bounds(divider - 22, 45, 24, 48), view.tabGroups().get(0).bounds());
             }
             assertEquals(Optional.of("selected"), before.widget("editor.tab.cape").orElseThrow().value());
             assertEquals(Optional.of("selected"), providers.widget("providers.tab.SKIN").orElseThrow().value());

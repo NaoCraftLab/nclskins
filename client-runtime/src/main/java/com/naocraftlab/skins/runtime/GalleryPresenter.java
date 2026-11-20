@@ -222,14 +222,11 @@ public final class GalleryPresenter {
         }
         var equipment = new ArrayList<ViewSpec.BackEquipmentPreview>();
         var decorations = new ArrayList<ViewSpec.IconDecoration>();
-        Bounds stageViewport = new Bounds(4,36,Math.max(1,g.leftWidth()-6),Math.max(1,h-73));
-        int oldLeft = Math.min(Math.max(64,(h-73)/4)+6,Math.max(70,w-60));
-        int stageWidth = Math.max(1,Math.min(Math.max(1,(h-73)/4),oldLeft-6));
+        int stageWidth = PlayerAppearanceStage.galleryFitWidth(w, h);
         int stageHeight = stageWidth*2;
         int stageOffset = (int)Math.round(controls.leftScroll());
-        int areaHeight = (int)Math.round(stageHeight*1.1);
-        Bounds stage = new Bounds(stageViewport.x(),stageViewport.y(),stageViewport.width(),areaHeight);
-        Bounds lowerViewport = new Bounds(stageViewport.x(),stage.bottom(),stageViewport.width(),Math.max(1,h-33-stage.bottom()));
+        Bounds stage = PlayerAppearanceStage.galleryPreviewArea(g.leftWidth(), stageWidth);
+        Bounds lowerViewport = new Bounds(stage.x(),stage.bottom(),stage.width(),Math.max(1,h-33-stage.bottom()));
         int contentX = lowerViewport.x()+8;
         int contentWidth = Math.max(1,lowerViewport.width()-16);
         Bounds fit = new Bounds(stage.x()+(stage.width()-stageWidth)/2,stage.y()+(stage.height()-stageHeight)/2,stageWidth,stageHeight);
@@ -259,7 +256,7 @@ public final class GalleryPresenter {
             leftY+=14;
             int index=0;
             for(var control : PlayerAppearanceStage.outerLayers(mask,"gallery.outer_layer.",!s.busy())) {
-                widgets.add(ViewSpec.Widget.iconOnlyButton(control.id(),new Bounds(stageViewport.x()+(stageViewport.width()-64)/2+index*22,leftY,20,20),control.label(),control.icon(),control.enabled()));index++;
+                widgets.add(ViewSpec.Widget.iconOnlyButton(control.id(),new Bounds(stage.x()+(stage.width()-64)/2+index*22,leftY,20,20),control.label(),control.icon(),control.enabled()));index++;
             }
             leftY+=24;
         }
@@ -310,15 +307,16 @@ public final class GalleryPresenter {
                         !s.busy(), ViewSpec.NavigationPattern.GRID, Optional.of(entry.id())));
             } else {
                 var preset = entry.preset().orElseThrow();
-                boolean menu = controls.actionPresetId().filter(preset.id()::equals).isPresent()
-                        || deleting.filter(preset.id()::equals).isPresent();
+                boolean confirmingDelete = deleting.filter(preset.id()::equals).isPresent();
+                boolean menu = controls.actionPresetId().filter(preset.id()::equals).isPresent() || confirmingDelete;
+                boolean cardFocusable = !s.busy() && (deleting.isEmpty() || confirmingDelete);
                 nodes.add(AppearanceCollections.navigation(entry.id(), b, "gallery.cards", nodes.size(),
-                        tab++, !s.busy() && s.account().isPresent() && deleting.isEmpty() && !menu,
-                        ViewSpec.NavigationPattern.GRID, Optional.of(entry.id())));
+                        tab++, cardFocusable && s.account().isPresent(),
+                        ViewSpec.NavigationPattern.GRID, menu ? Optional.empty() : Optional.of(entry.id())));
                 if (visible) {
                     var chrome = AppearanceCard.chrome(entry.id(), entry.id(), b, ViewSpec.WidgetKind.CATALOG_CARD,
                             UiMessage.literal(preset.name(), UiMessage.Severity.INFO), draft.selectedPresetId().filter(preset.id()::equals).isPresent() ? Optional.of(s.activePresetId().filter(preset.id()::equals).isPresent() ? "active" : "selected")
-                                    : s.activePresetId().filter(preset.id()::equals).isPresent() ? Optional.of("active") : menu ? Optional.of("menu") : Optional.empty(), !s.busy() && deleting.isEmpty() && !menu);
+                                    : s.activePresetId().filter(preset.id()::equals).isPresent() ? Optional.of("active") : menu ? Optional.of("menu") : Optional.empty(), cardFocusable);
                     panels.add(chrome.surface());
                     panels.add(new ViewSpec.Panel("gallery.preset."+preset.id()+".namebar",
                             menu ? new Bounds(b.x(),b.y()+2,b.width(),b.height()-4)
@@ -370,7 +368,8 @@ public final class GalleryPresenter {
         String prefix = "gallery.preset." + p.id();
         var cape = cape(s, p);
         if (!menu) previews.add(new AppearanceCard.Skin(p.skin(), revision(p), variantFor(s.account().orElseThrow(), p, variant),
-                cape, cape.isPresent() ? mode : PreviewRenderer.CapeMode.OFF, p.outerLayerVisibility(), -25, 0, 0.88F,
+                cape, cape.isPresent() ? mode : PreviewRenderer.CapeMode.OFF, p.outerLayerVisibility(),
+                -25, 0, AppearanceCard.SKIN_THUMBNAIL_SCALE,
                 Optional.of(p.id()), Optional.empty(), Optional.empty(), PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL,
                 p.offlineCape() == null || p.offlineCape().hasElytra()).present(prefix + ".preview", b));
         int barTop = menu ? b.y() : b.bottom()-16;
@@ -390,22 +389,22 @@ public final class GalleryPresenter {
 
     private static void cardActions(ClientSnapshot s,AppearancePreset p,Bounds b,boolean deleting,List<ViewSpec.Text> texts,List<ViewSpec.Widget> widgets) {
         String prefix="gallery.preset."+p.id();
-        int x=b.x()+2;int y=b.bottom()-44;
-        int leftWidth=(b.width()-6)/2;
-        int rightX=x+leftWidth+2;
-        int rightWidth=b.right()-2-rightX;
         if(deleting) {
-            int promptTop = (b.y()+16+y-20)/2;
-            texts.add(new ViewSpec.Text(prefix+".confirmation",new Bounds(b.x()+2,promptTop,b.width()-4,20),
-                    UiMessage.info("nclskins.gallery.delete_confirmation"),ViewSpec.Text.Alignment.CENTER,ViewSpec.Text.Layout.WRAP));
-            widgets.add(ViewSpec.Widget.button(prefix+".delete_confirm",new Bounds(b.x()+2,y,b.width()-4,20),UiMessage.info("nclskins.gallery.delete"),!s.busy()));
-            widgets.add(ViewSpec.Widget.button(prefix+".delete_cancel",new Bounds(b.x()+2,y+22,b.width()-4,20),UiMessage.info("gui.cancel"),!s.busy()));
+            texts.add(AppearanceCard.compactPrompt(prefix+".confirmation", b, false,
+                    UiMessage.info("nclskins.gallery.delete_confirmation"), (message, width) -> 20));
+            widgets.addAll(AppearanceCard.compactActions(b, Optional.empty(),
+                    new AppearanceCard.Action(prefix+".delete_confirm", UiMessage.info("nclskins.gallery.delete"),
+                            NativeGuiIcon.ACCEPT, !s.busy()),
+                    new AppearanceCard.Action(prefix+".delete_cancel", UiMessage.info("gui.cancel"),
+                            NativeGuiIcon.REJECT, !s.busy())));
         } else {
-            widgets.add(ViewSpec.Widget.button(prefix+".favorite",new Bounds(x,y,leftWidth,20),UiMessage.literal(p.favorite() ? "★" : "☆",UiMessage.Severity.INFO),
+            var top = CatalogCardGeometry.menuRow(b, b.bottom() - 44);
+            var bottom = CatalogCardGeometry.menuRow(b, b.bottom() - 22);
+            widgets.add(ViewSpec.Widget.button(prefix+".favorite",top.left(),UiMessage.literal(p.favorite() ? "★" : "☆",UiMessage.Severity.INFO),
                     Optional.of(UiMessage.info(p.favorite() ? "nclskins.gallery.unfavorite" : "nclskins.gallery.favorite")),!s.busy()));
-            widgets.add(ViewSpec.Widget.iconButton(prefix+".edit",new Bounds(rightX,y,rightWidth,20),UiMessage.info("nclskins.gallery.edit"),GuiIcon.ACTION_EDIT,!s.busy()));
-            widgets.add(ViewSpec.Widget.iconButton(prefix+".duplicate",new Bounds(x,y+22,leftWidth,20),UiMessage.info("nclskins.gallery.duplicate"),GuiIcon.ACTION_DUPLICATE,!s.busy()));
-            widgets.add(ViewSpec.Widget.iconButton(prefix+".delete",new Bounds(rightX,y+22,rightWidth,20),UiMessage.info("nclskins.gallery.delete"),GuiIcon.ACTION_DELETE,!s.busy()));
+            widgets.add(ViewSpec.Widget.iconButton(prefix+".edit",top.right(),UiMessage.info("nclskins.gallery.edit"),GuiIcon.ACTION_EDIT,!s.busy()));
+            widgets.add(ViewSpec.Widget.iconButton(prefix+".duplicate",bottom.left(),UiMessage.info("nclskins.gallery.duplicate"),GuiIcon.ACTION_DUPLICATE,!s.busy()));
+            widgets.add(ViewSpec.Widget.iconButton(prefix+".delete",bottom.right(),UiMessage.info("nclskins.gallery.delete"),GuiIcon.ACTION_DELETE,!s.busy()));
         }
     }
 
@@ -579,8 +578,7 @@ public final class GalleryPresenter {
     }
     private static Geometry geometry(int w,int h) {
         if(w<=0 || h<=0) throw new IllegalArgumentException("view dimensions must be positive");
-        int oldLeft=Math.min(Math.max(64,(h-73)/4)+6,Math.max(70,w-60));
-        int left=Math.min((int)Math.round(oldLeft*4.0/3),Math.max(70,w-60));
+        int left = PlayerAppearanceStage.galleryColumnWidth(w, h);
         Bounds viewport=new Bounds(left+8,61,Math.max(1,w-left-16),Math.max(1,h-94));
         int columns = Math.max(1, (viewport.width() - 2) / (CARD_WIDTH + 2));
         int cardWidth = Math.max(CARD_WIDTH, Math.min(64, (viewport.width() - 4 - (columns - 1) * 2) / columns));

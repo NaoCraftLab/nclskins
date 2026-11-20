@@ -20,7 +20,7 @@ final class PreviewInteractionModelTest {
                     height, PreviewRenderer.CapeMode.CAPE);
 
             assertEquals(1.0F, model.scale(), "initial user zoom at height " + height);
-            assertEquals(-22.0F, model.yawDegrees());
+            assertEquals(PreviewInteractionModel.gallery().yawDegrees(), model.yawDegrees());
             assertEquals(-5.0F, model.pitchDegrees());
             assertEquals(PreviewRenderer.CapeMode.CAPE, model.capeMode());
             assertEquals(OuterLayerVisibility.allVisible(), model.outerLayerVisibility());
@@ -45,7 +45,7 @@ final class PreviewInteractionModelTest {
 
         PreviewInteractionModel rotated = model.beginRotate(PREVIEW, 50, 50).drag(10, -100);
         assertTrue(rotated.rotating());
-        assertEquals(-14.0F, rotated.yawDegrees());
+        assertEquals(model.yawDegrees() + 8.0F, rotated.yawDegrees());
         assertEquals(30.0F, rotated.pitchDegrees());
         assertFalse(rotated.endRotate().rotating());
 

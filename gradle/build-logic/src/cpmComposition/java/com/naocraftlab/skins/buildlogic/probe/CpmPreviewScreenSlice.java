@@ -89,13 +89,16 @@ final class CpmPreviewScreenSlice {
         boolean extraction = internalOwner.contains("/extraction/");
         String guiAdapter = namespace.replace('/', '.') + "GuiExtraction";
         Map<String, String> names = new HashMap<>();
+        boolean previewOnly = !textConsumers && !inputConsumers && !lifecycleConsumers;
+        names.put("net/minecraft/client/gui/screens/Screen", internal(CpmOwnedPreviewDispatchProbe.ScreenTerminal.class));
+        names.put("net/minecraft/client/gui/components/events/GuiEventListener", internal(CpmOwnedPreviewDispatchProbe.InputListener.class));
         names.put("net/minecraft/client/gui/GuiGraphics", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
         names.put("net/minecraft/client/gui/GuiGraphicsExtractor", internal(CpmOwnedPreviewDispatchProbe.Graphics.class));
         if (textConsumers) {
-            names.put("net/minecraft/client/gui/components/events/GuiEventListener", internal(CpmOwnedPreviewDispatchProbe.InputListener.class));
             if (rootPaint) names.put("net/minecraft/client/gui/components/Renderable", internal(CpmOwnedPreviewDispatchProbe.RenderFrame.class));
+            if (owner.endsWith("NclSkinsImmediateScreen")) names.put("net/minecraft/client/gui/components/EditBox",
+                    internal(CpmOwnedPreviewDispatchProbe.FieldTerminal.class));
             names.put("net/minecraft/resources/Identifier", internal(CpmOwnedPreviewDispatchProbe.Text.class));
-            names.put("net/minecraft/client/gui/screens/Screen", internal(CpmOwnedPreviewDispatchProbe.ScreenTerminal.class));
             names.put("net/minecraft/client/Minecraft", internal(CpmOwnedPreviewDispatchProbe.ClientTerminal.class));
             names.put("net/minecraft/client/gui/Font", internal(CpmOwnedPreviewDispatchProbe.FontTerminal.class));
             names.put("net/minecraft/client/gui/components/AbstractWidget", internal(CpmOwnedPreviewDispatchProbe.WidgetTerminal.class));
@@ -105,7 +108,10 @@ final class CpmPreviewScreenSlice {
             names.put("net/minecraft/network/chat/MutableComponent", internal(CpmOwnedPreviewDispatchProbe.Text.class));
             names.put(namespace + "ExtractionGuiApi", internal(CpmOwnedPreviewDispatchProbe.GuiTerminal.class));
         }
-        if(rendererType == null) names.put("net/minecraft/client/Minecraft",internal(CpmOwnedPreviewDispatchProbe.ClientTerminal.class));
+        if (rendererType == null || previewOnly) names.put("net/minecraft/client/Minecraft", internal(CpmOwnedPreviewDispatchProbe.ClientTerminal.class));
+        if (previewOnly && namespace.contains("submission")) {
+            names.put("net/minecraft/client/gui/components/AbstractWidget", internal(CpmOwnedPreviewDispatchProbe.WidgetTerminal.class));
+        }
         names.put("com/naocraftlab/skins/runtime/ClientRuntime", internal(CpmOwnedPreviewDispatchProbe.RuntimeBoundary.class));
         names.put("net/minecraft/resources/Identifier", internal(CpmOwnedPreviewDispatchProbe.Text.class));
         names.put("net/minecraft/resources/ResourceLocation", internal(CpmOwnedPreviewDispatchProbe.Text.class));
@@ -129,8 +135,6 @@ final class CpmPreviewScreenSlice {
             for (String text : List.of("Component", "MutableComponent", "FormattedText"))
                 names.put("net/minecraft/network/chat/" + text, internal(CpmOwnedPreviewDispatchProbe.TextValue.class));
             if (textConsumers) names.put("net/minecraft/network/chat/MutableComponent", internal(CpmOwnedPreviewDispatchProbe.Text.class));
-            names.put("net/minecraft/client/gui/screens/Screen", internal(CpmOwnedPreviewDispatchProbe.ScreenTerminal.class));
-            names.put("net/minecraft/client/gui/components/events/GuiEventListener", internal(CpmOwnedPreviewDispatchProbe.InputListener.class));
             names.put("net/minecraft/client/gui/components/AbstractWidget", internal(CpmOwnedPreviewDispatchProbe.WidgetTerminal.class));
             names.put("net/minecraft/client/gui/components/EditBox", internal(CpmOwnedPreviewDispatchProbe.FieldTerminal.class));
             names.put("net/minecraft/client/input/MouseButtonEvent", internal(CpmOwnedPreviewDispatchProbe.MouseEvent.class));
@@ -148,12 +152,10 @@ final class CpmPreviewScreenSlice {
                 for (String widget : List.of("CapeCardWidget", "CollectionHeaderWidget", "IconButtonWidget", "PassiveIndicatorWidget"))
                     names.put(internalOwner + "$" + widget, internal(CpmPreviewScopeProbe.FrameWidget.class));
             }
-            names.put("net/minecraft/client/gui/screens/Screen", internal(CpmOwnedPreviewDispatchProbe.ScreenTerminal.class));
             names.put("net/minecraft/client/Minecraft", internal(CpmOwnedPreviewDispatchProbe.ClientTerminal.class));
             names.put("net/minecraft/client/gui/Font", internal(CpmOwnedPreviewDispatchProbe.FontTerminal.class));
             names.put("net/minecraft/client/gui/components/AbstractWidget", internal(CpmOwnedPreviewDispatchProbe.WidgetTerminal.class));
             names.put("net/minecraft/client/gui/components/EditBox", internal(CpmOwnedPreviewDispatchProbe.FieldTerminal.class));
-            names.put("net/minecraft/client/gui/components/events/GuiEventListener", internal(CpmOwnedPreviewDispatchProbe.InputListener.class));
             names.put(namespace + "ExtractionGuiApi", internal(CpmOwnedPreviewDispatchProbe.GuiTerminal.class));
             names.put(namespace + "ExtractionScrollController", internal(CpmOwnedPreviewDispatchProbe.ScrollTerminal.class));
             names.put(namespace + "SubmissionScrollController", internal(CpmOwnedPreviewDispatchProbe.ScrollTerminal.class));
@@ -345,10 +347,14 @@ final class CpmPreviewScreenSlice {
 
     private static void isolate(ClassNode node, boolean textConsumers, boolean inputConsumers, boolean lifecycleConsumers) {
         boolean immediate = node.name.endsWith("NclSkinsImmediateScreen");
-        List<String> roots = textConsumers ? List.of("getNarrationMessage", immediate || node.name.contains("submission") ? "renderText" : "drawText", "renderSurfaceOverlays", "renderStateFrames", immediate || node.name.contains("submission") ? "renderPassiveIndicatorTooltip" : "drawPassiveIndicatorTooltip")
+        List<String> roots = textConsumers ? List.of("getNarrationMessage", immediate || node.name.contains("submission") ? "renderText" : "drawText", "renderSurfaceOverlays", "renderStateFrames", immediate || node.name.contains("submission") ? "renderPassiveIndicatorTooltip" : "drawPassiveIndicatorTooltip", immediate ? "renderPreciseTooltip" : node.name.contains("submission") ? "renderTooltips" : "drawPreciseTooltip")
                 : immediate ? List.of("synchronizePreviews", "renderPreview", "releasePreviews")
                 : node.name.contains("submission") ? List.of("synchronizePreviewAssets", "renderPreviews", "releasePreviewBody", "releasePreviewAccessories")
                 : List.of("syncPreviewAssets", "drawPreviews", "releasePreviewBody", "releasePreviewAccessories");
+        if (immediate && textConsumers && !inputConsumers) {
+            roots = new java.util.ArrayList<>(roots);
+            roots.add("renderCapeSearchHint");
+        }
         if (node.methods.stream().anyMatch(m -> m.name.equals("nclskins$paintRoot"))) roots = List.of("nclskins$paintRoot");
         if (!textConsumers) roots = new java.util.ArrayList<>(roots);
         if (!textConsumers) roots.add("renderStaticPreviews");
@@ -474,8 +480,8 @@ final class CpmPreviewScreenSlice {
             for (var instruction : method.instructions) {
                 if (instruction instanceof MethodInsnNode call && call.owner.equals(node.name)) {
                     if (methods.containsKey(call.name + call.desc)) pending.add(call.name + call.desc);
-                    else if (!(textConsumers && call.name.equals("getFocused") && call.desc.equals("()Lnet/minecraft/client/gui/components/events/GuiEventListener;"))
-                            && (!(inputConsumers || lifecycleConsumers) || !List.of("getFocused", "setFocused", "setDragging", "isDragging", "hasShiftDown", "rebuildWidgets", "triggerImmediateNarration", "clearWidgets", "clearFocus", "setInitialFocus", "addRenderableWidget").contains(call.name)))
+                    else if (!(call.name.equals("getFocused") && call.desc.equals("()Lnet/minecraft/client/gui/components/events/GuiEventListener;"))
+                            && (!(inputConsumers || lifecycleConsumers) || !List.of("setFocused", "setDragging", "isDragging", "hasShiftDown", "rebuildWidgets", "triggerImmediateNarration", "clearWidgets", "clearFocus", "setInitialFocus", "addRenderableWidget").contains(call.name)))
                         throw new AssertionError("Unbound inherited screen helper: " + call.name + call.desc);
                 } else if (instruction instanceof FieldInsnNode field && field.owner.equals(node.name)) {
                     fields.add(field.name);
@@ -498,7 +504,7 @@ final class CpmPreviewScreenSlice {
                 .forEach(method -> method.access = (method.access & ~Opcodes.ACC_PROTECTED) | Opcodes.ACC_PUBLIC);
         node.fields.removeIf(field -> !fields.contains(field.name));
         node.fields.forEach(field -> field.access = (field.access & ~(Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED | Opcodes.ACC_FINAL)) | Opcodes.ACC_PUBLIC);
-        node.superName = textConsumers || inputConsumers || lifecycleConsumers ? "net/minecraft/client/gui/screens/Screen" : "java/lang/Object";
+        node.superName = "net/minecraft/client/gui/screens/Screen";
         node.interfaces.clear();
         node.signature = null;
         node.access = (node.access & ~(Opcodes.ACC_ABSTRACT | Opcodes.ACC_FINAL)) | Opcodes.ACC_PUBLIC;

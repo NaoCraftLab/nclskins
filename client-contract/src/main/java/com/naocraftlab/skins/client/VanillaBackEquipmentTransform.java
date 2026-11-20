@@ -9,6 +9,12 @@ public final class VanillaBackEquipmentTransform {
     private static final float PROJECTED_UNION_HEIGHT = 1.587F;
     private static final float MODEL_PIVOT_Y = -0.625F;
     private static final float FIT_PADDING = 0.88F;
+    private static final float PROJECTED_CAPE_WIDTH = 0.625F;
+    private static final float PROJECTED_CAPE_HEIGHT = 1.021F;
+    private static final float PROJECTED_CAPE_CENTER_Y = -0.121F;
+    private static final float PROJECTED_ELYTRA_HEIGHT = 1.540F;
+    private static final float PROJECTED_ELYTRA_CENTER_Y = 0.0234F;
+    private static final float CATALOG_FIT_PADDING = 0.94F;
 
     private VanillaBackEquipmentTransform() {
     }
@@ -20,6 +26,24 @@ public final class VanillaBackEquipmentTransform {
         return FIT_PADDING * Math.min(
                 width / PROJECTED_UNION_WIDTH,
                 height / PROJECTED_UNION_HEIGHT);
+    }
+
+    public static float fitScale(int width, int height, BackEquipmentPreviewRenderer.Mode mode,
+                                 BackEquipmentPreviewRenderer.FitPolicy policy) {
+        Objects.requireNonNull(mode, "mode");
+        Objects.requireNonNull(policy, "policy");
+        if (policy == BackEquipmentPreviewRenderer.FitPolicy.LEGACY_UNION) return fitScale(width, height);
+        if (width <= 0 || height <= 0) throw new IllegalArgumentException("Back-equipment preview bounds must be positive");
+        float commonHeight = CATALOG_FIT_PADDING * Math.min(height, width * Math.min(
+                PROJECTED_CAPE_HEIGHT / PROJECTED_CAPE_WIDTH, PROJECTED_ELYTRA_HEIGHT / PROJECTED_UNION_WIDTH));
+        return commonHeight / (mode == BackEquipmentPreviewRenderer.Mode.CAPE ? PROJECTED_CAPE_HEIGHT : PROJECTED_ELYTRA_HEIGHT);
+    }
+
+    public static float modelOffsetY(BackEquipmentPreviewRenderer.Mode mode, BackEquipmentPreviewRenderer.FitPolicy policy) {
+        Objects.requireNonNull(mode, "mode");
+        Objects.requireNonNull(policy, "policy");
+        if (policy == BackEquipmentPreviewRenderer.FitPolicy.LEGACY_UNION) return 0.0F;
+        return -(mode == BackEquipmentPreviewRenderer.Mode.CAPE ? PROJECTED_CAPE_CENTER_Y : PROJECTED_ELYTRA_CENTER_Y);
     }
 
     public static <C> void applyStandalone(

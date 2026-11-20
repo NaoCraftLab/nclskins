@@ -67,6 +67,7 @@ public final class BakedPlayerPose {
     }
 
     public static void applyStandaloneEquipment(PoseStack pose, NclBakedPlayerRenderState state) {
+        pose.translate(0.0F, state.modelOffsetY(), 0.0F);
         CenteredPipPreviewTransform.applyStandaloneEquipmentPose(
                 pose, state.yawDegrees(), OPERATIONS);
     }

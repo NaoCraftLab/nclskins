@@ -97,6 +97,10 @@ public interface LibraryEditorPort {
 
     AccountState renamePersonalSkin(String sha256, String newName) throws Exception;
 
+    default AccountState renamePersonalSkin(UUID initiatingAccount, String sha256, String newName) throws Exception {
+        return renamePersonalSkin(sha256, newName);
+    }
+
     com.naocraftlab.skins.core.model.PersonalCapeEntry importCape(UUID accountId, java.nio.file.Path path, String fallbackName) throws Exception;
 
     AccountState renameCape(UUID accountId, UUID entryId, String name) throws Exception;

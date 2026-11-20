@@ -34,6 +34,91 @@ final class AddSourceModelPresenterTest {
     private final AddSourcePresenter presenter = new AddSourcePresenter();
 
     @Test
+    void catalogTabIncludesTheImmutableTitleStripeButArrowsUseTheCardRow() {
+        var model = openCatalog(collection("minecraft", skin("first", "First", SkinModel.CLASSIC),
+                skin("second", "Second", SkinModel.CLASSIC)));
+        var view = presenter.present(model, false, 320, 240);
+        var order = List.of("add.tabs", "add.catalog.search", "add.catalog.filter",
+                "add.catalog.disclosure", "add.catalog.collection:minecraft", "add.catalog.skin:minecraft:first",
+                "add.catalog.skin:minecraft:first.title_control", "add.catalog.skin:minecraft:second",
+                "add.catalog.skin:minecraft:second.title_control", "add.cancel");
+        for (int index = 1; index < order.size(); index++) {
+            assertEquals(order.get(index), ViewNavigationPolicy.target(view, order.get(index - 1),
+                    ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id());
+        }
+        String stripe = order.get(6);
+        assertTrue(ViewNavigationPolicy.activationAction(view, stripe).isEmpty());
+        assertEquals(order.get(7), ViewNavigationPolicy.target(view, stripe,
+                ViewSpec.NavigationCommand.RIGHT).orElseThrow().id());
+    }
+
+    @Test
+    void compactReadOnlyCardsKeepFixedHeightFullPreviewAndBottomTitle() {
+        var skins = IntStream.range(0, 40).mapToObj(index ->
+                skin("skin-" + index, "Skin " + index, SkinModel.CLASSIC))
+                .toArray(SkinCatalogSource.SkinDescriptor[]::new);
+        var model = openCatalog(collection("minecraft", skins));
+        for (int width : List.of(240, 320, 427, 854, 1600)) {
+            for (int height : List.of(180, 240, 480)) {
+                var view = presenter.present(model, false, width, height);
+                var first = view.widget("add.catalog.skin:minecraft:skin-0").orElseThrow();
+                var second = view.widget("add.catalog.skin:minecraft:skin-1").orElseThrow();
+                Bounds card = first.bounds();
+                assertEquals(96, card.height());
+                assertTrue(card.width() >= 48 && card.width() <= 64);
+                assertEquals(card.right() + 2, second.bounds().x());
+                var preview = view.previews().stream().filter(value ->
+                        value.id().equals(first.id() + ".preview")).findFirst().orElseThrow();
+                assertEquals(card, preview.bounds());
+                assertEquals(0.88F, preview.scale(), "Gallery thumbnail scale");
+                Bounds viewport = view.scrollSurface("add.catalog").orElseThrow().viewport();
+                int offset = Math.max(0, card.bottom() - viewport.bottom() + 2);
+                var revealed = presenter.present(model.withScrollOffset(offset), false, width, height);
+                Bounds revealedCard = revealed.widget(first.id()).orElseThrow().bounds();
+                var title = revealed.texts().stream().filter(text -> text.id().equals(first.id() + ".name"))
+                        .findFirst().orElseThrow();
+                assertEquals(revealedCard.bottom() - 12, title.bounds().y());
+                assertEquals(ViewSpec.Text.Alignment.LEFT, title.alignment());
+                assertEquals(revealedCard.x() + 4, title.bounds().x());
+                assertEquals(revealedCard.right() - 4, title.bounds().right());
+                Bounds movingClip = title.marqueeActivation().orElseThrow().movingClip().orElseThrow();
+                assertEquals(revealedCard.x(), movingClip.x());
+                assertEquals(revealedCard.right(), movingClip.right());
+                assertTrue(revealed.panels().stream().anyMatch(panel -> panel.id().equals(first.id() + ".namebar")
+                        && panel.bounds().equals(new Bounds(revealedCard.x(), revealedCard.bottom() - 16, revealedCard.width(), 16))));
+                assertTrue(view.widgets().stream().noneMatch(widget -> widget.id().endsWith(".more")));
+                long columns = view.navigationNodes().stream().filter(node -> node.id().startsWith("add.catalog.skin:")
+                                && node.pattern() == ViewSpec.NavigationPattern.GRID)
+                        .filter(node -> node.bounds().y() == card.y()).count();
+                if (width >= 854) assertTrue(columns > 9);
+            }
+        }
+    }
+
+    @Test
+    void compactCatalogGuttersAndScrollUseActualRowsAndNativeFooter() {
+        var skins = IntStream.range(0, 67).mapToObj(index -> skin("skin-" + index, "Skin " + index, SkinModel.CLASSIC))
+                .toArray(SkinCatalogSource.SkinDescriptor[]::new);
+        var model = openCatalog(collection("minecraft", skins));
+        for (int width : List.of(240, 321, 427, 854)) for (int footer : List.of(33, 45)) {
+            var chrome = new ViewChromeMetrics(footer);
+            var view = presenter.present(model, false, Optional.empty(), width, 240, Optional.empty(), chrome);
+            var card = view.widget("add.catalog.skin:minecraft:skin-0").orElseThrow();
+            assertEquals(8, card.bounds().x());
+            var bar = view.scrollbar().orElseThrow();
+            assertEquals(width - 6, bar.track().x());
+            assertEquals(240 - footer, bar.track().bottom());
+            var end = presenter.present(model.withScrollOffset(bar.maximum()), false, Optional.empty(), width, 240,
+                    Optional.empty(), chrome);
+            var last = end.widget("add.catalog.skin:minecraft:skin-66").orElseThrow();
+            assertTrue(last.bounds().bottom() <= 240 - footer);
+            assertEquals(card.bounds().width(), last.bounds().width());
+            assertTrue(240 - footer - last.bounds().bottom() <= 4);
+            assertEquals(240 - footer, end.clipFor(last.id()).orElseThrow().bottom());
+        }
+    }
+
+    @Test
     void countQuotaProjectsCurrentForeignLabelsBeforeEveryMeasurementAndReload() {
         var keys = List.of("button.cpm.open_editor", "button.cpm.edit", "button.cpm.edit.pastes");
         var labels = new java.util.HashMap<String, String>();
@@ -442,17 +527,14 @@ final class AddSourceModelPresenterTest {
                         Optional.empty(), Optional.empty(), List.of(item), CatalogCollectionOrder.vanilla("minecraft")));
         for (int height : new int[] {191, 240, 480}) {
             for (int footer : new int[] {33, 38}) {
-                int personalHeight = Math.max(72, Math.min(132, height - 86 - footer));
                 for (SkinCatalogSource.CollectionDescriptor collection : collections) {
-                    boolean personal = collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL;
                     ViewSpec view = presenter.present(openCatalog(collection), false, Optional.empty(),
                             320, height, Optional.empty(), new ViewChromeMetrics(footer));
                     String id = "add.catalog.skin:" + collection.id() + ":" + item.id();
                     Bounds card = view.widget(id).orElseThrow().bounds();
-                    assertEquals(new Bounds(16, 78, 68, personalHeight - (personal ? 0 : 23)), card);
+                    assertEquals(new Bounds(8, 78, 49, 96), card);
                     Bounds preview = view.previews().get(0).bounds();
-                    assertEquals(new Bounds(21, 98, 58, personalHeight - 48), preview);
-                    assertTrue(preview.bottom() <= card.bottom() - 5);
+                    assertEquals(card, preview);
                     assertEquals(card, view.navigationNode(id).orElseThrow().bounds());
                 }
             }
@@ -468,14 +550,14 @@ final class AddSourceModelPresenterTest {
                 new SkinCatalogSource.CollectionDescriptor("vanilla", CatalogText.literal("Vanilla"),
                         Optional.empty(), Optional.empty(), List.of(items), CatalogCollectionOrder.vanilla("minecraft"))));
         ViewSpec view = presenter.present(model, false, 320, 240);
-        assertEquals(340, view.navigationNode("add.catalog.collection:pack").orElseThrow().bounds().y());
-        assertEquals(576, view.navigationNode("add.catalog.collection:vanilla").orElseThrow().bounds().y());
-        assertEquals(605, presenter.present(model, false, 320, 240).scrollSurface("add.catalog").orElseThrow().maximumPixels());
-        ViewSpec end = presenter.present(model.withScrollOffset(605), false, 320, 240);
+        assertEquals(178, view.navigationNode("add.catalog.collection:pack").orElseThrow().bounds().y());
+        assertEquals(298, view.navigationNode("add.catalog.collection:vanilla").orElseThrow().bounds().y());
+        assertEquals(211, view.scrollSurface("add.catalog").orElseThrow().maximumPixels());
+        ViewSpec end = presenter.present(model.withScrollOffset(211), false, 320, 240);
         Bounds last = end.navigationNode("add.catalog.skin:vanilla:" + items[4].id()).orElseThrow().bounds();
-        assertEquals(193, last.bottom());
-        assertEquals(98, last.height());
-        assertEquals(389, presenter.present(model.withCollectionCollapsed("pack", true), false, 320, 240).scrollSurface("add.catalog").orElseThrow().maximumPixels());
+        assertEquals(203, last.bottom());
+        assertEquals(96, last.height());
+        assertEquals(111, presenter.present(model.withCollectionCollapsed("pack", true), false, 320, 240).scrollSurface("add.catalog").orElseThrow().maximumPixels());
     }
 
     @Test
@@ -484,10 +566,10 @@ final class AddSourceModelPresenterTest {
             AddSourceModel model = openCatalog(collection("minecraft", IntStream.range(0, count)
                     .mapToObj(index -> skin("skin-" + index, "Skin " + index, SkinModel.CLASSIC))
                     .toArray(SkinCatalogSource.SkinDescriptor[]::new)));
-            for (int[] dimensions : new int[][] {{320, 4, 68}, {854, 11, 69}, {3840, 51, 68}}) {
+            for (int[] dimensions : new int[][] {{320, 6, 49}, {854, 16, 50}, {3840, 76, 48}}) {
                 ViewSpec view = presenter.present(model, false, dimensions[0], 480);
                 List<Bounds> cards = view.navigationNodes().stream()
-                        .filter(node -> node.id().startsWith("add.catalog.skin:minecraft:"))
+                        .filter(node -> node.id().startsWith("add.catalog.skin:minecraft:") && node.pattern() == ViewSpec.NavigationPattern.GRID)
                         .map(ViewSpec.NavigationNode::bounds).toList();
                 int columns = dimensions[1];
                 assertEquals(count, cards.size());
@@ -495,12 +577,12 @@ final class AddSourceModelPresenterTest {
                 assertEquals((count + columns - 1) / columns,
                         cards.stream().map(Bounds::y).distinct().count());
                 for (int index = 0; index < count; index++) {
-                    assertEquals(new Bounds(16 + index % columns * (dimensions[2] + 6),
-                            78 + index / columns * 115, dimensions[2], 109), cards.get(index));
-                    assertTrue(cards.get(index).right() <= dimensions[0] - 14);
+                    assertEquals(new Bounds(8 + index % columns * (dimensions[2] + 2),
+                            78 + index / columns * 98, dimensions[2], 96), cards.get(index));
+                    assertTrue(cards.get(index).right() <= dimensions[0] - 8);
                 }
                 if (count >= columns) {
-                    int remainder = dimensions[0] - 14 - cards.get(columns - 1).right();
+                    int remainder = dimensions[0] - 8 - cards.get(columns - 1).right();
                     assertTrue(remainder >= 0 && remainder < columns);
                 }
             }
@@ -547,7 +629,7 @@ final class AddSourceModelPresenterTest {
         Bounds sparkleCard = hiddenView.widget("add.catalog.skin:mixed:dual").orElseThrow().bounds();
         Bounds sparkleBounds = hiddenView.widget(sparkleId).orElseThrow().bounds();
         assertEquals(sparkleCard.x() + 2, sparkleBounds.x());
-        assertEquals(sparkleCard.bottom() - 2, sparkleBounds.bottom());
+        assertEquals(sparkleCard.y() + 2, sparkleBounds.y());
         assertTrue(hiddenView.widget("add.catalog.collection:blocked").isEmpty());
 
         AddSourceModel visible = openCatalog(List.of(mixed, blocked))
@@ -944,30 +1026,30 @@ final class AddSourceModelPresenterTest {
         ViewSpec narrow = presenter.present(model, false, 320, 240);
         assertCompactCatalogLayout(
                 narrow,
-                4,
-                new Bounds(16, 58, 290, 16),
-                new Bounds(16, 78, 68, 98),
-                new Bounds(20, 85, 60, 10),
-                new Bounds(21, 98, 58, 73));
+                6,
+                new Bounds(8, 58, 304, 16),
+                new Bounds(8, 78, 49, 96),
+                new Bounds(12, 162, 41, 10),
+                new Bounds(8, 78, 49, 96));
 
 
         ViewSpec scaledDefault = presenter.present(model, false, 427, 240);
         assertCompactCatalogLayout(
                 scaledDefault,
-                5,
-                new Bounds(16, 58, 397, 16),
-                new Bounds(16, 78, 74, 98),
-                new Bounds(20, 85, 66, 10),
-                new Bounds(21, 98, 64, 73));
+                8,
+                new Bounds(8, 58, 411, 16),
+                new Bounds(8, 78, 49, 96),
+                new Bounds(12, 162, 41, 10),
+                new Bounds(8, 78, 49, 96));
 
         ViewSpec canonical = presenter.present(model, false, 854, 480);
         assertCompactCatalogLayout(
                 canonical,
                 9,
-                new Bounds(16, 58, 824, 16),
-                new Bounds(16, 78, 69, 109),
-                new Bounds(20, 85, 61, 10),
-                new Bounds(21, 98, 59, 84));
+                new Bounds(8, 58, 838, 16),
+                new Bounds(8, 78, 50, 96),
+                new Bounds(12, 162, 42, 10),
+                new Bounds(8, 78, 50, 96));
         assertEquals(
                 9,
                 canonical.previews().size(),
@@ -977,41 +1059,44 @@ final class AddSourceModelPresenterTest {
         assertCompactCatalogLayout(
                 wide,
                 9,
-                new Bounds(16, 58, 1570, 16),
-                new Bounds(16, 78, 69, 109),
-                new Bounds(20, 85, 61, 10),
-                new Bounds(21, 98, 59, 84));
+                new Bounds(8, 58, 1584, 16),
+                new Bounds(8, 78, 49, 96),
+                new Bounds(12, 162, 41, 10),
+                new Bounds(8, 78, 49, 96));
     }
 
     @Test
     void personalSkinCardGeometryIsStableAcrossAdaptiveHeights() {
         String personalHash = hash('p');
         AddSourceModel model = openCatalog(personalCollection(
-                skin(personalHash, "Personal hero", SkinModel.CLASSIC)));
+                skin(personalHash, "Personal hero", SkinModel.CLASSIC))).withScrollOffset(10_000);
 
         for (int[] size : new int[][] {{320, 186}, {320, 221}, {320, 251}}) {
             ViewSpec view = presenter.present(model, false, size[0], size[1]);
             String prefix = "add.catalog.skin:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash;
             Bounds card = view.widget(prefix).orElseThrow().bounds();
-            int expectedHeight = Math.min(132, Math.max(72, size[1] - 119));
-            assertEquals(new Bounds(16, 78, 68, expectedHeight), card);
-            assertEquals(new Bounds(20, 85, 60, 10), view.texts().stream()
+            assertEquals(96, card.height());
+            assertEquals(49, card.width());
+            assertEquals(8, card.x());
+            assertEquals(new Bounds(card.x() + 4, card.bottom() - 12, card.width() - 18, 10), view.texts().stream()
                     .filter(text -> text.id().equals(prefix + ".name"))
                     .findFirst().orElseThrow().bounds());
-            assertEquals(new Bounds(21, 98, 58, expectedHeight - 48), view.previews().stream()
+            assertEquals(card, view.previews().stream()
                     .filter(preview -> preview.id().equals(prefix + ".preview"))
                     .findFirst().orElseThrow().bounds());
-            ViewSpec.Widget rename = view.widget(
+            ViewSpec expanded = presenter.present(model, false, Optional.empty(), size[0], size[1], Optional.empty(),
+                    ViewChromeMetrics.STANDARD, Optional.of(new PersonalCatalogAction(PersonalSkinCatalog.COLLECTION_ID, personalHash)));
+            assertEquals(card, expanded.widget(prefix).orElseThrow().bounds());
+            assertTrue(view.widget("add.catalog.rename:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).isEmpty());
+            ViewSpec.Widget rename = expanded.widget(
                     "add.catalog.rename:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
                     .orElseThrow();
-            ViewSpec.Widget delete = view.widget(
+            ViewSpec.Widget delete = expanded.widget(
                     "add.catalog.delete:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
                     .orElseThrow();
-            CatalogCardGeometry.ActionPair legacyRenameActions = CatalogCardGeometry.renameActions(card);
-            assertNotEquals(rename.bounds(), legacyRenameActions.left());
-            assertNotEquals(delete.bounds(), legacyRenameActions.right());
-            assertEquals(new Bounds(18, card.bottom() - 22, 31, 20), rename.bounds());
-            assertEquals(new Bounds(51, card.bottom() - 22, 31, 20), delete.bounds());
+
+            assertEquals(new Bounds(card.x() + 2, card.bottom() - 22, 21, 20), rename.bounds());
+            assertEquals(new Bounds(rename.bounds().right() + 2, card.bottom() - 22, 22, 20), delete.bounds());
 
             ViewSpec renamed = presenter.present(
                     model,
@@ -1021,8 +1106,8 @@ final class AddSourceModelPresenterTest {
                     size[1],
                     Optional.of(new AddSourcePresenter.PersonalSkinRename(
                             PersonalSkinCatalog.COLLECTION_ID, personalHash, "Renamed hero")));
-            assertEquals(new Bounds(19, 81, 62, 20), renamed.widget("add.catalog.rename.name")
-                    .orElseThrow().bounds());
+            var renameField = renamed.widget("add.catalog.rename.name").orElseThrow();
+            assertEquals(new Bounds(card.x() + 3, card.y() + 3, card.width() - 6, 20), renameField.bounds());
             ViewSpec.Widget save = renamed.widget("add.catalog.rename.save").orElseThrow();
             ViewSpec.Widget cancel = renamed.widget("add.catalog.rename.cancel").orElseThrow();
             assertEquals(rename.bounds(), save.bounds());
@@ -1035,6 +1120,11 @@ final class AddSourceModelPresenterTest {
             assertEquals("gui.cancel", cancel.label().key());
             assertTrue(save.enabled());
             assertTrue(cancel.enabled());
+            var prompt = renamed.texts().stream().filter(t -> t.id().equals(prefix + ".rename_prompt"))
+                    .findFirst().orElseThrow();
+            assertEquals(UiMessage.info("nclskins.catalog.rename_confirmation"), prompt.message());
+            assertTrue(prompt.bounds().y() >= renameField.bounds().bottom());
+            assertTrue(prompt.bounds().bottom() <= save.bounds().y());
 
             ViewSpec emptyRename = presenter.present(
                     model,
@@ -1059,7 +1149,7 @@ final class AddSourceModelPresenterTest {
                 .widget("add.catalog.collection:minecraft")
                 .orElseThrow();
         assertEquals(ViewSpec.WidgetKind.COLLECTION_HEADER, expandedHeader.kind());
-        assertEquals(new Bounds(16, 58, 824, 16), expandedHeader.bounds());
+        assertEquals(new Bounds(8, 58, 838, 16), expandedHeader.bounds());
         assertEquals("▼ Minecraft", expandedHeader.label().key());
         assertTrue(expandedHeader.label().literal());
         assertFalse(expandedHeader.label().key().contains("─"));
@@ -1069,7 +1159,7 @@ final class AddSourceModelPresenterTest {
                 .widget("add.catalog.collection:minecraft")
                 .orElseThrow();
         assertEquals("▶ Minecraft", collapsedHeader.label().key());
-        assertEquals(new Bounds(16, 58, 824, 16), collapsedHeader.bounds());
+        assertEquals(new Bounds(8, 58, 838, 16), collapsedHeader.bounds());
     }
 
     @Test
@@ -1111,7 +1201,7 @@ final class AddSourceModelPresenterTest {
                 .orElseThrow()
                 .bounds();
         assertEquals(skinName, skinTooltip.textBounds());
-        assertEquals(new Bounds(skinName.x() + (skinName.width() - 30) / 2,
+        assertEquals(new Bounds(skinName.x(),
                 skinName.y(), 30, skinName.height()), skinTooltip.hitBounds(30));
         assertEquals(Optional.of(viewport), view.clipFor(collectionTooltip.id()));
         assertEquals(Optional.of(viewport), view.clipFor(skinTooltip.id()));
@@ -1191,7 +1281,7 @@ final class AddSourceModelPresenterTest {
     void catalogKeepsStaticVisibleOnlyPreviewsAndVerticalScroll() {
         SkinCatalogSource.CollectionDescriptor collection = collection(
                 "minecraft",
-                IntStream.range(0, 40)
+                IntStream.range(0, 80)
                         .mapToObj(index -> skin(
                                 "skin-" + index,
                                 "Skin " + index,
@@ -1201,23 +1291,23 @@ final class AddSourceModelPresenterTest {
         AddSourceModel model = openCatalog(collection);
 
         ViewSpec narrow = presenter.present(model, false, 320, 240);
-        assertEquals(4, distinctPreviewColumns(narrow));
+        assertEquals(6, distinctPreviewColumns(narrow));
         assertFalse(narrow.previews().isEmpty());
 
         ViewSpec canonical = presenter.present(model, false, 854, 480);
-        assertEquals(11, distinctPreviewColumns(canonical));
+        assertEquals(16, distinctPreviewColumns(canonical));
         assertTrue(canonical.previews().size() <= distinctPreviewColumns(canonical) * 4);
         assertTrue(canonical.previews().stream().allMatch(preview -> preview.catalogImage().isPresent()));
         assertTrue(canonical.previews().stream().allMatch(preview -> preview.yawDegrees() == -20.0F));
         assertTrue(canonical.previews().stream().allMatch(preview -> preview.pitchDegrees() == 0.0F));
         assertTrue(canonical.previews().stream().allMatch(preview -> preview.capeMode() == PreviewRenderer.CapeMode.OFF));
         List<ViewSpec.NavigationNode> catalogNodes = narrow.navigationNodes().stream()
-                .filter(node -> node.id().startsWith("add.catalog.skin:"))
+                .filter(node -> node.id().startsWith("add.catalog.skin:") && node.pattern() == ViewSpec.NavigationPattern.GRID)
                 .toList();
         long materializedCards = narrow.widgets().stream()
-                .filter(widget -> widget.id().startsWith("add.catalog.skin:"))
+                .filter(widget -> widget.id().startsWith("add.catalog.skin:") && widget.kind() == ViewSpec.WidgetKind.CATALOG_CARD)
                 .count();
-        assertEquals(40, catalogNodes.size());
+        assertEquals(80, catalogNodes.size());
         assertTrue(materializedCards < catalogNodes.size());
         assertTrue(narrow.previews().size() < catalogNodes.size());
         assertTrue(catalogNodes.stream().allMatch(node ->
@@ -1375,7 +1465,7 @@ final class AddSourceModelPresenterTest {
                 .findFirst().orElseThrow();
         assertEquals(Optional.of(viewport), partialCard.clipFor(skinTooltip.id()));
 
-        ViewSpec cardSliver = presenter.present(model.withScrollOffset(37), false, 320, 240);
+        ViewSpec cardSliver = presenter.present(model.withScrollOffset(114), false, 320, 240);
         assertTrue(cardSliver.widget("add.catalog.skin:minecraft:skin-0").isPresent());
         assertTrue(cardSliver.tooltipRegions().stream().noneMatch(region ->
                 region.id().equals("add.catalog.tooltip:skin:minecraft:skin-0")));
@@ -1510,7 +1600,8 @@ final class AddSourceModelPresenterTest {
                         .map(SkinCatalogSource.CollectionDescriptor::id)
                         .toList());
 
-        ViewSpec view = presenter.present(model, false, 1600, 720);
+        ViewSpec view = presenter.present(model, false, Optional.empty(), 1600, 720, Optional.empty(),
+                ViewChromeMetrics.STANDARD, Optional.of(new PersonalCatalogAction(PersonalSkinCatalog.COLLECTION_ID, personalHash)));
         ViewSpec.Widget delete = view.widget("add.catalog.delete:"
                 + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).orElseThrow();
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, delete.kind());
@@ -1536,11 +1627,11 @@ final class AddSourceModelPresenterTest {
         assertTrue(card.contains(delete.bounds().right() - 1, delete.bounds().bottom() - 1));
         assertEquals(2, rename.bounds().x() - card.x());
         assertEquals(2, delete.bounds().x() - rename.bounds().right());
-        assertEquals(2, card.right() - delete.bounds().right());
+        assertTrue(card.right() - delete.bounds().right() >= 2);
     }
 
     @Test
-    void personalRenameDisablesActionsOnOtherCatalogCards() {
+    void personalRenameLeavesOtherCatalogCardsAndTheirTogglesEnabled() {
         String firstHash = hash('a');
         String secondHash = hash('b');
         AddSourceModel model = openCatalog(List.of(personalCollection(
@@ -1557,13 +1648,13 @@ final class AddSourceModelPresenterTest {
                         PersonalSkinCatalog.COLLECTION_ID, firstHash, "First")));
 
         assertTrue(view.widget("add.catalog.rename.name").orElseThrow().enabled());
-        assertFalse(view.widget("add.catalog.rename:"
+        assertTrue(view.widget("add.catalog.more:"
                 + PersonalSkinCatalog.COLLECTION_ID + ':' + secondHash).orElseThrow().enabled());
-        assertFalse(view.widget("add.catalog.delete:"
-                + PersonalSkinCatalog.COLLECTION_ID + ':' + secondHash).orElseThrow().enabled());
-        assertTrue(view.navigationNodes().stream()
-                .filter(node -> node.id().startsWith("add.catalog.skin:"))
-                .allMatch(node -> !node.enabled()));
+        assertTrue(view.widget("add.catalog.skin:" + PersonalSkinCatalog.COLLECTION_ID + ':' + secondHash).orElseThrow().enabled());
+        String openedCard = "add.catalog.skin:" + PersonalSkinCatalog.COLLECTION_ID + ':' + firstHash;
+        assertTrue(view.navigationNode(openedCard).orElseThrow().enabled());
+        assertFalse(view.widget(openedCard).orElseThrow().activationEnabled());
+        assertTrue(view.navigationNode("add.catalog.skin:" + PersonalSkinCatalog.COLLECTION_ID + ':' + secondHash).orElseThrow().enabled());
     }
 
     @Test
@@ -1635,60 +1726,23 @@ final class AddSourceModelPresenterTest {
 
     @Test
     void partiallyVisiblePersonalDeleteConfirmationUsesTheCatalogViewportClip() {
-        String topHash = hash('d');
-        SkinCatalogSource.SkinDescriptor topSkin =
-                skin(topHash, "Top hero", SkinModel.CLASSIC);
-        SkinCatalogSource.CollectionDescriptor topCollection = personalCollection(topSkin);
-        AddSourceModel topModel = openCatalog(List.of(
-                topCollection, MinecraftSkinCatalog.collections().get(0)))
-                .withScrollOffset(120);
-        ViewSpec topActionView = presenter.present(topModel, false, 320, 240);
-        Bounds viewport = topActionView.clipRegions().stream()
-                .filter(region -> region.id().equals("add.catalog.viewport"))
-                .findFirst()
-                .orElseThrow()
-                .bounds();
-        String topActionId = "add.catalog.delete:"
-                + PersonalSkinCatalog.COLLECTION_ID + ":" + topHash;
-        ViewSpec.Widget topAction = topActionView.widget(topActionId).orElseThrow();
-        assertTrue(topAction.bounds().y() < viewport.y());
-        assertEquals(Optional.of(viewport), topActionView.clipFor(topActionId));
-
-        ViewSpec topConfirmation = presenter.present(
-                topModel.requestPersonalSkinDeletion(topCollection, topSkin), false, 320, 240);
-        for (String id : List.of("add.catalog.delete.confirm", "add.catalog.delete.cancel")) {
-            ViewSpec.Widget overlay = topConfirmation.widget(id).orElseThrow();
-            assertTrue(overlay.bounds().y() < viewport.y());
-            assertTrue(intersects(overlay.bounds(), viewport));
-            assertEquals(Optional.of(viewport), topConfirmation.clipFor(id));
-        }
-
-        List<SkinCatalogSource.SkinDescriptor> bottomSkins = IntStream.range(0, 5)
-                .mapToObj(index -> skin(
-                        hash((char) ('1' + index)),
-                        "Bottom hero " + index,
-                        SkinModel.CLASSIC))
-                .toList();
-        SkinCatalogSource.CollectionDescriptor bottomCollection = personalCollection(
-                bottomSkins.toArray(SkinCatalogSource.SkinDescriptor[]::new));
-        SkinCatalogSource.SkinDescriptor bottomSkin = bottomSkins.get(4);
-        AddSourceModel bottomModel = openCatalog(List.of(
-                bottomCollection, MinecraftSkinCatalog.collections().get(0)))
-                .withScrollOffset(105);
-        String bottomActionId = "add.catalog.delete:"
-                + PersonalSkinCatalog.COLLECTION_ID + ":" + bottomSkin.id();
-        ViewSpec bottomActionView = presenter.present(bottomModel, false, 320, 240);
-        ViewSpec.Widget bottomAction = bottomActionView.widget(bottomActionId).orElseThrow();
-        assertTrue(bottomAction.bounds().bottom() > viewport.bottom());
-        assertEquals(Optional.of(viewport), bottomActionView.clipFor(bottomActionId));
-
-        ViewSpec bottomConfirmation = presenter.present(
-                bottomModel.requestPersonalSkinDeletion(bottomCollection, bottomSkin), false, 320, 240);
-        for (String id : List.of("add.catalog.delete.confirm", "add.catalog.delete.cancel")) {
-            ViewSpec.Widget overlay = bottomConfirmation.widget(id).orElseThrow();
-            assertTrue(overlay.bounds().bottom() > viewport.bottom());
-            assertTrue(intersects(overlay.bounds(), viewport));
-            assertEquals(Optional.of(viewport), bottomConfirmation.clipFor(id));
+        var skins = IntStream.range(0, 20).mapToObj(index -> skin(String.format(java.util.Locale.ROOT, "%064x", index + 1),
+                "Hero " + index, SkinModel.CLASSIC)).toList();
+        var collection = personalCollection(skins.toArray(SkinCatalogSource.SkinDescriptor[]::new));
+        var model = openCatalog(collection);
+        for (int[] scenario : new int[][] {{0, 96}, {6, 52}}) {
+            var skin = skins.get(scenario[0]);
+            var confirmation = presenter.present(model.withScrollOffset(scenario[1])
+                    .requestPersonalSkinDeletion(collection, skin), false, 320, 240);
+            for (String id : List.of("add.catalog.delete.confirm", "add.catalog.delete.cancel")) {
+                var button = confirmation.widget(id).orElseThrow();
+                Bounds viewport = confirmation.clipFor(id).orElseThrow();
+                assertTrue(intersects(button.bounds(), viewport));
+                assertTrue(scenario[0] == 0 ? button.bounds().y() < viewport.y()
+                        : button.bounds().bottom() > viewport.bottom());
+                assertEquals(Optional.empty(), ViewHostPolicy.pointerOwnerAt(confirmation,
+                        button.bounds().x() + 1, scenario[0] == 0 ? viewport.y() - 1 : viewport.bottom()));
+            }
         }
     }
 
@@ -1700,7 +1754,7 @@ final class AddSourceModelPresenterTest {
 
         ViewSpec catalog = presenter.present(model, false, 1600, 120);
 
-        assertEquals(16, catalog.widget("add.catalog.skin:"
+        assertEquals(8, catalog.widget("add.catalog.skin:"
                 + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
                 .orElseThrow()
                 .bounds()
@@ -1712,7 +1766,10 @@ final class AddSourceModelPresenterTest {
         String personalHash = hash('b');
         SkinCatalogSource.SkinDescriptor personalSkin =
                 skin(personalHash, "Your hero", SkinModel.CLASSIC, SkinModel.SLIM);
-        SkinCatalogSource.CollectionDescriptor personal = personalCollection(personalSkin);
+        SkinCatalogSource.CollectionDescriptor personal = personalCollection(java.util.stream.Stream.concat(
+                java.util.stream.Stream.of(personalSkin), IntStream.range(0, 12).mapToObj(index ->
+                        skin(hash((char) ('c' + index)), "Other hero " + index, SkinModel.CLASSIC)))
+                .toArray(SkinCatalogSource.SkinDescriptor[]::new));
         AddSourceModel unscrolled = AddSourceModel.open(
                         new AccountUiPreferences(
                                 AccountUiPreferences.CURRENT_SCHEMA_VERSION,
@@ -1726,7 +1783,8 @@ final class AddSourceModelPresenterTest {
                 .scrollSurface("add.catalog").orElseThrow().offsetPixels();
         assertEquals(5, preservedScroll, "arbitrary in-range pixel offsets must not snap to rows");
         AddSourceModel catalog = unscrolled.withScrollOffset(preservedScroll);
-        assertTrue(presenter.present(catalog, false, 320, 240)
+        assertTrue(presenter.present(catalog, false, Optional.empty(), 320, 240, Optional.empty(),
+                        ViewChromeMetrics.STANDARD, Optional.of(new PersonalCatalogAction(PersonalSkinCatalog.COLLECTION_ID, personalHash)))
                 .widget("add.catalog.delete:"
                         + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
                 .isPresent());
@@ -1754,13 +1812,12 @@ final class AddSourceModelPresenterTest {
         assertEquals(Optional.of(NativeGuiIcon.REJECT),
                 confirmationView.widget("add.catalog.delete.cancel").orElseThrow().icon());
         ViewSpec catalogView = presenter.present(catalog, false, 320, 240);
-        assertEquals(
-                catalogView.widget("add.catalog.rename:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
-                        .orElseThrow().bounds(),
+        Bounds card = catalogView.widget("add.catalog.skin:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash).orElseThrow().bounds();
+        int leftWidth = (card.width() - 6) / 2;
+        int rightX = card.x() + 4 + leftWidth;
+        assertEquals(new Bounds(card.x() + 2, card.bottom() - 22, leftWidth, 20),
                 confirmationView.widget("add.catalog.delete.confirm").orElseThrow().bounds());
-        assertEquals(
-                catalogView.widget("add.catalog.delete:" + PersonalSkinCatalog.COLLECTION_ID + ":" + personalHash)
-                        .orElseThrow().bounds(),
+        assertEquals(new Bounds(rightX, card.bottom() - 22, card.right() - 2 - rightX, 20),
                 confirmationView.widget("add.catalog.delete.cancel").orElseThrow().bounds());
         assertEquals(
                 Optional.of("add.catalog.delete.confirm"),
@@ -1780,7 +1837,8 @@ final class AddSourceModelPresenterTest {
         assertFalse(busyView.widget("add.catalog.delete.cancel").orElseThrow().enabled());
 
         AddSourceModel cancelled = confirmation.cancelPersonalSkinDeletion();
-        ViewSpec restored = presenter.present(cancelled, false, 320, 240);
+        ViewSpec restored = presenter.present(cancelled, false, Optional.empty(), 320, 240, Optional.empty(),
+                ViewChromeMetrics.STANDARD, Optional.of(new PersonalCatalogAction(PersonalSkinCatalog.COLLECTION_ID, personalHash)));
         assertTrue(cancelled.personalSkinDeletion().isEmpty());
         assertEquals(catalog.query(), cancelled.query());
         assertEquals(catalog.filter(), cancelled.filter());
@@ -1896,9 +1954,10 @@ final class AddSourceModelPresenterTest {
                 "the transparent native card action must participate in focus traversal");
         assertEquals(expectedTitle, title.bounds());
         assertEquals(expectedPreview, preview.bounds());
-        assertTrue(title.bounds().bottom() <= preview.bounds().y(), "the title belongs above the model");
+        assertTrue(title.bounds().bottom() <= preview.bounds().bottom(), "the title overlays the model bottom");
         assertEquals(1, view.texts().stream().filter(text -> text.id().startsWith(prefix)).count());
-        assertEquals(1, view.widgets().stream().filter(widget -> widget.id().startsWith(prefix)).count());
+        assertEquals(List.of(prefix, prefix + ".title_control"),
+                view.widgets().stream().filter(widget -> widget.id().startsWith(prefix)).map(ViewSpec.Widget::id).toList());
     }
 
     private static void assertViewFitsViewport(ViewSpec view) {

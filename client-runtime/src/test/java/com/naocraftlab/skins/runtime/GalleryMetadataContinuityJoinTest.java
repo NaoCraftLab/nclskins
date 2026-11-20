@@ -185,6 +185,8 @@ final class GalleryMetadataContinuityJoinTest {
         var f = fixture();
         try {
             star(f,B);
+            f.runtime.dispatchWidget("gallery.preset." + B + ".more");
+            assertTrue(f.view().widget(f.card(B)).orElseThrow().activationEnabled());
             f.selectB();
             var candidate = f.runtime.galleryPreviewCandidate().orElseThrow();
             f.runtime.dispatchText("gallery.search","B");

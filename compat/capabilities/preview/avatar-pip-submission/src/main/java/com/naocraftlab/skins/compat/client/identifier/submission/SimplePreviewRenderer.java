@@ -217,7 +217,7 @@ public final class SimplePreviewRenderer
 
     @Override
     public void render(GuiGraphics graphics, BackEquipmentPreviewRenderer.Request request) {
-        if (imageSource == null) imageSession.beginImage(java.util.List.of(request.texture(), request.mode(), request.capeHasElytra()));
+        if (imageSource == null) imageSession.beginImage(java.util.List.of(request.texture(), request.mode(), request.capeHasElytra(), request.fitPolicy()));
         if (!imageSession.imageVisible() && !imageSession.imagePreparing()) return;
         if (imageSession.imageSpinner()) {
             var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) imageSession.imageFrame() * 100_000_000L,
@@ -228,7 +228,7 @@ public final class SimplePreviewRenderer
         }
         if (imageSession.imageVisible()) { renderEquipment(graphics, request, null); return; }
         var hidden = new BackEquipmentPreviewRenderer.Request(request.texture(), request.mode(), -request.width() - 1,
-                request.top(), request.width(), request.height(), request.capeHasElytra());
+                request.top(), request.width(), request.height(), request.capeHasElytra(), request.fitPolicy());
         var completion = imageSession.imagePreparation(() -> true);
         renderEquipment(graphics, hidden, completion);
     }
@@ -245,7 +245,7 @@ public final class SimplePreviewRenderer
         Identifier texture = Identifier.parse(request.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA && !request.capeHasElytra()
                         ? "minecraft:textures/entity/equipment/wings/elytra.png" : request.texture().location());
         float scale = VanillaBackEquipmentTransform.fitScale(
-                request.width(), request.height());
+                request.width(), request.height(), request.mode(), request.fitPolicy());
         BakedPreviewRenderState state = new BakedPreviewRenderState(
                 target,
                 null,
@@ -263,7 +263,7 @@ public final class SimplePreviewRenderer
                 request.left() + request.width(),
                 request.top() + request.height(),
                 0.0F,
-                0.0F,
+                VanillaBackEquipmentTransform.modelOffsetY(request.mode(), request.fitPolicy()),
                 scale,
                 false,
                 true,

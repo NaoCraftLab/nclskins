@@ -278,8 +278,7 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
                 || showingAccountLink || runtime.closed() || currentView == null) return Optional.empty();
         ViewSpec current = runtime.view(width, height, lastMouseX, lastMouseY);
         if (!"preset_editor".equals(current.screenId()) && !"providers".equals(current.screenId())) return Optional.empty();
-        return current.texts().stream().filter(text -> text.id().equals("editor.preview.error"))
-                .findFirst().map(text -> MinecraftClientComponents.resolve(text.message()));
+        return ViewHostPolicy.previewErrorMessage(current).map(MinecraftClientComponents::resolve);
     }
 
     private Optional<Component> importStatusNarration() {
@@ -635,6 +634,11 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
     }
 
     private boolean focusWidget(String widgetId) {
+        var addTabs = nativeTabGroups.get("add.tabs");
+        if (addTabs != null && widgetId.equals("add.tabs")) {
+            setFocused(addTabs.bar());
+            return true;
+        }
         AbstractWidget target = nativeWidgets.get(widgetId);
         if (target != null && GuiExtraction.isVisible(target) && target.active) {
             setFocused(target);
@@ -645,6 +649,8 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
 
     private String currentFocusedWidgetId() {
         Object focused = getFocused();
+        var addTabs = nativeTabGroups.get("add.tabs");
+        if (addTabs != null && focused == addTabs.bar()) return "add.tabs";
         return nativeWidgets.entrySet().stream()
                 .filter(entry -> entry.getValue() == focused)
                 .map(Map.Entry::getKey)
@@ -716,6 +722,7 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
         NativeSurfaceAdapter.drawFrameSeparators(graphics, view, width, height);
         drawScrollbar(graphics, view, mouseX, mouseY);
         if ("gallery".equals(view.screenId())) renderSurfaceOverlays(graphics, view);
+        else renderCompactMenuScrims(graphics, view);
         graphics.nextStratum();
         extractRenderablesClipped(graphics, view, mouseX, mouseY, partialTick);
         if (!"gallery".equals(view.screenId())) renderSurfaceOverlays(graphics, view);
@@ -741,8 +748,18 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
         }
     }
 
+    private void renderCompactMenuScrims(GuiGraphicsExtractor graphics, ViewSpec view) {
+        for (ViewSpec.Panel panel : view.panels()) {
+            if (panel.style() != ViewSpec.Panel.Style.COMPACT_MENU_SCRIM) continue;
+            Bounds b = panel.bounds();
+            drawClipped(graphics, view, panel.id(), () -> graphics.fill(b.x(), b.y(), b.right(), b.bottom(),
+                    ViewHostPolicy.panelOverlayColor(panel.style())));
+        }
+    }
+
     private void renderSurfaceOverlays(GuiGraphicsExtractor graphics, ViewSpec view) {
         for (ViewSpec.Panel panel : view.panels()) {
+            if (panel.style() == ViewSpec.Panel.Style.COMPACT_MENU_SCRIM) continue;
             int color = ViewHostPolicy.panelOverlayColor(view.screenId(), panel.style());
             if (color == 0) continue;
             Bounds b = panel.bounds();
@@ -750,21 +767,21 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
         }
         for (ViewSpec.Widget widget : view.widgets()) {
             if (!widget.visible() || widget.kind() != ViewSpec.WidgetKind.TRANSPARENT_BUTTON) continue;
-            Bounds b = widget.bounds();
-            drawClipped(graphics, view, widget.id(), () -> graphics.centeredText(font, MinecraftClientComponents.resolve(ViewHostPolicy.transparentLabel(widget)),
-                    widget.id().endsWith(".more") ? b.right()-6 : b.x() + b.width() / 2, ViewHostPolicy.transparentTextY(widget,font.lineHeight),
-                    widget.enabled() ? 0xFFFFFFFF : 0xFFA0A0A0));
-            if (keyboardNavigationActive() && Optional.ofNullable(nativeWidgets.get(widget.id())).map(AbstractWidget::isFocused).orElse(false)) {
-                drawClipped(graphics, view, widget.id(), () -> extractCardFocusFrame(graphics, b.x(), b.y(), b.width(), b.height()));
-            }
+            ViewHostPolicy.transparentLabel(widget).ifPresent(label -> drawClipped(graphics, view, widget.id(),
+                    () -> graphics.centeredText(font, MinecraftClientComponents.resolve(label),
+                    ViewHostPolicy.transparentTextX(widget), ViewHostPolicy.transparentTextY(widget,font.lineHeight),
+                    widget.enabled() ? 0xFFFFFFFF : 0xFFA0A0A0)));
         }
     }
 
     private void renderStateFrames(GuiGraphicsExtractor graphics, ViewSpec view) {
         for (ViewSpec.Widget widget : view.widgets()) {
             boolean cape="gallery".equals(view.screenId()) && widget.id().startsWith("gallery.inspect.") && widget.kind()==ViewSpec.WidgetKind.CAPE_CARD;
-            if (!widget.visible() || !cape && (widget.kind() != ViewSpec.WidgetKind.CATALOG_CARD || widget.value().isEmpty())) continue;
+            boolean model = widget.kind() == ViewSpec.WidgetKind.CAPE_CARD && widget.id().startsWith("editor.model_choice.");
+            if (!widget.visible() || !cape && !model && widget.kind() != ViewSpec.WidgetKind.CATALOG_CARD
+                    && widget.kind() != ViewSpec.WidgetKind.TRANSPARENT_BUTTON) continue;
             boolean focused = keyboardNavigationActive() && Optional.ofNullable(nativeWidgets.get(widget.id())).map(AbstractWidget::isFocused).orElse(false);
+            if (!cape && !focused && ViewHostPolicy.cardFrameColor(widget, false) == 0) continue;
             var segments = cape ? ViewHostPolicy.galleryCapePaint(view,widget,lastMouseX,lastMouseY,focused) : ViewHostPolicy.cardFrameSegments(widget, focused);
             drawClipped(graphics, view, widget.id(), () -> {
                 for (var segment : segments) {
@@ -1236,12 +1253,14 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
             ViewSpec.Text text,
             int mouseX,
             int mouseY) {
-            if (text.id().startsWith("gallery.preset.") && text.id().endsWith(".name")) {
-                var arrow=view.widget(text.id().substring(0,text.id().length()-5)+".more");
-                if (arrow.isPresent()) text=ViewHostPolicy.galleryNameText(view,text,font.width(MinecraftClientComponents.resolve(ViewHostPolicy.transparentLabel(arrow.orElseThrow()))));
-            }
-            Component component = MinecraftClientComponents.resolve(text.message());
-            int color = textColor(text);
+        var arrow = ViewHostPolicy.cardTitleToggle(view, text);
+        if (arrow.isPresent()) {
+            int arrowWidth = arrow.flatMap(ViewHostPolicy::transparentLabel)
+                    .map(label -> font.width(MinecraftClientComponents.resolve(label))).orElse(0);
+            text = ViewHostPolicy.galleryNameText(view, text, arrowWidth);
+        }
+        Component component = MinecraftClientComponents.resolve(text.message());
+        int color = textColor(text);
         if (text.layout() == ViewSpec.Text.Layout.COLLECTION_HEADER) {
             String fitted = font.plainSubstrByWidth(component.getString(), CollectionHeaderStyle.maximumLabelWidth(text.bounds()));
             Component visible = Component.literal(fitted);
@@ -1371,9 +1390,9 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
         for (ViewSpec.BackEquipmentPreview backEquipment : view.backEquipmentPreviews()) {
             visibleIds.add(backEquipment.id());
             var preparation = capeTextures.imageState(ViewHostPolicy.cardCapeKey(backEquipment), backEquipment.capeId());
-            if (backEquipment.projection() == ViewSpec.BackEquipmentPreview.Projection.EQUIPMENT) {
+            if (backEquipment.projection() != ViewSpec.BackEquipmentPreview.Projection.PROVIDER_THUMBNAIL) {
                 backEquipmentRenderers.computeIfAbsent(backEquipment.id(), ignored -> new AvatarPipPreviewRenderer())
-                        .prepareImage(java.util.List.of(backEquipment.capeId(), backEquipment.mode(), backEquipment.capeHasElytra()),
+                        .prepareImage(java.util.List.of(backEquipment.capeId(), backEquipment.mode(), backEquipment.capeHasElytra(), backEquipment.fitPolicy()),
                                 preparation.status() == PreviewAssetCache.ImageStatus.PREPARING ? preparation.startedNanos() : System.nanoTime(),
                                 preparation.status() != PreviewAssetCache.ImageStatus.PREPARING);
             }
@@ -1403,7 +1422,7 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
                                     bounds.x(),
                                     bounds.y(),
                                     bounds.width(),
-                                    bounds.height(), backEquipment.capeHasElytra())));
+                                    bounds.height(), backEquipment.capeHasElytra(), backEquipment.fitPolicy())));
         }
         closeMissingRenderers(backEquipmentRenderers, visibleIds);
     }
@@ -1837,7 +1856,9 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
                     surfaceKey, backEquipment.capeId(),
                     () -> runtime.openPreparedCapePreview(backEquipment.capeId(), true),
                     () -> runtime.loadCapePreview(backEquipment.capeId()),
-                    ViewHostPolicy.capeCardHovered(view, backEquipment, lastMouseX, lastMouseY), () -> {});
+                    ViewHostPolicy.capeCardPlaying(view, backEquipment, lastMouseX, lastMouseY,
+                            backEquipment.projection() == ViewSpec.BackEquipmentPreview.Projection.CATALOG_CARD
+                                    && keyboardNavigationActive() ? currentFocusedWidgetId() : null), () -> {});
             runtime.reconcileCapePreviewIdentity(backEquipment.capeId(),
                     capeTextures.capeVisualIdentity(surfaceKey, backEquipment.capeId()));
         }

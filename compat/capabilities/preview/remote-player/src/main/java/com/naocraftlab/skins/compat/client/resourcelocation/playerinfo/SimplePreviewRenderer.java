@@ -277,7 +277,7 @@ public final class SimplePreviewRenderer
 
     @Override
     public void render(GuiGraphics graphics, BackEquipmentPreviewRenderer.Request request) {
-        if (imageSource == null) imageSession.beginImage(java.util.List.of(request.texture(), request.mode(), request.capeHasElytra()));
+        if (imageSource == null) imageSession.beginImage(java.util.List.of(request.texture(), request.mode(), request.capeHasElytra(), request.fitPolicy()));
         if (!imageSession.imageVisible() && !imageSession.imagePreparing()) return;
         if (imageSession.imageSpinner()) {
             var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) imageSession.imageFrame() * 100_000_000L,
@@ -287,7 +287,7 @@ public final class SimplePreviewRenderer
         }
         if (imageSession.imageVisible()) { renderEquipment(graphics, request); return; }
         var hidden = new BackEquipmentPreviewRenderer.Request(request.texture(), request.mode(), -request.width() - 1,
-                request.top(), request.width(), request.height(), request.capeHasElytra());
+                request.top(), request.width(), request.height(), request.capeHasElytra(), request.fitPolicy());
         var completion = imageSession.imagePreparation(() -> true);
         try {
             renderEquipment(graphics, hidden);
@@ -305,10 +305,11 @@ public final class SimplePreviewRenderer
         pose.pushPose();
         try {
             float scale = VanillaBackEquipmentTransform.fitScale(
-                    request.width(), request.height());
+                    request.width(), request.height(), request.mode(), request.fitPolicy());
             pose.translate(
                     request.left() + request.width() / 2.0F,
-                    request.top() + request.height() / 2.0F,
+                    request.top() + request.height() / 2.0F
+                            + scale * VanillaBackEquipmentTransform.modelOffsetY(request.mode(), request.fitPolicy()),
                     GUI_DEPTH);
             VanillaBackEquipmentTransform.applyStandalone(
                     pose, scale, BACK_EQUIPMENT_OPERATIONS);

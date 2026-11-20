@@ -81,6 +81,8 @@ final class GalleryPresenterTest {
             assertEquals(expandedLeft, v.panels().stream().filter(p -> p.id().equals("gallery.workspace")).findFirst().orElseThrow().bounds().x());
             assertEquals(anchor.width()*2,anchor.height());
             assertEquals(Math.max(1,Math.min((size[1]-73)/4,oldLeft-6)),anchor.width(),"larger area retains the old fit");
+            v.previews().stream().filter(p -> p.id().startsWith("gallery.preset.")).forEach(p ->
+                    assertEquals(0.88F, p.scale(), "existing Gallery thumbnail"));
             assertTrue(Math.abs((viewport.x()*2+viewport.width())-(anchor.x()*2+anchor.width())) <= 1);
             assertTrue(anchor.x()>=viewport.x() && anchor.right()<=viewport.right());
             var buttons = v.widgets().stream().filter(w -> w.id().startsWith("gallery.outer_layer.")).toList();
@@ -286,7 +288,11 @@ final class GalleryPresenterTest {
         assertEquals(normal.widget("gallery.card."+p.id()).orElseThrow().bounds(),confirm.widget("gallery.card."+p.id()).orElseThrow().bounds());
         var cancel=confirm.widget(prefix+".delete_cancel").orElseThrow().bounds();
         var accept=confirm.widget(prefix+".delete_confirm").orElseThrow().bounds();
-        assertEquals(20,cancel.height());assertEquals(20,accept.height());assertEquals(2,cancel.y()-accept.bottom());
+        assertEquals(20,cancel.height());assertEquals(20,accept.height());
+        assertEquals(edit.width(),cancel.width());assertEquals(star.width(),accept.width());
+        assertEquals(accept.y(),cancel.y());assertEquals(2,cancel.x()-accept.right());
+        assertEquals(Optional.of(NativeGuiIcon.ACCEPT),confirm.widget(prefix+".delete_confirm").orElseThrow().icon());
+        assertEquals(Optional.of(NativeGuiIcon.REJECT),confirm.widget(prefix+".delete_cancel").orElseThrow().icon());
         assertTrue(confirm.widget(prefix+".favorite").isEmpty());assertTrue(confirm.widget(prefix+".more").isPresent());
     }
 
@@ -352,7 +358,8 @@ final class GalleryPresenterTest {
             if (deleting) {
                 var accept = menu.widget(prefix+".delete_confirm").orElseThrow().bounds();
                 var cancel = menu.widget(prefix+".delete_cancel").orElseThrow().bounds();
-                assertEquals(2,cancel.y()-accept.bottom());
+                assertEquals(accept.y(),cancel.y());
+                assertEquals(2,cancel.x()-accept.right());
                 assertEquals(b.bottom()-2,cancel.bottom());
                 var prompt = menu.texts().stream().filter(v -> v.id().equals(prefix+".confirmation")).findFirst().orElseThrow().bounds();
                 assertEquals((b.y()+16+accept.y())/2,prompt.y()+prompt.height()/2);
@@ -419,8 +426,10 @@ final class GalleryPresenterTest {
                         assertTrue(view.previews().stream().noneMatch(p -> p.id().equals(prefix+".preview")));
                         assertFalse(view.widget(cardId).orElseThrow().activationEnabled());
                         if (mode == 2) {
-                            assertEquals(new Bounds(b.x()+2,b.bottom()-44,b.width()-4,20),view.widget(prefix+".delete_confirm").orElseThrow().bounds());
-                            assertEquals(new Bounds(b.x()+2,b.bottom()-22,b.width()-4,20),view.widget(prefix+".delete_cancel").orElseThrow().bounds());
+                            int leftWidth = (b.width()-6)/2;
+                            int rightX = b.x()+4+leftWidth;
+                            assertEquals(new Bounds(b.x()+2,b.bottom()-22,leftWidth,20),view.widget(prefix+".delete_confirm").orElseThrow().bounds());
+                            assertEquals(new Bounds(rightX,b.bottom()-22,b.right()-2-rightX,20),view.widget(prefix+".delete_cancel").orElseThrow().bounds());
                         } else {
                             int leftWidth = (b.width()-6)/2;
                             int rightX = b.x()+4+leftWidth;

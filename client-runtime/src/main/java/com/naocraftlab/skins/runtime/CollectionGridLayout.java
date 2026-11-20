@@ -7,63 +7,23 @@ import java.util.OptionalInt;
 
 
 final class CollectionGridLayout {
-    static final int CONTENT_LEFT_INSET = 16;
-    static final int CONTENT_RIGHT_INSET = 14;
-    static final int SCROLLBAR_RIGHT_INSET = 9;
     static final int COLLECTION_HEADER_HEIGHT = 16;
     static final int COLLECTION_HEADER_GAP = 4;
-    static final int COLLECTION_BOTTOM_PADDING = 8;
+    static final int COMPACT_INSET = 8;
 
     private CollectionGridLayout() {
     }
 
-    static Layout calculate(
-            int width,
-            int height,
-            int contentTop,
-            int footerHeight,
-            int contentTopPadding,
-            int contentBottomPadding,
-            int collectionHeaderHeight,
-            int cardGap,
-            int minimumCardWidth,
-            int maximumCardWidth,
-            int minimumCardHeight,
-            int maximumCardHeight,
-            int scrollOffset,
-            List<Section> sections) {
-        if (width <= 0
-                || height <= 0
-                || contentTop < 0
-                || footerHeight < 0
-                || contentTopPadding < 0
-                || contentBottomPadding < 0) {
-            throw new IllegalArgumentException("collection grid dimensions are invalid");
-        }
-        int contentBottom = Math.max(
-                contentTop + 1,
-                height - footerHeight - contentBottomPadding);
-        int contentRight = Math.max(CONTENT_LEFT_INSET + 1, width - CONTENT_RIGHT_INSET);
-        int available = Math.max(1, contentRight - CONTENT_LEFT_INSET);
-        int viewportHeight = Math.max(1, contentBottom - contentTop);
-        CardMetrics metrics = cardMetrics(available, viewportHeight, collectionHeaderHeight,
-                cardGap, minimumCardWidth, maximumCardWidth, minimumCardHeight, maximumCardHeight);
-        return calculate(width, height, contentTop, footerHeight, contentTopPadding,
-                contentBottomPadding, collectionHeaderHeight, cardGap, metrics, scrollOffset, sections);
+    static Layout compact(int width, int height, int contentTop, int footerHeight, int topPadding,
+                          CardMetrics metrics, int scrollOffset, List<Section> sections) {
+        return calculate(width, height, contentTop, footerHeight, topPadding, 0, COLLECTION_HEADER_HEIGHT,
+                CatalogCardSizing.COMPACT_GAP, metrics, scrollOffset, sections, COMPACT_INSET, COMPACT_INSET, 6, 2);
     }
 
-    static Layout calculate(
-            int width,
-            int height,
-            int contentTop,
-            int footerHeight,
-            int contentTopPadding,
-            int contentBottomPadding,
-            int collectionHeaderHeight,
-            int cardGap,
-            CardMetrics metrics,
-            int scrollOffset,
-            List<Section> sections) {
+    private static Layout calculate(int width, int height, int contentTop, int footerHeight,
+                                    int contentTopPadding, int contentBottomPadding, int collectionHeaderHeight,
+                                    int cardGap, CardMetrics metrics, int scrollOffset, List<Section> sections,
+                                    int leftInset, int rightInset, int scrollbarInset, int sectionPadding) {
         if (width <= 0
                 || height <= 0
                 || contentTop < 0
@@ -78,8 +38,8 @@ final class CollectionGridLayout {
                 contentTop + 1,
                 height - footerHeight - contentBottomPadding);
         int contentStart = Math.min(contentBottom, contentTop + contentTopPadding);
-        int contentRight = Math.max(CONTENT_LEFT_INSET + 1, width - CONTENT_RIGHT_INSET);
-        int cardStartX = CONTENT_LEFT_INSET;
+        int contentRight = Math.max(leftInset + 1, width - rightInset);
+        int cardStartX = leftInset;
         int viewportHeight = Math.max(1, contentBottom - contentTop);
         int columns = metrics.columns();
         int cardWidth = metrics.width();
@@ -90,7 +50,7 @@ final class CollectionGridLayout {
             Objects.requireNonNull(section, "sections contains null");
             itemCount += section.itemCount();
             totalHeight += sectionHeight(section.itemCount(), section.collapsed(), columns,
-                    section.cardHeight().orElse(cardHeight), collectionHeaderHeight, cardGap);
+                    section.cardHeight().orElse(cardHeight), collectionHeaderHeight, cardGap, sectionPadding);
         }
         int maximum = Math.max(0, totalHeight - viewportHeight);
         int normalizedOffset = Math.max(0, Math.min(scrollOffset, maximum));
@@ -103,7 +63,7 @@ final class CollectionGridLayout {
                 totalHeight,
                 viewportHeight,
                 normalizedOffset,
-                maximum));
+                maximum, scrollbarInset));
         return new Layout(
                 columns,
                 cardWidth,
@@ -118,37 +78,13 @@ final class CollectionGridLayout {
                 scrollbar);
     }
 
-    static int sectionHeight(int itemCount, boolean collapsed, int columns, int cardHeight, int headerHeight, int cardGap) {
+    static int sectionHeight(int itemCount, boolean collapsed, int columns, int cardHeight, int headerHeight,
+                             int cardGap, int bottomPadding) {
         int height = headerHeight + COLLECTION_HEADER_GAP;
         if (!collapsed) {
-            height += ((itemCount + columns - 1) / columns) * (cardHeight + cardGap) + COLLECTION_BOTTOM_PADDING;
+            height += ((itemCount + columns - 1) / columns) * (cardHeight + cardGap) + bottomPadding;
         }
         return height;
-    }
-
-    static CardMetrics cardMetrics(
-            int available, int viewportHeight, int heightReserve, int gap,
-            int minimumWidth, int maximumWidth, int minimumHeight, int maximumHeight) {
-        int columns = Math.max(2, Math.min(9, (available + gap) / (minimumWidth + gap)));
-        CardMetrics metrics = cardMetricsForColumns(available, viewportHeight, heightReserve, gap,
-                minimumHeight, maximumHeight, columns);
-        return new CardMetrics(columns, Math.min(maximumWidth, metrics.width()), metrics.height());
-    }
-
-    static CardMetrics fittingCardMetrics(
-            int available, int viewportHeight, int heightReserve, int gap,
-            int minimumWidth, int minimumHeight, int maximumHeight) {
-        int columns = Math.max(2, (available + gap) / (minimumWidth + gap));
-        return cardMetricsForColumns(available, viewportHeight, heightReserve, gap,
-                minimumHeight, maximumHeight, columns);
-    }
-
-    private static CardMetrics cardMetricsForColumns(
-            int available, int viewportHeight, int heightReserve, int gap,
-            int minimumHeight, int maximumHeight, int columns) {
-        int width = Math.max(1, (available - (columns - 1) * gap) / columns);
-        int height = Math.min(maximumHeight, Math.max(minimumHeight, viewportHeight - heightReserve - 12));
-        return new CardMetrics(columns, width, height);
     }
 
     record CardMetrics(int columns, int width, int height) {}
@@ -160,7 +96,7 @@ final class CollectionGridLayout {
             int totalHeight,
             int viewportHeight,
             int offset,
-            int maximum) {
+            int maximum, int rightInset) {
         int trackHeight = Math.max(1, contentBottom - contentTop);
         int thumbHeight = Math.max(
                 12,
@@ -169,8 +105,8 @@ final class CollectionGridLayout {
         int travel = Math.max(0, trackHeight - thumbHeight);
         int thumbTop = contentTop + (int) Math.round(travel * (offset / (double) maximum));
         return new ViewSpec.Scrollbar(
-                new Bounds(Math.max(0, width - SCROLLBAR_RIGHT_INSET), contentTop, 6, trackHeight),
-                new Bounds(Math.max(0, width - SCROLLBAR_RIGHT_INSET), thumbTop, 6, Math.max(1, thumbHeight)),
+                new Bounds(Math.max(0, width - rightInset), contentTop, 6, trackHeight),
+                new Bounds(Math.max(0, width - rightInset), thumbTop, 6, Math.max(1, thumbHeight)),
                 offset,
                 maximum,
                 ViewSpec.Scrollbar.Orientation.VERTICAL);

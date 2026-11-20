@@ -2,13 +2,8 @@ package com.naocraftlab.skins.runtime;
 
 final class CatalogCardGeometry {
     private static final int SERVICE_ICON_SIZE = 32;
-    private static final int ACTION_AREA_HEIGHT = 23;
 
     private CatalogCardGeometry() {
-    }
-
-    static int readOnlyHeight(int personalHeight) {
-        return Math.max(1, personalHeight - ACTION_AREA_HEIGHT);
     }
 
     static Bounds name(Bounds card) {
@@ -27,30 +22,20 @@ final class CatalogCardGeometry {
                 Math.max(1, card.height() - 25));
     }
 
-    static Bounds previewWithActions(Bounds card) {
-        return new Bounds(
-                card.x() + 5,
-                card.y() + 20,
-                Math.max(1, card.width() - 10),
-                Math.max(1, card.height() - 25 - ACTION_AREA_HEIGHT));
-    }
-
     static Bounds renameField(Bounds card) {
-        return new Bounds(card.x() + 3, card.y() + 3, card.width() - 6, 20);
+        int inset = Math.min(3, (card.width() - 1) / 2);
+        return new Bounds(card.x() + inset, card.y() + 3, card.width() - 2 * inset, 20);
     }
 
-    static ActionPair renameActions(Bounds card) {
-        int half = Math.max(1, (card.width() - 8) / 2);
-        return new ActionPair(
-                new Bounds(card.x() + 3, card.bottom() - 23, half, 20),
-                new Bounds(card.x() + 5 + half, card.bottom() - 23, card.width() - half - 8, 20));
-    }
+    record MenuRow(Bounds left, Bounds right) {}
 
-    static ActionPair personalActions(Bounds card) {
-        int half = Math.max(1, (card.width() - 6) / 2);
-        return new ActionPair(
-                new Bounds(card.x() + 2, card.bottom() - 22, half, 20),
-                new Bounds(card.x() + 4 + half, card.bottom() - 22, Math.max(1, card.width() - half - 6), 20));
+    static MenuRow menuRow(Bounds card, int y) {
+        int inset = Math.min(2, Math.max(0, (card.width() - 2) / 3));
+        int usable = card.width() - 3 * inset;
+        int leftWidth = Math.max(1, usable / 2);
+        int rightWidth = Math.max(1, usable - leftWidth);
+        return new MenuRow(new Bounds(card.x() + inset, y, leftWidth, 20),
+                new Bounds(card.right() - inset - rightWidth, y, rightWidth, 20));
     }
 
     static Bounds serviceIcon(Bounds preview) {
@@ -61,8 +46,5 @@ final class CatalogCardGeometry {
                 preview.y() + (preview.height() - size) / 2,
                 size,
                 size);
-    }
-
-    record ActionPair(Bounds left, Bounds right) {
     }
 }

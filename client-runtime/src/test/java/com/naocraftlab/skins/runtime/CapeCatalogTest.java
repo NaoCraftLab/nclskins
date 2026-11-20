@@ -1,6 +1,7 @@
 package com.naocraftlab.skins.runtime;
 
 import com.naocraftlab.skins.client.CapeCatalogSource;
+import com.naocraftlab.skins.client.BackEquipmentPreviewRenderer;
 import com.naocraftlab.skins.client.CatalogCollectionOrder;
 import com.naocraftlab.skins.client.CatalogText;
 import com.naocraftlab.skins.client.PreviewRenderer;
@@ -46,6 +47,143 @@ class CapeCatalogTest {
             "nclskins.event.authors", "Pack author",
             "nclskins.event.cape.hero.name", "Hero cape",
             "nclskins.event.cape.hero.description", "Hero description");
+
+    @Test
+    void capeImportIsToolbarOnlyAndBothNoCapeDomainsSurviveFilters() {
+        var catalog = model();
+        assertTrue(catalog.cards().stream().noneMatch(CapeCatalogModel.Card::importCard));
+        for (int filter = 0; filter < 3; filter++) {
+            var view = capeEditor(catalog).present(854, 480, 0);
+            assertTrue(view.widget("editor.cape_item.OFFLINE.import").isEmpty());
+            assertTrue(view.navigationNode("editor.cape_item.OFFLINE.import").isEmpty());
+            var add = view.widget("editor.cape_import").orElseThrow();
+            assertEquals(Optional.of(GuiIcon.ACTION_ADD_LOOK), add.icon());
+            assertEquals(UiMessage.info("nclskins.capes.import"), add.label());
+            assertEquals(Optional.of(add.label()), add.hint());
+            assertTrue(add.enabled());
+            assertTrue(add.bounds().right() < view.widget("editor.cape_search").orElseThrow().bounds().x());
+            for (var provider : List.of(BuiltinProvider.OFFLINE, BuiltinProvider.MINECRAFT)) {
+                assertTrue(catalog.matches(provider).stream().anyMatch(card -> card.key().equals("none")));
+            }
+            var searched = catalog.withQuery("absent");
+            assertTrue(capeEditor(searched).present(854, 480, 0).widget("editor.cape_import").orElseThrow().enabled());
+            assertTrue(searched.matches(BuiltinProvider.OFFLINE).stream().noneMatch(CapeCatalogModel.Card::service));
+            catalog = catalog.cycleFilter(false);
+        }
+    }
+
+    @Test
+    void readOnlyCapeMarqueeReachesBothCardEdges() {
+        var view = capeEditor(model()).present(854, 480, 0);
+        var card = view.widget("editor.cape_item.MINECRAFT.owned").orElseThrow().bounds();
+        var title = view.texts().stream().filter(text -> text.id().equals("editor.cape_surface.MINECRAFT.owned.name"))
+                .findFirst().orElseThrow();
+        Bounds movingClip = title.marqueeActivation().orElseThrow().movingClip().orElseThrow();
+        assertEquals(card.x(), movingClip.x());
+        assertEquals(card.right(), movingClip.right());
+        assertEquals(card.x() + 4, title.bounds().x());
+        assertEquals(card.right() - 4, title.bounds().right());
+    }
+
+    @Test
+    void noCapeCardsShowOnlyCenteredIconAndRetainTheirAccessibleLabel() {
+        var view = capeEditor(model()).present(854, 480, 0);
+        for (String provider : List.of("OFFLINE", "MINECRAFT")) {
+            String id = "editor.cape_item." + provider + ".none";
+            String surface = "editor.cape_surface." + provider + ".none";
+            var card = view.widget(id).orElseThrow();
+            assertEquals(UiMessage.info("nclskins.editor.no_cape"), card.label());
+            assertEquals(Optional.of(id), view.navigationNode(id).orElseThrow().activationActionId());
+            assertFalse(view.texts().stream().anyMatch(text -> text.id().equals(surface + ".name")));
+            assertFalse(view.panels().stream().anyMatch(panel -> panel.id().equals(surface + ".namebar")));
+            var icon = view.iconDecorations().stream().filter(value -> value.ownerWidgetId().equals(id))
+                    .findFirst().orElseThrow();
+            assertEquals(GuiIcon.APPEARANCE_CAPE_NONE, icon.icon());
+            assertEquals(card.bounds().y() + (card.bounds().height() - icon.bounds().height()) / 2, icon.bounds().y());
+        }
+    }
+
+    @Test
+    void capeCompactCardKeepsBoundsAndHidesPreviewDuringInlineRename() {
+        var catalog = model();
+        var normal = capeEditor(catalog).present(854, 480, 0);
+        String id = "editor.cape_item.OFFLINE." + local.entryId();
+        var card = normal.widget(id).orElseThrow();
+        assertEquals(66, card.bounds().height());
+        assertTrue(normal.widget("editor.cape_action.rename." + local.entryId()).isEmpty());
+        assertTrue(normal.widget("editor.cape_action.more." + local.entryId()).orElseThrow().enabled());
+        var rename = capeEditor(catalog.edit(local.entryId(), false)).present(854, 480, 0);
+        assertEquals(card.bounds(), rename.widget(id).orElseThrow().bounds());
+        assertTrue(rename.widget("editor.cape_action.more." + local.entryId()).isEmpty());
+        assertTrue(rename.backEquipmentPreviews().stream().noneMatch(preview -> preview.id().contains(local.entryId().toString())));
+        var save = rename.widget("editor.cape_action.save." + local.entryId()).orElseThrow();
+        var field = rename.widget("editor.cape_action.name").orElseThrow();
+        var cancel = rename.widget("editor.cape_action.cancel." + local.entryId()).orElseThrow();
+        assertEquals(card.bounds().x() + 2, save.bounds().x());
+        assertEquals(card.bounds().right() - 2, cancel.bounds().right());
+        assertEquals(2, cancel.bounds().x() - save.bounds().right());
+        assertEquals(20, save.bounds().height());
+        assertTrue(field.selectAllOnFocusAcquire());
+        assertTrue(rename.texts().stream().noneMatch(t -> t.id().equals(
+                "editor.cape_surface.OFFLINE." + local.entryId() + ".rename_prompt")));
+        var none = catalog.matches(BuiltinProvider.OFFLINE).stream().filter(value -> value.key().equals("none")).findFirst().orElseThrow();
+        assertEquals(card.bounds().height(), normal.widget(none.widgetId()).orElseThrow().bounds().height());
+    }
+
+    @Test
+    void compactCapeProducerRequestsCatalogFitOnlyForItsEquipmentSlots() {
+        for (var mode : com.naocraftlab.skins.client.PreviewRenderer.CapeMode.values()) {
+            if (mode == com.naocraftlab.skins.client.PreviewRenderer.CapeMode.OFF) continue;
+            var base = capeEditor(model());
+            var editor = base.withPreview(base.preview().withCapeMode(mode));
+            var view = editor.present(854, 480, 0);
+            assertFalse(view.backEquipmentPreviews().isEmpty());
+            for (var preview : view.backEquipmentPreviews()) {
+                assertEquals("CATALOG_CARD", preview.projection().name());
+                var widget = view.widget(preview.id().replace("editor.cape_surface.", "editor.cape_item.").replace(".preview", ""))
+                        .orElseThrow();
+                var card = widget.bounds();
+                assertEquals(66, card.height());
+                assertEquals(new Bounds(card.x() + 2, card.y() + 8, card.width() - 4, 50), preview.bounds());
+                assertEquals(preview.bounds().y() - card.y(), card.bottom() - preview.bounds().bottom());
+                assertEquals(mode.name(), preview.mode().name());
+                assertTrue(ViewHostPolicy.capeCardHovered(view, preview, card.x() + 1, card.y() + 1));
+                assertFalse(ViewHostPolicy.capeCardHovered(view, preview, card.x() - 1, card.y() + 1));
+                assertTrue(ViewHostPolicy.capeCardPlaying(view, preview, -1, -1, widget.id()));
+                assertFalse(ViewHostPolicy.capeCardPlaying(view, preview, -1, -1, "editor.cape_search"));
+            }
+        }
+        var legacy = new ViewSpec.BackEquipmentPreview("legacy", new Bounds(0, 0, 48, 96), "cape",
+                com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.CAPE);
+        assertEquals(ViewSpec.BackEquipmentPreview.Projection.EQUIPMENT, legacy.projection());
+        assertEquals(ViewSpec.BackEquipmentPreview.Projection.PROVIDER_THUMBNAIL, legacy.asProviderThumbnail().projection());
+    }
+
+    @Test
+    void createCapeAssignmentsAreGreenAndRepeatedEmbeddedInspectionDoesNotToggleOff() {
+        var capability = new com.naocraftlab.skins.client.PreviewAccessories(new UUID(0, 91), 1,
+                com.naocraftlab.skins.client.PreviewAccessories.Availability.CONFIRMED, true, true,
+                PreviewRenderer.LiveReason.AVAILABLE);
+        var catalog = model().withAccessories(capability);
+        var embedded = catalog.cards().stream().filter(CapeCatalogModel.Card::embedded).findFirst().orElseThrow();
+        var inspected = catalog.choose(embedded).choose(embedded);
+        assertEquals(embedded, inspected.inspected());
+        assertEquals(catalog.offline(), inspected.offline());
+        assertEquals(catalog.minecraft(), inspected.minecraft());
+        var view = capeEditor(inspected).present(854, 480, 0);
+        for (String id : List.of("editor.cape_item.OFFLINE." + local.entryId(), "editor.cape_item.MINECRAFT.owned", embedded.widgetId())) {
+            var card = view.widget(id).orElseThrow();
+            assertEquals(List.of(0xFF80C880, 0xFFFFFFFF), ViewHostPolicy.cardFrameColors(card, true));
+            assertEquals(0, CatalogCardStyle.backgroundBehindContentColor(card, false));
+        }
+        assertTrue(view.widgets().stream().filter(widget -> widget.id().startsWith("editor.cape_item."))
+                .noneMatch(widget -> ViewHostPolicy.cardFrameColor(widget, false) == 0xFF80C8FF));
+        var none = catalog.matches(BuiltinProvider.OFFLINE).stream().filter(card -> card.key().equals("none")).findFirst().orElseThrow();
+        var changed = capeEditor(inspected.choose(none)).present(854, 480, 0);
+        assertEquals(0xFF80C880, ViewHostPolicy.cardFrameColor(changed.widget(none.widgetId()).orElseThrow(), false));
+        assertEquals(0, ViewHostPolicy.cardFrameColor(changed.widget("editor.cape_item.OFFLINE." + local.entryId()).orElseThrow(), false));
+        assertEquals(0xFF80C880, ViewHostPolicy.cardFrameColor(changed.widget("editor.cape_item.MINECRAFT.owned").orElseThrow(), false));
+    }
 
     @Test
     void embeddedCpmIsFirstReadOnlyAndInspectionNeverAssigns() {
@@ -288,7 +426,8 @@ class CapeCatalogTest {
                 var card = view.widget(embedded.widgetId()).orElseThrow();
                 var glyph = view.iconDecorations().stream().filter(icon -> icon.ownerWidgetId().equals(card.id())
                         && icon.icon() == GuiIcon.SOURCE_CPM).findFirst().orElseThrow();
-                assertEquals(card.bounds().y() + (card.bounds().height() - glyph.bounds().height()) / 2,
+                Bounds previewSlot = expectedEquipmentSlot(card.bounds());
+                assertEquals(previewSlot.y() + (previewSlot.height() - glyph.bounds().height()) / 2,
                         glyph.bounds().y());
                 assertTrue(card.activationEnabled());
                 assertTrue(view.clipFor(card.id()).isPresent());
@@ -449,14 +588,15 @@ class CapeCatalogTest {
         for (int height : new int[] {191, 240, 480}) {
             for (int footer : new int[] {33, 38}) {
                 ViewChromeMetrics chrome = new ViewChromeMetrics(footer);
-                int baseHeight = Math.max(72, Math.min(132, height - 86 - footer));
-                int readOnlyHeight = baseHeight - 23;
+                int baseHeight = 66;
+                int readOnlyHeight = 66;
                 ViewSpec top = editor.present(320, height, 0.0, 0.0, chrome);
                 Bounds viewport = top.scrollSurface("editor.capes").orElseThrow().viewport();
-                assertEquals(baseHeight, top.navigationNode("editor.cape_item.OFFLINE.import")
+                assertEquals(baseHeight, top.navigationNode("editor.cape_item.OFFLINE.none")
                         .orElseThrow().bounds().height());
-                int totalHeight = 10 * baseHeight + 6;
-                assertEquals(totalHeight - viewport.height(), editor.maximumCapeScroll(320, height, chrome));
+                int columns = Math.max(1, (viewport.width() + 2) / 50);
+                int totalHeight = 66 + ((6 + columns - 1) / columns * 2 + (5 + columns - 1) / columns) * 68;
+                assertEquals(Math.max(0, totalHeight - viewport.height()), editor.maximumCapeScroll(320, height, chrome));
                 for (String id : List.of("editor.cape_item.RESOURCE.event.resource-0",
                         "editor.cape_item.MINECRAFT.none", "editor.cape_item.MINECRAFT.minecraft-4")) {
                     Bounds card = top.navigationNode(id).orElseThrow().bounds();
@@ -465,9 +605,8 @@ class CapeCatalogTest {
                     if (!id.endsWith(".none")) {
                         Bounds rendered = focused.widget(id).orElseThrow().bounds();
                         assertTrue(focused.backEquipmentPreviews().stream().anyMatch(preview ->
-                                preview.bounds().equals(new Bounds(rendered.x() + 5, rendered.y() + 20,
-                                        rendered.width() - 10, baseHeight - 48))));
-                        focused.backEquipmentPreviews().forEach(preview -> assertProjectedEnvelopeFits(preview.bounds()));
+                                preview.bounds().equals(expectedEquipmentSlot(rendered))));
+                        focused.backEquipmentPreviews().forEach(preview -> assertProjectedEnvelopeFits(preview.bounds(), preview.mode()));
                     }
                 }
                 Bounds selected = top.navigationNode("editor.cape_item.MINECRAFT.minecraft-2")
@@ -483,7 +622,7 @@ class CapeCatalogTest {
                 assertEquals(personalOffset, capeEditor(catalog.choose(personalCard))
                         .initialCapeScrollPosition(320, height, chrome), 0.001);
                 ViewSpec end = editor.present(320, height, totalHeight, 0.0, chrome);
-                assertEquals(viewport.bottom() - 14, end.navigationNode("editor.cape_item.MINECRAFT.minecraft-4")
+                assertEquals(Math.min(viewport.bottom(), viewport.y() + totalHeight) - 4, end.navigationNode("editor.cape_item.MINECRAFT.minecraft-4")
                         .orElseThrow().bounds().bottom());
             }
         }
@@ -495,42 +634,43 @@ class CapeCatalogTest {
         List<Bounds> cards = view.navigationNodes().stream()
                 .filter(node -> node.id().startsWith("editor.cape_item.OFFLINE."))
                 .map(ViewSpec.NavigationNode::bounds).toList();
-        assertEquals(11, cards.size());
+        assertEquals(10, cards.size());
         assertEquals(1, cards.stream().map(Bounds::y).distinct().count());
-        assertTrue(cards.stream().allMatch(card -> card.width() == 69 && card.height() == 132));
-        assertEquals(69 + 6, cards.get(1).x() - cards.get(0).x());
+        assertTrue(cards.stream().allMatch(card -> card.width() == 48 && card.height() == 66));
+        assertEquals(48 + 2, cards.get(1).x() - cards.get(0).x());
     }
 
     @Test
     void capeWorkspaceFillsItsPaneAndSharesSkinCollectionSpacing() {
         CapeCatalogModel catalog = widePersonalModel(60);
         PresetEditorModel editor = capeEditor(catalog);
-        for (int[] dimensions : new int[][] {{320, 2, 62}, {427, 2, 89}, {480, 2, 102}, {490, 2, 104}, {492, 3, 68}, {854, 5, 74}, {3840, 25, 69}}) {
+        for (int width : new int[] {320, 427, 480, 490, 492, 854, 3840}) {
             for (int footer : new int[] {33, 38}) {
                 ViewChromeMetrics chrome = new ViewChromeMetrics(footer);
-                ViewSpec view = editor.present(dimensions[0], 240, 0.0, 0.0, chrome);
+                ViewSpec view = editor.present(width, 240, 0.0, 0.0, chrome);
                 Bounds viewport = view.scrollSurface("editor.capes").orElseThrow().viewport();
                 Bounds header = view.navigationNode("editor.cape_header.OFFLINE").orElseThrow().bounds();
                 assertEquals(new Bounds(viewport.x(), viewport.y(), viewport.width(), 16), header);
                 List<Bounds> cards = view.navigationNodes().stream()
                         .filter(node -> node.id().startsWith("editor.cape_item.OFFLINE."))
                         .map(ViewSpec.NavigationNode::bounds).toList();
-                assertEquals(62, cards.size());
-                int columns = dimensions[1];
-                int cardHeight = 154 - footer;
-                assertEquals(columns, distinctX(cards));
+                assertEquals(61, cards.size());
+                int columns = (viewport.width() + 2) / 50;
+                int cardWidth = Math.min(64, (viewport.width() - (columns - 1) * 2) / columns);
+                int cardHeight = 66;
+                assertEquals(Math.min(cards.size(), columns), distinctX(cards));
                 for (int index = 0; index < cards.size(); index++) {
-                    assertEquals(new Bounds(viewport.x() + index % columns * (dimensions[2] + 6),
-                            viewport.y() + 20 + index / columns * (cardHeight + 6),
-                            dimensions[2], cardHeight), cards.get(index));
+                    assertEquals(new Bounds(viewport.x() + index % columns * (cardWidth + 2),
+                            viewport.y() + 20 + index / columns * (cardHeight + 2),
+                            cardWidth, cardHeight), cards.get(index));
                     assertTrue(cards.get(index).right() <= viewport.right());
                 }
-                int remainder = viewport.right() - cards.get(columns - 1).right();
-                assertTrue(remainder >= 0 && remainder < columns);
+                int remainder = viewport.width() - columns * cardWidth - (columns - 1) * 2;
+                assertTrue(remainder >= 0 && (cardWidth == 64 || remainder < columns));
                 Bounds nextHeader = view.navigationNode("editor.cape_header.MINECRAFT").orElseThrow().bounds();
-                assertEquals(cards.get(cards.size() - 1).bottom() + 14, nextHeader.y());
+                assertEquals(cards.get(cards.size() - 1).bottom() + 4, nextHeader.y());
                 ViewSpec collapsed = capeEditor(catalog.toggle("OFFLINE"))
-                        .present(dimensions[0], 240, 0.0, 0.0, chrome);
+                        .present(width, 240, 0.0, 0.0, chrome);
                 assertEquals(viewport.y() + 20,
                         collapsed.navigationNode("editor.cape_header.MINECRAFT").orElseThrow().bounds().y());
             }
@@ -554,6 +694,20 @@ class CapeCatalogTest {
                 AppearanceProviders.initial(), local, Optional.empty(), List.of(), UiMessage::key);
         assertTrue(withoutPack.cards().stream().anyMatch(card -> local.equals(card.local())));
         assertTrue(withoutPack.selectedResource().isEmpty());
+    }
+
+    @Test
+    void refreshCanonicalizesSavedCapeWithoutReplacingIndependentInspection() {
+        var account = TestFixtures.account(1).withPersonalCapes(List.of(
+                new PersonalCapeEntry(local, "b".repeat(64), "Saved copy", Instant.EPOCH)));
+        var original = resourceModel();
+        var inspected = original.cards().stream().filter(card -> card.provider() == BuiltinProvider.MINECRAFT)
+                .findFirst().orElseThrow();
+        var before = original.choose(inspected);
+        var after = before.refreshed(account, before.providers(), local, before.minecraft(), List.of());
+        assertEquals(original.offline(), after.offline());
+        assertEquals(inspected.widgetId(), after.inspected().widgetId());
+        assertEquals(before.minecraft(), after.minecraft());
     }
 
     @Test
@@ -600,12 +754,17 @@ class CapeCatalogTest {
         var widgets = new ArrayList<ViewSpec.Widget>();
         var panels = new ArrayList<ViewSpec.Panel>();
         var nodes = new ArrayList<ViewSpec.NavigationNode>();
-        CapeCatalogPresenter.present(model(), new Bounds(160, 68, 300, 500), 68, 86, 3, 0, false,
+        CapeCatalogPresenter.present(model(), new Bounds(160, 68, 300, 500), 68, 96, 3, 0, false,
                 com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.CAPE,
                 widgets, panels, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), nodes);
         var personal = widgets.stream().filter(w -> w.id().startsWith("editor.cape_item.OFFLINE.")).toList();
-        assertEquals(3, personal.size());
-        assertTrue(personal.stream().allMatch(w -> w.bounds().height() == 86));
+        assertEquals(2, personal.size());
+        assertTrue(personal.stream().allMatch(w -> w.bounds().height() == 96));
+        assertTrue(widgets.stream().noneMatch(w -> w.id().startsWith("editor.cape_action.rename.") || w.id().startsWith("editor.cape_action.delete.")));
+        widgets.clear();nodes.clear();
+        CapeCatalogPresenter.present(model().menu(local.entryId()), new Bounds(160, 68, 300, 500), 68, 96, 3, 0, false,
+                com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.CAPE,
+                widgets, new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), nodes);
         List<ViewSpec.Widget> idleActions = widgets.stream()
                 .filter(w -> w.id().startsWith("editor.cape_action.rename.")
                         || w.id().startsWith("editor.cape_action.delete."))
@@ -616,11 +775,11 @@ class CapeCatalogTest {
             assertEquals(action.id().startsWith("editor.cape_action.rename.")
                     ? GuiIcon.ACTION_RENAME : GuiIcon.ACTION_DELETE, action.icon().orElseThrow());
         }
-        assertEquals("editor.cape_header.OFFLINE", nodes.stream().filter(n -> n.tabOrder() == 4).findFirst().orElseThrow().id());
-        assertEquals(1, nodes.stream().filter(n -> n.tabOrder() == 4).count());
+        assertEquals("editor.cape_header.OFFLINE", nodes.stream().filter(n -> n.tabOrder() == 5).findFirst().orElseThrow().id());
+        assertEquals(1, nodes.stream().filter(n -> n.tabOrder() == 5).count());
     }
 
-    @Test void serviceIconsAlignWithCapePreviewsAndImportHasNoVisibleCaption() {
+    @Test void noCapeIconsAreCenteredAndImportHasNoVisibleCaption() {
         var widgets = new ArrayList<ViewSpec.Widget>();
         var texts = new ArrayList<ViewSpec.Text>();
         var previews = new ArrayList<ViewSpec.BackEquipmentPreview>();
@@ -634,21 +793,16 @@ class CapeCatalogTest {
         assertEquals(GuiIcon.APPEARANCE_CAPE_NONE, noneIcon.icon());
         assertEquals(32, noneIcon.icon().baseCanvas());
         assertEquals(32, noneIcon.icon().canvasHeight());
-        var importIcon = icons.stream().filter(i -> i.ownerWidgetId().equals("editor.cape_item.OFFLINE.import")).findFirst().orElseThrow();
-        assertEquals(GuiIcon.ACTION_ADD_CAPE, importIcon.icon());
-        assertEquals(32, importIcon.icon().baseCanvas());
-        assertEquals(32, importIcon.icon().canvasHeight());
-        var importWidget = widgets.stream().filter(w -> w.id().equals(importIcon.ownerWidgetId())).findFirst().orElseThrow();
+        var importWidget = widgets.stream().filter(w -> w.id().equals("editor.cape_import")).findFirst().orElseThrow();
+        assertEquals(Optional.of(GuiIcon.ACTION_ADD_LOOK), importWidget.icon());
         assertFalse(importWidget.label().key().isBlank());
-        assertTrue(importWidget.bounds().x() <= importIcon.bounds().x());
-        assertTrue(importWidget.bounds().right() >= importIcon.bounds().right());
-        Bounds preview = previews.get(0).bounds();
-        for (var icon : icons.stream().filter(i -> i.id().contains("OFFLINE")).toList()) {
-            assertTrue(Math.abs(2 * icon.bounds().y() + icon.bounds().height()
-                    - 2 * preview.y() - preview.height()) <= 1);
+
+        for (var icon : icons.stream().filter(i -> i.icon() == GuiIcon.APPEARANCE_CAPE_NONE).toList()) {
+            var card = widgets.stream().filter(widget -> widget.id().equals(icon.ownerWidgetId())).findFirst().orElseThrow();
+            assertEquals(card.bounds().y() + (card.bounds().height() - icon.bounds().height()) / 2, icon.bounds().y());
         }
         assertFalse(texts.stream().anyMatch(t -> t.id().equals("editor.cape_surface.OFFLINE.import.name")));
-        assertTrue(widgets.stream().anyMatch(w -> w.id().equals("editor.cape_item.OFFLINE.import")));
+        assertTrue(widgets.stream().noneMatch(w -> w.id().equals("editor.cape_item.OFFLINE.import")));
         Bounds error = texts.stream().filter(t -> t.id().equals("editor.cape_error")).findFirst().orElseThrow().bounds();
         Bounds search = widgets.stream().filter(w -> w.id().equals("editor.cape_search")).findFirst().orElseThrow().bounds();
         assertEquals(6, error.y() - search.bottom());
@@ -675,17 +829,17 @@ class CapeCatalogTest {
         ViewSpec capeView = capeEditor(resourceModel()).present(427, 240, 0.0);
         Bounds skinCard = skinView.widget("add.catalog.skin:skins:one").orElseThrow().bounds();
         Bounds capeCard = capeView.navigationNodes().stream()
-                .filter(node -> node.id().equals("editor.cape_item.OFFLINE.import"))
+                .filter(node -> node.id().equals("editor.cape_item.OFFLINE.none"))
                 .findFirst().orElseThrow().bounds();
 
-        assertEquals(74, skinCard.width());
-        assertEquals(98, skinCard.height());
-        assertEquals(89, capeCard.width());
-        assertEquals(121, capeCard.height());
+        assertEquals(49, skinCard.width());
+        assertEquals(96, skinCard.height());
+        assertEquals(53, capeCard.width());
+        assertEquals(66, capeCard.height());
     }
 
     @Test
-    void paneCardSizingUsesSuppliedChromeWithoutMovingEditorFooter() {
+    void paneCardSizingUsesSuppliedChromeAndKeepsViewportAboveItsFooter() {
         SkinCatalogSource.CollectionDescriptor skins = new SkinCatalogSource.CollectionDescriptor(
                 "skins",
                 "Skins",
@@ -706,14 +860,14 @@ class CapeCatalogTest {
         ViewSpec capeView = capeEditor(resourceModel()).present(427, 240, 0.0, 0.0, chrome);
         Bounds skinCard = skinView.widget("add.catalog.skin:skins:one").orElseThrow().bounds();
         Bounds capeCard = capeView.navigationNodes().stream()
-                .filter(node -> node.id().equals("editor.cape_item.OFFLINE.import"))
+                .filter(node -> node.id().equals("editor.cape_item.OFFLINE.none"))
                 .findFirst().orElseThrow().bounds();
 
-        assertEquals(74, skinCard.width());
-        assertEquals(93, skinCard.height());
-        assertEquals(89, capeCard.width());
-        assertEquals(skinCard.height() + 23, capeCard.height());
-        assertEquals(207, capeView.panels().stream()
+        assertEquals(49, skinCard.width());
+        assertEquals(96, skinCard.height());
+        assertEquals(55, capeCard.width());
+        assertEquals(66, capeCard.height());
+        assertEquals(202, capeView.panels().stream()
                 .filter(panel -> panel.id().equals("footer"))
                 .findFirst().orElseThrow().bounds().y());
     }
@@ -744,23 +898,22 @@ class CapeCatalogTest {
         AddSourcePresenter skinPresenter = new AddSourcePresenter();
 
         for (int[] dimensions : new int[][] {
-                {240, 240, 2, 42, 121, 102},
-                {320, 240, 2, 62, 121, 68},
-                {427, 240, 2, 89, 121, 74},
-                {854, 480, 5, 74, 132, 69},
-                {1280, 720, 8, 71, 132, 72}}) {
+                {240, 240, 2, 61, 54},
+                {320, 240, 2, 61, 49},
+                {427, 240, 4, 53, 49},
+                {854, 480, 11, 49, 50},
+                {1280, 720, 16, 50, 48}}) {
             int screenWidth = dimensions[0];
             int screenHeight = dimensions[1];
             int expectedCapeColumns = dimensions[2];
             int expectedCardWidth = dimensions[3];
-            int expectedCardHeight = dimensions[4];
             ViewSpec skinView = skinPresenter.present(
                     skinModel, false, screenWidth, screenHeight);
             ViewSpec capeView = editor.present(
                     screenWidth, screenHeight, 0.0);
             Bounds capeViewport = capeView.scrollSurface("editor.capes").orElseThrow().viewport();
             List<Bounds> skinCards = skinView.navigationNodes().stream()
-                    .filter(node -> node.id().startsWith("add.catalog.skin:skins:"))
+                    .filter(node -> node.id().startsWith("add.catalog.skin:skins:") && node.pattern() == ViewSpec.NavigationPattern.GRID)
                     .map(ViewSpec.NavigationNode::bounds)
                     .toList();
             List<Bounds> capeCards = capeView.navigationNodes().stream()
@@ -768,16 +921,16 @@ class CapeCatalogTest {
                     .map(ViewSpec.NavigationNode::bounds)
                     .toList();
             assertEquals(18, skinCards.size());
-            assertEquals(11, capeCards.size());
-            assertEquals(dimensions[5], skinCards.get(0).width());
+            assertEquals(10, capeCards.size());
+            assertEquals(dimensions[4], skinCards.get(0).width());
             assertEquals(expectedCardWidth, capeCards.get(0).width());
-            assertEquals(expectedCardHeight - 23, skinCards.get(0).height());
-            assertEquals(expectedCardHeight, capeCards.get(0).height());
-            assertEquals(expectedCapeColumns, distinctX(capeCards));
-            assertEquals(CollectionGridLayout.CONTENT_LEFT_INSET, skinCards.get(0).x());
+            assertEquals(96, skinCards.get(0).height());
+            assertEquals(66, capeCards.get(0).height());
+            assertEquals(Math.min(expectedCapeColumns, capeCards.size()), distinctX(capeCards));
+            assertEquals(8, skinCards.get(0).x());
             assertEquals(capeViewport.x(), capeCards.get(0).x());
             if (expectedCapeColumns > 1) {
-                assertEquals(CatalogCardSizing.GAP,
+                assertEquals(2,
                         cardStep(capeCards) - expectedCardWidth);
             }
             assertTrue(capeView.navigationNodes().stream()
@@ -786,11 +939,7 @@ class CapeCatalogTest {
                     .filter(icon -> icon.ownerWidgetId().startsWith("editor.cape_item.OFFLINE."))
                     .forEach(icon -> {
                         Bounds serviceCard = capeView.widget(icon.ownerWidgetId()).orElseThrow().bounds();
-                        Bounds slot = new Bounds(
-                                serviceCard.x() + 5,
-                                serviceCard.y() + 20,
-                                serviceCard.width() - 10,
-                                serviceCard.height() - 48);
+                        Bounds slot = serviceCard;
                         assertTrue(slot.contains(icon.bounds().x(), icon.bounds().y()));
                         assertTrue(slot.contains(icon.bounds().right() - 1, icon.bounds().bottom() - 1));
                         assertEquals(slot.x() + (slot.width() - icon.bounds().width()) / 2,
@@ -805,7 +954,7 @@ class CapeCatalogTest {
     void personalCapeGeometryFitsActionsAndServiceIconsAtAdaptiveHeights() {
         CapeCatalogModel localAndService = model();
         for (int width : new int[] {320, 427, 490, 854}) {
-            for (int[] dimensions : new int[][] {{191, 72}, {221, 102}, {251, 132}}) {
+            for (int[] dimensions : new int[][] {{191, 66}, {221, 66}, {251, 66}}) {
                 int height = dimensions[0];
                 int expectedCardHeight = dimensions[1];
                 PresetEditorModel editor = capeEditor(localAndService);
@@ -822,29 +971,37 @@ class CapeCatalogTest {
                 ViewSpec deleting = capeEditor(localAndService.edit(local.entryId(), true))
                         .present(width, height, scroll);
                 assertPersonalCapeBounds(deleting, local.entryId().toString(), expectedCardHeight);
-                ViewSpec idle = editor.present(width, height, scroll);
+                ViewSpec idle = capeEditor(localAndService.menu(local.entryId())).present(width, height, scroll);
                 Bounds idleRenameBounds = idle.widget("editor.cape_action.rename." + local.entryId())
                         .orElseThrow().bounds();
                 Bounds idleDeleteBounds = idle.widget("editor.cape_action.delete." + local.entryId())
                         .orElseThrow().bounds();
-                CatalogCardGeometry.ActionPair legacyRenameActions = CatalogCardGeometry.renameActions(
-                        idle.widget("editor.cape_item.OFFLINE." + local.entryId()).orElseThrow().bounds());
-                assertNotEquals(idleRenameBounds, legacyRenameActions.left());
-                assertNotEquals(idleDeleteBounds, legacyRenameActions.right());
+                Bounds idleCard = idle.widget("editor.cape_item.OFFLINE." + local.entryId()).orElseThrow().bounds();
+                assertEquals(new Bounds(idleCard.x() + 2, idleCard.bottom() - 22, (idleCard.width() - 6) / 2, 20), idleRenameBounds);
+                assertEquals(2, idleDeleteBounds.x() - idleRenameBounds.right());
+                assertEquals(2, idleCard.right() - idleDeleteBounds.right());
+                assertEquals(idleRenameBounds.y(), idleDeleteBounds.y());
+                assertEquals(20, idleDeleteBounds.height());
                 ViewSpec.Widget deleteConfirm = deleting.widget(
                         "editor.cape_action.confirm." + local.entryId()).orElseThrow();
                 ViewSpec.Widget deleteCancel = deleting.widget(
                         "editor.cape_action.cancel." + local.entryId()).orElseThrow();
-                assertEquals(idle.widget("editor.cape_action.rename." + local.entryId()).orElseThrow().bounds(),
-                        deleteConfirm.bounds());
-                assertEquals(idle.widget("editor.cape_action.delete." + local.entryId()).orElseThrow().bounds(),
-                        deleteCancel.bounds());
+                assertEquals(idleRenameBounds, deleteConfirm.bounds());
+                assertEquals(idleDeleteBounds, deleteCancel.bounds());
                 assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, deleteConfirm.kind());
                 assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, deleteCancel.kind());
                 assertEquals("nclskins.capes.delete", deleteConfirm.label().key());
                 assertEquals("gui.cancel", deleteCancel.label().key());
                 assertEquals(Optional.of(NativeGuiIcon.ACCEPT), deleteConfirm.icon());
                 assertEquals(Optional.of(NativeGuiIcon.REJECT), deleteCancel.icon());
+                assertEquals(Optional.of(deleteConfirm.label()), deleteConfirm.hint());
+                assertEquals(Optional.of(deleteCancel.label()), deleteCancel.hint());
+                var question = deleting.texts().stream().filter(text -> text.id().equals(
+                        "editor.cape_surface.OFFLINE." + local.entryId() + ".delete_prompt")).findFirst().orElseThrow();
+                assertEquals("nclskins.capes.delete_confirmation", question.message().key());
+                assertEquals(ViewSpec.Text.Alignment.CENTER, question.alignment());
+                assertTrue(question.bounds().y() >= idleCard.y() + 16);
+                assertTrue(question.bounds().bottom() <= deleteConfirm.bounds().y());
                 assertTrue(deleteConfirm.enabled());
                 assertTrue(deleteCancel.enabled());
                 ViewSpec renameView = capeEditor(localAndService.edit(local.entryId(), false).rename("Renamed"))
@@ -909,10 +1066,10 @@ class CapeCatalogTest {
             assertEquals(capeSlots, elytraSlots);
             assertFalse(capeSlots.isEmpty());
             for (Bounds slot : capeSlots) {
-                assertProjectedEnvelopeFits(slot);
+                assertProjectedEnvelopeFits(slot, BackEquipmentPreviewRenderer.Mode.CAPE);
             }
             for (Bounds slot : elytraSlots) {
-                assertProjectedEnvelopeFits(slot);
+                assertProjectedEnvelopeFits(slot, BackEquipmentPreviewRenderer.Mode.ELYTRA);
             }
         }
     }
@@ -921,11 +1078,11 @@ class CapeCatalogTest {
     void extremeNarrowCapePaneShrinksCardsAndRejectsPointerOutsideViewport() {
         ViewSpec view = capeEditor(model()).present(180, 240, 0.0);
         Bounds viewport = view.scrollSurface("editor.capes").orElseThrow().viewport();
-        String cardId = "editor.cape_item.OFFLINE.import";
+        String cardId = "editor.cape_item.OFFLINE.none";
         Bounds card = view.navigationNode(cardId).orElseThrow().bounds();
 
-        assertEquals(27, card.width());
-        assertEquals(121, card.height());
+        assertEquals(61, card.width());
+        assertEquals(66, card.height());
         assertTrue(viewport.width() > card.width());
         assertTrue(card.right() <= viewport.right());
         assertEquals(2, distinctX(view.navigationNodes().stream()
@@ -948,25 +1105,25 @@ class CapeCatalogTest {
         CapeCatalogModel errored = base.withImportError(
                 UiMessage.error("nclskins.capes.format_error"));
         for (int[] dimensions : new int[][] {
-                {223, 100, 104},
-                {253, 130, 132},
-                {283, 160, 132}}) {
+                {223, 100, 188, 124},
+                {253, 130, 188, 124},
+                {283, 160, 188, 124}}) {
             ViewSpec view = capeEditor(errored).present(320, dimensions[0], 0.0);
             ViewSpec baseView = capeEditor(base).present(320, dimensions[0], 0.0);
             Bounds viewport = view.scrollSurface("editor.capes").orElseThrow().viewport();
-            assertEquals(new Bounds(176, 90, 130, dimensions[1]), viewport);
+            assertEquals(new Bounds(dimensions[2], 90, dimensions[3], dimensions[1]), viewport);
             Bounds card = view.navigationNodes().stream()
-                    .filter(node -> node.id().equals("editor.cape_item.OFFLINE.import"))
+                    .filter(node -> node.id().equals("editor.cape_item.OFFLINE.none"))
                     .findFirst().orElseThrow().bounds();
-            assertEquals(dimensions[2], card.height());
-            Bounds baseCard = baseView.navigationNode("editor.cape_item.OFFLINE.import")
+            assertEquals(66, card.height());
+            Bounds baseCard = baseView.navigationNode("editor.cape_item.OFFLINE.none")
                     .orElseThrow().bounds();
             assertEquals(baseCard.width(), card.width());
             assertEquals(baseCard.height(), card.height());
             assertEquals(40, view.widget("editor.cape_search").orElseThrow().bounds().y());
             assertEquals(40, view.widget("editor.cape_filter").orElseThrow().bounds().y());
             assertEquals(40, view.widget("editor.cape_disclosure").orElseThrow().bounds().y());
-            assertEquals(new Bounds(176, 66, 130, 18), view.texts().stream()
+            assertEquals(new Bounds(dimensions[2], 66, dimensions[3], 18), view.texts().stream()
                     .filter(text -> text.id().equals("editor.cape_error"))
                     .findFirst().orElseThrow().bounds());
             assertEquals(dimensions[0] - 33, view.panels().stream()
@@ -1011,7 +1168,7 @@ class CapeCatalogTest {
                 .findFirst().orElseThrow().bounds();
         assertEquals(ViewSpec.Text.Layout.WRAP, error.layout());
         assertTrue(error.bounds().height() > 9);
-        assertEquals(130, error.bounds().width());
+        assertEquals(viewport.width(), error.bounds().width());
         assertEquals(search.y(), 40);
         assertTrue(search.bottom() < error.bounds().y());
         assertTrue(error.bounds().bottom() < viewport.y());
@@ -1029,7 +1186,7 @@ class CapeCatalogTest {
         PresetEditorModel editor = capeEditor(collapsed);
         String selectedId = "editor.cape_item.MINECRAFT.minecraft-4";
 
-        for (int[] dimensions : new int[][] {{320, 157, 2, 72, 3}, {640, 240, 4, 121, 2}}) {
+        for (int[] dimensions : new int[][] {{320, 157, 2, 66, 3}, {640, 210, 8, 66, 1}}) {
             int width = dimensions[0];
             int height = dimensions[1];
             int expectedColumns = dimensions[2];
@@ -1038,15 +1195,14 @@ class CapeCatalogTest {
             ViewSpec initial = editor.present(width, height);
             ViewSpec.ScrollSurface surface = initial.scrollSurface("editor.capes").orElseThrow();
             Bounds viewport = surface.viewport();
-            int selectedTop = CapeCatalogPresenter.selectedPosition(
-                    collapsed, expectedColumns, expectedCardHeight).top();
-            int contentHeight = CapeCatalogPresenter.contentHeight(
-                    collapsed, expectedColumns, expectedCardHeight);
+            int rows = (6 + expectedColumns - 1) / expectedColumns;
+            int selectedTop = 62 + (rows + 5 / expectedColumns) * 68;
+            int contentHeight = 64 + 2 * rows * 68;
             int expectedMaximum = Math.max(0, contentHeight - viewport.height());
             double expectedPosition = Math.max(0.0, Math.min(expectedMaximum,
-                    selectedTop - (viewport.height() - (expectedCardHeight - 23)) / 2.0));
+                    selectedTop - (viewport.height() - expectedCardHeight) / 2.0));
             ViewSpec.NavigationNode selectedNode = initial.navigationNode(selectedId).orElseThrow();
-            assertEquals(expectedCardHeight - 23, selectedNode.bounds().height());
+            assertEquals(expectedCardHeight, selectedNode.bounds().height());
             assertEquals(contentHeight, (int) surface.maximumPixels() + viewport.height());
             assertEquals(expectedMaximum, surface.maximumPixels(), 0.0);
             assertEquals(expectedPosition, surface.offsetPixels(), 0.001);
@@ -1067,16 +1223,16 @@ class CapeCatalogTest {
             ViewSpec end = editor.present(width, height, expectedMaximum);
             ViewSpec.NavigationNode last = end.navigationNode(selectedId).orElseThrow();
             Bounds endViewport = end.scrollSurface("editor.capes").orElseThrow().viewport();
-            assertEquals(endViewport.bottom() - CatalogCardSizing.GAP - 8, last.bounds().bottom());
+            assertEquals(Math.min(endViewport.bottom(), endViewport.y() + contentHeight) - 4, last.bounds().bottom());
             assertTrue(last.bounds().y() < endViewport.bottom());
             assertEquals(expectedMaximum,
                     end.scrollSurface("editor.capes").orElseThrow().offsetPixels(), 0.001);
 
             ViewSpec fractional49 = editor.present(width, height, 0.49);
             ViewSpec fractional51 = editor.present(width, height, 0.51);
-            Bounds first49 = fractional49.navigationNode("editor.cape_item.OFFLINE.import")
+            Bounds first49 = fractional49.navigationNode("editor.cape_item.OFFLINE.none")
                     .orElseThrow().bounds();
-            Bounds first51 = fractional51.navigationNode("editor.cape_item.OFFLINE.import")
+            Bounds first51 = fractional51.navigationNode("editor.cape_item.OFFLINE.none")
                     .orElseThrow().bounds();
             assertEquals(first49.y() - 1, first51.y());
             assertEquals(0.49, fractional49.scrollSurface("editor.capes").orElseThrow().offsetPixels(), 0.001);
@@ -1084,7 +1240,7 @@ class CapeCatalogTest {
         }
     }
 
-    @Test void inlineModeDisablesOtherCapeActionsAndKeepsItsOwnControls() {
+    @Test void inlineModeKeepsOtherEligibleCardsAndItsOwnControlsEnabled() {
         var m = model();
         var other = new LocalCapeReference(new UUID(3, 2), "c".repeat(64), true);
         var cards = new ArrayList<>(m.cards());
@@ -1101,8 +1257,8 @@ class CapeCatalogTest {
         assertEquals(ViewSpec.WidgetKind.ICON_BUTTON, ownSave.kind());
         assertEquals(Optional.of(NativeGuiIcon.ACCEPT), ownSave.icon());
         assertEquals("nclskins.editor.save", ownSave.label().key());
-        assertFalse(widgets.stream().filter(w -> w.id().equals("editor.cape_action.rename." + other.entryId())).findFirst().orElseThrow().enabled());
-        assertFalse(widgets.stream().filter(w -> w.id().equals("editor.cape_action.delete." + other.entryId())).findFirst().orElseThrow().enabled());
+        assertTrue(widgets.stream().filter(w -> w.id().equals("editor.cape_action.more." + other.entryId())).findFirst().orElseThrow().enabled());
+        assertTrue(widgets.stream().filter(w -> w.id().equals("editor.cape_item.OFFLINE." + other.entryId())).findFirst().orElseThrow().enabled());
     }
 
     @Test void errorUsesNativeTextMeasurementWithoutExtraLines() {
@@ -1123,7 +1279,7 @@ class CapeCatalogTest {
 
     @Test void searchHidesServiceCardsAndEmptyCollectionsAndKeepsDisclosure() {
         var model = model().toggle(BuiltinProvider.OFFLINE);
-        assertEquals(3, model.matches(BuiltinProvider.OFFLINE).size());
+        assertEquals(2, model.matches(BuiltinProvider.OFFLINE).size());
         var filtered = model.withQuery("blue");
         assertEquals(1, filtered.matches(BuiltinProvider.OFFLINE).size());
         assertTrue(filtered.matches(BuiltinProvider.MINECRAFT).isEmpty());
@@ -1136,8 +1292,8 @@ class CapeCatalogTest {
         var model = model();
         assertEquals(1, model.cycleFilter(false).filter());
         assertEquals(2, model.cycleFilter(true).filter());
-        assertEquals(2, model.cycleFilter(false).matches(BuiltinProvider.OFFLINE).size());
-        assertEquals(3, model.cycleFilter(true).matches(BuiltinProvider.OFFLINE).size());
+        assertEquals(1, model.cycleFilter(false).matches(BuiltinProvider.OFFLINE).size());
+        assertEquals(2, model.cycleFilter(true).matches(BuiltinProvider.OFFLINE).size());
         assertEquals(0, model.cycleFilter(true).cycleFilter(false).filter());
     }
 
@@ -1395,38 +1551,31 @@ class CapeCatalogTest {
         String cardId = "editor.cape_item.OFFLINE." + key;
         Bounds card = view.widget(cardId).orElseThrow().bounds();
         assertEquals(expectedHeight, card.height());
-        Bounds preview = new Bounds(
-                card.x() + 5,
-                card.y() + 20,
-                card.width() - 10,
-                card.height() - 48);
-        ViewSpec.BackEquipmentPreview equipment = view.backEquipmentPreviews().stream()
+        var equipment = view.backEquipmentPreviews().stream()
                 .filter(value -> value.id().equals(
                         "editor.cape_surface.OFFLINE." + key + ".preview"))
-                .findFirst()
-                .orElseThrow();
-        assertEquals(preview, equipment.bounds());
+                .findFirst();
+        if (!view.widget(cardId).orElseThrow().enabled()) assertTrue(equipment.isEmpty());
+        else assertEquals(expectedEquipmentSlot(card), equipment.orElseThrow().bounds());
         view.widgets().stream()
                 .filter(widget -> widget.id().startsWith("editor.cape_action."))
                 .forEach(widget -> {
                     assertTrue(card.contains(widget.bounds().x(), widget.bounds().y()));
                     assertTrue(card.contains(widget.bounds().right() - 1, widget.bounds().bottom() - 1));
-                    if (!widget.id().equals("editor.cape_action.name")) {
-                        assertFalse(intersects(widget.bounds(), preview));
-                    }
+
                 });
     }
 
     private static void assertServiceCapeBounds(ViewSpec view, int expectedHeight) {
-        for (String key : List.of("none", "import")) {
-            String cardId = "editor.cape_item.OFFLINE." + key;
-            Bounds card = view.widget(cardId).orElseThrow().bounds();
+        for (String provider : List.of("OFFLINE", "MINECRAFT")) {
+            String cardId = "editor.cape_item." + provider + ".none";
+            Bounds card = view.navigationNode(cardId).orElseThrow().bounds();
             assertEquals(expectedHeight, card.height());
-            Bounds preview = new Bounds(
-                    card.x() + 5,
-                    card.y() + 20,
-                    card.width() - 10,
-                    card.height() - 48);
+            if (!intersects(card, view.scrollSurface("editor.capes").orElseThrow().viewport())) {
+                assertTrue(view.widget(cardId).isEmpty());
+                continue;
+            }
+            Bounds preview = card;
             ViewSpec.IconDecoration icon = view.iconDecorations().stream()
                     .filter(value -> value.ownerWidgetId().equals(cardId))
                     .findFirst()
@@ -1449,18 +1598,24 @@ class CapeCatalogTest {
         return x.get(1) - x.get(0);
     }
 
-    private static void assertProjectedEnvelopeFits(Bounds slot) {
-        double scale = VanillaBackEquipmentTransform.fitScale(slot.width(), slot.height());
+    private static Bounds expectedEquipmentSlot(Bounds card) {
+        return new Bounds(card.x() + 2, card.y() + 8, card.width() - 4, 50);
+    }
+
+    private static void assertProjectedEnvelopeFits(Bounds slot, BackEquipmentPreviewRenderer.Mode mode) {
+        double scale = VanillaBackEquipmentTransform.fitScale(slot.width(), slot.height(), mode, BackEquipmentPreviewRenderer.FitPolicy.CATALOG_CARD);
+        boolean cape = mode == BackEquipmentPreviewRenderer.Mode.CAPE;
         double halfWidth = slot.width() / 2.0;
         double halfHeight = slot.height() / 2.0;
+        double offset = VanillaBackEquipmentTransform.modelOffsetY(mode, BackEquipmentPreviewRenderer.FitPolicy.CATALOG_CARD);
         assertTrue(scale > 0.0, "fit scale must be positive for " + slot);
-        assertTrue(halfWidth + PROJECTED_MIN_X * scale > 0.0,
+        assertTrue(halfWidth + (cape ? -0.3125 : PROJECTED_MIN_X) * scale > 0.0,
                 "left projected-envelope inset must be positive for " + slot);
-        assertTrue(halfWidth - PROJECTED_MAX_X * scale > 0.0,
+        assertTrue(halfWidth - (cape ? 0.3125 : PROJECTED_MAX_X) * scale > 0.0,
                 "right projected-envelope inset must be positive for " + slot);
-        assertTrue(halfHeight + PROJECTED_MIN_Y * scale > 0.0,
+        assertTrue(halfHeight + ((cape ? -0.632 : PROJECTED_MIN_Y) + offset) * scale > 0.0,
                 "top projected-envelope inset must be positive for " + slot);
-        assertTrue(halfHeight - PROJECTED_MAX_Y * scale > 0.0,
+        assertTrue(halfHeight - ((cape ? 0.390 : PROJECTED_MAX_Y) + offset) * scale > 0.0,
                 "bottom projected-envelope inset must be positive for " + slot);
     }
 

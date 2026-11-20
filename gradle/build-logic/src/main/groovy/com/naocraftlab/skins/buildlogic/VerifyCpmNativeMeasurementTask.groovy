@@ -446,7 +446,7 @@ abstract class VerifyCpmNativeMeasurementTask extends DefaultTask {
                 || cards.any { it.materials!=1 || it.drawTerminals!=1 || it.completions!=1 || it.layoutScale!=1
                     || !(it.nativeScale instanceof Number) || it.nativeScale<=0 || it.numericLoads!=0 || it.captures!=0 || it.fullClassifiers!=0
                     || !(it.storedFullFactor instanceof Number) || it.storedFullFactor<=0 || it.storedFullFactor>=0.5
-                    || it.requestScale!=(it.role=='right-Gallery'?0.88:1) || !(it.producer instanceof String) || it.producer.isEmpty() })
+                    || it.requestScale!=0.88 || !(it.producer instanceof String) || it.producer.isEmpty() })
             throw new IllegalStateException('Baked card actual source/cache/native consumer ledger incomplete')
         def transition=read('baked-card-source-transition')
         def sameId=read('baked-card-same-id')

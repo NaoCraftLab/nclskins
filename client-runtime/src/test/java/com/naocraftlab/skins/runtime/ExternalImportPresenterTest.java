@@ -24,6 +24,32 @@ final class ExternalImportPresenterTest {
     private final ExternalImportPresenter presenter = new ExternalImportPresenter();
 
     @Test
+    void reviewUsesCompactReadOnlyCardsWithCyanOutlineAndSeparateWhiteFocus() {
+        for (var category : ExternalImportModel.Category.values()) {
+            var source = category.sources().get(0);
+            var candidates = IntStream.range(0, 40).mapToObj(index -> candidate("c" + index, false)).toList();
+            var model = ExternalImportModel.open(category).withAutomaticProbes(Map.of(source, ExternalImportProbe.AVAILABLE))
+                    .withReview(new ClientOperations.ExternalImportReview(source, candidates, 40, 0));
+            for (int width : List.of(240, 321, 854, 1600)) {
+                var view = presenter.present(model, false, Optional.empty(), width, 240);
+                var card = view.widget("external.review.card:c0").orElseThrow();
+                assertEquals(96, card.bounds().height());
+                assertTrue(card.bounds().width() >= 48 && card.bounds().width() <= 64);
+                assertEquals(card.bounds().right() + 2, view.widget("external.review.card:c1").orElseThrow().bounds().x());
+                assertEquals(card.bounds(), view.previews().get(0).bounds());
+                assertEquals(0.88F, view.previews().get(0).scale(), "Gallery thumbnail scale");
+                assertEquals(0, CatalogCardStyle.backgroundBehindContentColor(card, false));
+                assertEquals(List.of(0xFF80C8FF, 0xFFFFFFFF), ViewHostPolicy.cardFrameColors(card, true));
+                assertEquals(8, ViewHostPolicy.cardFrameSegments(card, true).size());
+                assertTrue(view.widgets().stream().noneMatch(widget -> widget.id().contains("rename") || widget.id().endsWith(".more")));
+                var title = view.texts().stream().filter(text -> text.id().equals(card.id() + ".name")).findFirst().orElseThrow();
+                assertEquals(card.bounds().bottom() - 12, title.bounds().y());
+                assertEquals(40, model.review().orElseThrow().selectedIds().size());
+            }
+        }
+    }
+
+    @Test
     void categoriesExposeOnlyTheirSourcesAndFolderActionsAtMinimumViewport() {
         ExternalImportModel launcher = ExternalImportModel.open(ExternalImportModel.Category.LAUNCHER)
                 .withAutomaticProbes(Map.of(
@@ -264,10 +290,8 @@ final class ExternalImportPresenterTest {
         ViewSpec review = presenter.present(model, false, Optional.empty(), 854, 480);
 
         assertEquals("external_review", review.screenId());
-        assertTrue(review.widget("external.review.card:candidate-0")
-                .orElseThrow().selectableCardSelected());
-        assertFalse(review.widget("external.review.card:candidate-1")
-                .orElseThrow().selectableCardSelected());
+        assertEquals(0xFF80C8FF, ViewHostPolicy.cardFrameColor(review.widget("external.review.card:candidate-0").orElseThrow(), false));
+        assertEquals(0, ViewHostPolicy.cardFrameColor(review.widget("external.review.card:candidate-1").orElseThrow(), false));
         assertEquals(2, review.previews().size());
         assertTrue(review.previews().stream().allMatch(preview -> preview.externalImage().isPresent()));
         assertTrue(review.panels().stream().anyMatch(panel ->
@@ -324,10 +348,10 @@ final class ExternalImportPresenterTest {
 
         ViewSpec review = presenter.present(model, false, Optional.empty(), 320, 240);
         List<ViewSpec.NavigationNode> nodes = review.navigationNodes().stream()
-                .filter(node -> node.id().startsWith("external.review.card:"))
+                .filter(node -> node.id().startsWith("external.review.card:") && node.pattern() == ViewSpec.NavigationPattern.GRID)
                 .toList();
         long materialized = review.widgets().stream()
-                .filter(widget -> widget.id().startsWith("external.review.card:"))
+                .filter(widget -> widget.id().startsWith("external.review.card:") && widget.kind() == ViewSpec.WidgetKind.CATALOG_CARD)
                 .count();
 
         assertEquals(30, nodes.size());
@@ -336,6 +360,10 @@ final class ExternalImportPresenterTest {
         assertTrue(nodes.stream().allMatch(node ->
                 node.pattern() == ViewSpec.NavigationPattern.GRID
                         && node.surfaceId().equals(Optional.of("external.review"))));
+        String first = "external.review.card:candidate-0";
+        assertEquals(first + ".title_control", ViewNavigationPolicy.target(review, first,
+                ViewSpec.NavigationCommand.TAB_FORWARD).orElseThrow().id());
+        assertTrue(ViewNavigationPolicy.activationAction(review, first + ".title_control").isEmpty());
 
         ViewSpec collapsed = presenter.present(
                 model.toggleCollection(false), false, Optional.empty(), 320, 240);
@@ -370,7 +398,7 @@ final class ExternalImportPresenterTest {
                 model.withReviewScroll(Integer.MAX_VALUE), false, Optional.empty(), 320, 240);
         Bounds lastCard = maximumScroll.widget(
                 "external.review.card:candidate-9").orElseThrow().bounds();
-        assertEquals(14, viewport.bottom() - lastCard.bottom());
+        assertEquals(4, viewport.bottom() - lastCard.bottom());
     }
 
     @Test
@@ -386,7 +414,7 @@ final class ExternalImportPresenterTest {
 
         ViewSpec review = presenter.present(model, false, Optional.empty(), 1600, 120);
 
-        assertEquals(16, review.widget(
+        assertEquals(8, review.widget(
                 "external.review.card:candidate-0").orElseThrow().bounds().x());
     }
 
@@ -545,7 +573,7 @@ final class ExternalImportPresenterTest {
         assertEquals(Optional.of(indicator.label()), indicator.hint());
         ViewSpec.Widget card = view.widget("external.review.card:candidate-0").orElseThrow();
         assertEquals(card.bounds().x() + 2, indicator.bounds().x());
-        assertEquals(card.bounds().bottom() - 2, indicator.bounds().bottom());
+        assertEquals(card.bounds().y() + 2, indicator.bounds().y());
         assertEquals(Optional.of(GuiIcon.STATUS_COMPATIBILITY_EXTENDED), indicator.icon());
         assertEquals(20, indicator.bounds().width());
         assertEquals(20, indicator.bounds().height());

@@ -20,7 +20,7 @@ public final class ExternalImportPresenter {
     private static final int REVIEW_CONTENT_TOP_INSET = 4;
     private static final int FOOTER_HEIGHT = 33;
     private static final int HEADER_HEIGHT = 16;
-    private static final int CARD_GAP = 6;
+    private static final int CARD_GAP = CatalogCardSizing.COMPACT_GAP;
     private static final int DISCLOSURE_BUTTON_SIZE = 20;
     private static final int CONTROL_GAP = 6;
 
@@ -198,6 +198,10 @@ public final class ExternalImportPresenter {
                         : "nclskins.collection.collapse_all"),
                 anyCollapsed ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL,
                 !busy && !review.availableCollections().isEmpty()));
+        for (var widget : widgets) {
+            int order = navigationNodes.size();
+            navigationNodes.add(ViewSpec.NavigationNode.control(widget, order, order));
+        }
         addSection(false, fresh, review, layout, busy, environment,
                 panels, texts, widgets, previews, iconDecorations, navigationNodes);
         addSection(true, duplicates, review, layout, busy, environment,
@@ -216,6 +220,10 @@ public final class ExternalImportPresenter {
                 new Bounds(footerX + importWidth + 6, new ViewChromeMetrics(FOOTER_HEIGHT).footerRowTop(height,20), footerWidth - importWidth - 6, 20),
                 UiMessage.info("gui.cancel"),
                 !busy));
+        for (var widget : widgets.subList(widgets.size() - 2, widgets.size())) {
+            int order = navigationNodes.size();
+            navigationNodes.add(ViewSpec.NavigationNode.control(widget, order, order));
+        }
         status.filter(message -> message.severity() == UiMessage.Severity.ERROR)
                 .ifPresent(message -> texts.add(new ViewSpec.Text(
                         "external.review.status",
@@ -277,19 +285,13 @@ public final class ExternalImportPresenter {
             int height,
             int scrollOffset,
             List<CollectionGridLayout.Section> sections) {
-        return CollectionGridLayout.calculate(
+        return CollectionGridLayout.compact(
                 width,
                 height,
                 CHROME_HEIGHT,
                 FOOTER_HEIGHT,
                 REVIEW_CONTENT_TOP_INSET,
-                0,
-                HEADER_HEIGHT,
-                CARD_GAP,
-                68,
-                96,
-                72,
-                132,
+                CatalogCardSizing.compactSkin(Math.max(1, width - CollectionGridLayout.COMPACT_INSET * 2)),
                 scrollOffset,
                 sections);
     }
@@ -315,15 +317,15 @@ public final class ExternalImportPresenter {
             if (count > 0) sections.add(new AppearanceCollections.Section(duplicate ? "duplicates" : "new",
                     count, review.collectionCollapsed(duplicate), layout.cardHeight()));
         }
-        var section = AppearanceCollections.layout(sections, layout.columns()).sections().stream()
+        var section = AppearanceCollections.compactLayout(sections, layout.columns()).sections().stream()
                 .filter(value -> value.section().id().equals(sectionId)).findFirst().orElseThrow();
         int contentTop = layout.contentStart() - layout.scrollOffset();
-        Bounds header = section.header(16, contentTop, Math.max(1, layout.contentRight() - 16));
+        Bounds header = section.header(layout.cardStartX(), contentTop, Math.max(1, layout.contentRight() - layout.cardStartX()));
         String headerId = "external.review.collection." + sectionId;
         Bounds viewport = new Bounds(0, CHROME_HEIGHT, layout.contentRight(), Math.max(1, layout.contentBottom() - CHROME_HEIGHT));
         var headerPresentation = AppearanceCollections.header(headerId, header,
                 UiMessage.info(collectionHeaderKey(duplicateSection, review.collectionCollapsed(duplicateSection)), candidates.size()),
-                !busy, viewport, "external.review", navigationNodes.size(), -1);
+                !busy, viewport, "external.review", navigationNodes.size(), navigationNodes.size());
         navigationNodes.add(headerPresentation.navigation());
         headerPresentation.widget().ifPresent(widgets::add);
         if (section.section().collapsed()) return;
@@ -336,31 +338,43 @@ public final class ExternalImportPresenter {
                     card,
                     "external.review",
                     navigationNodes.size(),
-                    -1,
+                    navigationNodes.size(),
                     !busy,
                     ViewSpec.NavigationPattern.GRID,
                     Optional.empty()));
             if (!intersects(card, layout.contentBottom())) {
                 continue;
             }
-            var chrome = AppearanceCard.chrome(id, id, card, ViewSpec.WidgetKind.SELECTABLE_CARD,
-                    UiMessage.literal(candidate.displayName(), UiMessage.Severity.INFO),
+            UiMessage label = UiMessage.literal(candidate.displayName(), UiMessage.Severity.INFO);
+            var chrome = AppearanceCard.chrome(id, id, card, ViewSpec.WidgetKind.CATALOG_CARD, label,
                     review.selectedIds().contains(candidate.id()) ? Optional.of("selected") : Optional.empty(), !busy);
             panels.add(chrome.surface());
+            panels.add(AppearanceCard.compactNamebar(id + ".namebar", card, false));
             widgets.add(chrome.widget());
-            texts.add(AppearanceCard.name(id + ".name", CatalogCardGeometry.name(card),
-                    UiMessage.literal(candidate.displayName(), UiMessage.Severity.INFO), card, List.of(id)));
+            var title = AppearanceCard.compactTitleControl(id, card, label, !busy);
+            texts.add(AppearanceCard.compactName(id + ".name", label, card, false, false, List.of(id, title.id())));
             Optional<String> capeId = Optional.ofNullable(candidate.capeId());
             previews.add(new AppearanceCard.Skin(SkinReference.accountDefault(),
                     "external:" + candidate.sha256() + ":" + candidate.variant().name(), candidate.variant(), capeId,
                     capeId.isPresent() ? PreviewRenderer.CapeMode.CAPE : PreviewRenderer.CapeMode.OFF,
-                    OuterLayerVisibility.allVisible(), -20.0F, 0.0F, 1.0F, Optional.empty(), Optional.empty(),
+                    OuterLayerVisibility.allVisible(), -20.0F, 0.0F, AppearanceCard.SKIN_THUMBNAIL_SCALE,
+                    Optional.empty(), Optional.empty(),
                     Optional.of(new ViewSpec.ExternalImage(candidate.id())), PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL, true)
-                    .present(id + ".preview", AppearanceCard.Role.READ_ONLY.preview(card)));
+                    .present(id + ".preview", card));
             SkinCompatibility compatibility = new SkinCompatibilityEvaluator().evaluate(
                     candidate.featureEvidence(), environment);
             if (compatibility.status() != SkinCompatibilityStatus.ORDINARY) {
-                widgets.add(AppearanceCard.compatibility(id + ".compatibility", card, card.bottom() - 2, compatibility));
+                var indicator = AppearanceCard.compatibility(id + ".compatibility", card, card.y() + 22, compatibility);
+                widgets.add(indicator);
+                int order = navigationNodes.size();
+                navigationNodes.add(ViewSpec.NavigationNode.card(indicator.id(), indicator.bounds(), "external.review",
+                        order, order, !busy, ViewSpec.NavigationPattern.NONE, Optional.empty()));
+            }
+            if (AppearanceCollections.intersects(title.bounds(), viewport)) {
+                widgets.add(title);
+                int order = navigationNodes.size();
+                navigationNodes.add(ViewSpec.NavigationNode.card(title.id(), title.bounds(), "external.review",
+                        order, order, !busy, ViewSpec.NavigationPattern.NONE, Optional.empty()));
             }
         }
     }

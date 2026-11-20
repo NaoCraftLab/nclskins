@@ -50,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -661,9 +662,16 @@ final class ClientRuntimeRegressionTest {
         var reference = new com.naocraftlab.skins.core.model.LocalCapeReference(new UUID(0, 101), "a".repeat(64), false);
         operations.account = operations.account.withPersonalCapes(List.of(new com.naocraftlab.skins.core.model.PersonalCapeEntry(
                 reference, reference.sha256(), "Ordinary cape", java.time.Instant.EPOCH)));
+        UUID editedId = operations.account.presets().get(0).id();
+        operations.account = new AccountState(operations.account.schemaVersion(), operations.account.accountId(),
+                operations.account.skinAssets(), operations.account.personalSkins(), operations.account.presets().stream()
+                .map(preset -> preset.id().equals(editedId) ? preset.withOfflineCape(reference) : preset).toList(),
+                operations.account.updatedAt(), operations.account.personalCapes());
+        AccountState savedAccount = operations.account;
         try (ClientRuntime runtime = runtime(operations)) {
             runtime.initialize();
             runtime.dispatchWidget("gallery.preset." + operations.account.presets().get(0).id() + ".edit");
+            runtime.dispatchText("editor.name", "Dirty name");
             runtime.dispatchWidget("editor.tab.cape");
             var catalog = runtime.snapshot().editor().orElseThrow().capeCatalog();
             var ordinary = catalog.cards().stream().filter(card -> reference.equals(card.local())).findFirst().orElseThrow();
@@ -676,13 +684,18 @@ final class ClientRuntimeRegressionTest {
             assertTrue(runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow().startsWith("sneaky:preview:"));
             assertEquals(reference, runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
             runtime.dispatchWidget(sneakyWidget);
-            assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
-            assertEquals(assigned.previewCape(), runtime.view(854, 480, 0, 0).previews().get(0).capeId());
-            runtime.dispatchWidget(sneakyWidget);
-            runtime.dispatchWidget("editor.tab.cape");
+            assertEquals(sneakyWidget, runtime.snapshot().editor().orElseThrow().capeCatalog().inspected().widgetId());
+            assertTrue(runtime.view(854, 480, 0, 0).previews().get(0).capeId().orElseThrow().startsWith("sneaky:preview:"));
+            assertEquals(reference, runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
+            assertTrue(runtime.view(854, 480, 0, 0).widget("editor.reset").orElseThrow().enabled());
+            runtime.dispatchWidget("editor.reset", false, InteractionOrigin.POINTER);
             assertNull(runtime.snapshot().editor().orElseThrow().capeCatalog().inspected());
             assertEquals(reference, runtime.snapshot().editor().orElseThrow().capeCatalog().offline());
             assertEquals(assigned.previewCape(), runtime.view(854, 480, 0, 0).previews().get(0).capeId());
+            assertEquals(savedAccount.presets().get(0).name(), runtime.snapshot().editor().orElseThrow().name());
+            assertTrue(runtime.view(854, 480, 0, 0).widget("editor.back").isPresent());
+            assertSame(savedAccount, operations.account);
+            assertNull(operations.lastEditorRequest);
         }
     }
 

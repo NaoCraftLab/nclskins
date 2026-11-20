@@ -14,6 +14,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class NativeUiRoutingTest {
     @Test
+    void compactTitleUsesSemanticArrowRoutingWithoutGalleryScreenOrIds() {
+        var skin = new com.naocraftlab.skins.client.SkinCatalogSource.SkinDescriptor("a".repeat(64), "Long title",
+                Optional.empty(), Optional.empty(), List.of(com.naocraftlab.skins.client.SkinModel.CLASSIC));
+        var collection = new com.naocraftlab.skins.client.SkinCatalogSource.CollectionDescriptor("personal",
+                com.naocraftlab.skins.client.CatalogText.literal("Personal"), Optional.empty(), Optional.empty(), List.of(skin),
+                com.naocraftlab.skins.client.CatalogCollectionOrder.personal("personal"));
+        var model = AddSourceModel.open(com.naocraftlab.skins.core.model.AccountUiPreferences.defaults(TestFixtures.ACCOUNT_ID),
+                List.of(collection)).withSelectedTab(com.naocraftlab.skins.core.model.AddSourceTab.CATALOG);
+        var view = new AddSourcePresenter().present(model, false, 320, 240);
+        var toggle = view.widgets().stream().filter(widget -> widget.id().startsWith("add.catalog.more:")).findFirst().orElseThrow();
+        var title = view.texts().stream().filter(text -> text.id().endsWith(".name")).findFirst().orElseThrow();
+        assertEquals("▲", ViewHostPolicy.transparentLabel(toggle).orElseThrow().key());
+        assertEquals(toggle.bounds().y() + 5, ViewHostPolicy.transparentTextY(toggle, 9));
+        assertEquals(Optional.of(toggle), ViewHostPolicy.cardTitleToggle(view, title));
+        var fitted = ViewHostPolicy.galleryNameText(view, title, 7);
+        assertEquals(toggle.bounds().right() - 11, fitted.bounds().right());
+        assertEquals(fitted.bounds().right(), fitted.marqueeActivation().orElseThrow().movingClip().orElseThrow().right());
+        assertEquals(0x6D000000, ViewHostPolicy.panelOverlayColor(view.screenId(), view.panels().stream()
+                .filter(panel -> panel.id().endsWith(".namebar")).findFirst().orElseThrow().style()));
+    }
+
+    @Test
     void controllerPublishedFramesDoNotResetTheNativeAnimationTarget() {
         NativeScrollSync state = new NativeScrollSync();
         ViewSpec.ScrollSurface initial = surface(0.0, 100.0);

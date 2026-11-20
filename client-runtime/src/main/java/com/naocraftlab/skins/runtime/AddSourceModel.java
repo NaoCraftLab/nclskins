@@ -334,7 +334,8 @@ public final class AddSourceModel {
                 preferredVariant,
                 scrollOffset,
                 focusToken,
-                Optional.empty(),
+                focusWidgetId.filter(id -> !id.startsWith("add.catalog.rename")
+                        && !id.startsWith("add.catalog.delete") && !id.startsWith("add.catalog.more:")),
                 Optional.empty());
     }
 

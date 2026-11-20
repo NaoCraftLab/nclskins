@@ -42,7 +42,7 @@ final class GalleryFlowNavigationJoinTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {"full", "saved", "partial", "sections"})
-    void searchTabAfterWheelEntersFirstLogicalGroupWithoutSelectingDraft(String scenario) throws Exception {
+    void searchTabAfterWheelEntersFirstVisibleItemWithoutSelectingDraft(String scenario) throws Exception {
         var f = fixture();
         try {
             int height = scenario.equals("partial") ? 150 : 292;
@@ -90,13 +90,10 @@ final class GalleryFlowNavigationJoinTest {
             var focused = f.runtime.view(427, height, 0, 0);
             assertEquals("gallery.sections", focused.focusRequest().orElseThrow().widgetId());
             assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,"gallery.sections"));
-            String header = scenario.equals("sections") ? "gallery.favorites" : "gallery.your_appearances";
-            assertEquals(header,f.runtime.view(427,height,0,0).focusRequest().orElseThrow().widgetId());
-            assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_FORWARD,header));
             focused=f.runtime.view(427,height,0,0);
-            expected=focused.navigationNode(f.card(scenario.equals("sections") ? new UUID(0,10) : A)).orElseThrow();
+            expected=visible.get(0);
             assertEquals(expected.id(), focused.focusRequest().orElseThrow().widgetId());
-            assertTrue(focused.scrollSurface("gallery.cards").orElseThrow().offsetPixels() < beforeSurface.offsetPixels());
+            assertEquals(beforeSurface.offsetPixels(), focused.scrollSurface("gallery.cards").orElseThrow().offsetPixels());
             assertTrue(focused.widget(expected.id()).orElseThrow().enabled());
             var request = focused.focusRequest().orElseThrow();
             f.runtime.acknowledgeFocusApplied(focused.screenId(), request);
@@ -282,6 +279,12 @@ final class GalleryFlowNavigationJoinTest {
             tabCycle(f, false); tabCycle(f, true);
             assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, prefix + ".delete"));
             assertEquals(prefix + ".delete_cancel", f.view().focusRequest().orElseThrow().widgetId());
+            assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.TAB_BACKWARD, prefix + ".more"));
+            assertEquals(f.card(B), f.view().focusRequest().orElseThrow().widgetId());
+            assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.DOWN, "gallery.your_appearances"));
+            assertEquals(f.card(B), f.view().focusRequest().orElseThrow().widgetId());
+            assertTrue(f.view().widget(f.card(B)).orElseThrow().enabled());
+            assertFalse(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, f.card(B)));
             assertFalse(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, f.card(A)));
             tabCycle(f, false); tabCycle(f, true);
             assertTrue(f.runtime.dispatchNavigation(ViewSpec.NavigationCommand.ACTIVATE, prefix + ".delete_cancel"));

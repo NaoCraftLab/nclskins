@@ -17,6 +17,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class CatalogPresetEditorTest {
     @Test
+    void savedAndDraftModelCardsUseDifferentFrames() {
+        var account = TestFixtures.account(1);
+        var saved = PresetEditorModel.open(account, Optional.of(account.presets().get(0)), Optional.empty(),
+                Optional.empty(), UiMessage::key, 480, PreviewRenderer.CapeMode.CAPE);
+        var baseline = saved.variant();
+        String savedId = "editor.model_choice." + baseline.name().toLowerCase(java.util.Locale.ROOT);
+        assertEquals(0xFF80C880, ViewHostPolicy.cardFrameColor(saved.present(854, 480, 0).widget(savedId).orElseThrow(), false));
+        var draftVariant = baseline == SkinVariant.CLASSIC ? SkinVariant.SLIM : SkinVariant.CLASSIC;
+        var draft = saved.selectVariant(draftVariant);
+        assertEquals(draftVariant, draft.variant());
+        String draftId = "editor.model_choice." + draftVariant.name().toLowerCase(java.util.Locale.ROOT);
+        var view = draft.present(854, 480, 0);
+        assertEquals(0xFF80C880, ViewHostPolicy.cardFrameColor(view.widget(savedId).orElseThrow(), false));
+        assertEquals(0xFF80C8FF, ViewHostPolicy.cardFrameColor(view.widget(draftId).orElseThrow(), false));
+        for (boolean highlighted : new boolean[] {false, true}) {
+            assertEquals(CatalogCardStyle.backgroundBehindContentColor(view.widget(savedId).orElseThrow(), highlighted),
+                    CatalogCardStyle.backgroundBehindContentColor(view.widget(draftId).orElseThrow(), highlighted));
+        }
+    }
+
+    @Test
     void frozenCatalogSelectionSurvivesEditorCopiesUntilSave() {
         var frozen = new CatalogMaterialization.FrozenCatalogSelection(java.util.UUID.randomUUID(),
                 "event", "hero", 17, Map.of(com.naocraftlab.skins.client.SkinModel.CLASSIC, "0".repeat(64)), Map.of());
@@ -30,7 +51,7 @@ final class CatalogPresetEditorTest {
     }
 
     @Test
-    void modelCardsFillTwoColumnsPreserveAspectAndClipAtTheFooter() {
+    void modelCardsAreCenteredAndBoundedWhilePreservingAspectAndFooterClip() {
         PresetEditorModel model = PresetEditorModel.openCatalog(
                 "Model", new CatalogOrigin("minecraft", "minecraft", "model"),
                 Map.of(SkinVariant.CLASSIC, new byte[] {1}, SkinVariant.SLIM, new byte[] {2}),
@@ -41,11 +62,15 @@ final class CatalogPresetEditorTest {
             ViewSpec.Widget classic = view.widget("editor.model_choice.classic").orElseThrow();
             ViewSpec.Widget slim = view.widget("editor.model_choice.slim").orElseThrow();
             assertEquals(classic.bounds().y(), slim.bounds().y());
-            assertEquals(surface.viewport().x() + CollectionGridLayout.CONTENT_LEFT_INSET, classic.bounds().x());
-            assertEquals(surface.viewport().right() - CollectionGridLayout.CONTENT_RIGHT_INSET, slim.bounds().right());
+            assertTrue(Math.abs(classic.bounds().x() + slim.bounds().right()
+                    - surface.viewport().x() - surface.viewport().right()) <= 1);
+            assertTrue(classic.bounds().x() >= surface.viewport().x() + 8);
+            assertTrue(slim.bounds().right() <= surface.viewport().right() - 8);
+            assertEquals(classic.bounds().width(), slim.bounds().width());
             assertEquals(6, slim.bounds().x() - classic.bounds().right());
             for (ViewSpec.Widget card : java.util.List.of(classic, slim)) {
                 assertEquals(Math.round(card.bounds().width() * 86.0 / 68.0), card.bounds().height());
+                assertTrue(card.bounds().height() <= 192);
                 assertEquals(Optional.of(surface.viewport()), view.clipFor(card.id()));
             }
             assertEquals(33, surface.viewport().y());
@@ -78,6 +103,7 @@ final class CatalogPresetEditorTest {
                     .filter(node -> node.id().equals("editor.name")).findFirst().orElseThrow().surfaceId());
             if (size[0] >= 854) {
                 assertTrue(view.iconDecorations().get(0).bounds().height() > 128);
+                assertEquals(191, classic.bounds().height());
             }
             if (surface.maximumPixels() > 0) {
                 assertFalse(ViewHostPolicy.pointerInsideClip(end, classic.id(), classic.bounds().x() + 2, 32));

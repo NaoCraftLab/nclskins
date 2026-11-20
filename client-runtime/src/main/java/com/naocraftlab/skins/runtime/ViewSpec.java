@@ -700,6 +700,8 @@ public record ViewSpec(
         }
 
         public enum Style {
+            COMPACT_NAMEBAR,
+            COMPACT_MENU_SCRIM,
             VANILLA_LIST,
             VANILLA_TAB_CONTENT,
             VANILLA_HEADER,
@@ -1552,12 +1554,19 @@ public record ViewSpec(
             Bounds bounds,
             String capeId,
             BackEquipmentPreviewRenderer.Mode mode, boolean capeHasElytra, Projection projection) {
-        public enum Projection { EQUIPMENT, PROVIDER_THUMBNAIL }
+        public enum Projection { EQUIPMENT, PROVIDER_THUMBNAIL, CATALOG_CARD }
         public BackEquipmentPreview(String id, Bounds bounds, String capeId, BackEquipmentPreviewRenderer.Mode mode, boolean capeHasElytra) {
             this(id,bounds,capeId,mode,capeHasElytra,Projection.EQUIPMENT);
         }
         public BackEquipmentPreview asProviderThumbnail() {
             return new BackEquipmentPreview(id,bounds,capeId,mode,capeHasElytra,Projection.PROVIDER_THUMBNAIL);
+        }
+        public BackEquipmentPreview asCatalogCard() {
+            return new BackEquipmentPreview(id, bounds, capeId, mode, capeHasElytra, Projection.CATALOG_CARD);
+        }
+        public BackEquipmentPreviewRenderer.FitPolicy fitPolicy() {
+            return projection == Projection.CATALOG_CARD ? BackEquipmentPreviewRenderer.FitPolicy.CATALOG_CARD
+                    : BackEquipmentPreviewRenderer.FitPolicy.LEGACY_UNION;
         }
         public BackEquipmentPreview(String id, Bounds bounds, String capeId, BackEquipmentPreviewRenderer.Mode mode) {
             this(id, bounds, capeId, mode, true);

@@ -48,7 +48,7 @@ public final class CatalogCardStyle {
             return TRANSPARENT_BACKGROUND_COLOR;
         }
         if (widget.id().startsWith("gallery.inspect.")) return TRANSPARENT_BACKGROUND_COLOR;
-        return selectionSelected(widget)
+        return selectionSelected(widget) && !widget.id().startsWith("editor.model_choice.")
                 ? SELECTED_BACKGROUND_COLOR
                 : backgroundColor(widget.enabled(), hoveredOrFocused);
     }

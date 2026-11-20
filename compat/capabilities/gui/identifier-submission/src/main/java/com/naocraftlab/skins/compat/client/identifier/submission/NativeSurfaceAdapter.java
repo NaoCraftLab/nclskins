@@ -85,7 +85,9 @@ final class NativeSurfaceAdapter {
         for (ViewSpec.Panel panel : current.panels()) {
             if (panel.style() == ViewSpec.Panel.Style.VANILLA_LIST
                     || panel.style() == ViewSpec.Panel.Style.VANILLA_TAB_CONTENT
-                    || panel.style() == ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR) {
+                    || panel.style() == ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR
+                    || panel.style() == ViewSpec.Panel.Style.COMPACT_NAMEBAR
+                    || panel.style() == ViewSpec.Panel.Style.COMPACT_MENU_SCRIM) {
                 continue;
             }
             Bounds b = panel.bounds();

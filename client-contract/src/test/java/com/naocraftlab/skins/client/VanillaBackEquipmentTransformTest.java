@@ -22,6 +22,56 @@ final class VanillaBackEquipmentTransformTest {
     private static final double PROJECTED_UNION_HEIGHT = 1.587;
 
     @Test
+    void compactEquipmentSilhouettesShareTheSameProjectedHeight() {
+        for (int width : new int[]{24, 44, 50, 60}) {
+            var policy = BackEquipmentPreviewRenderer.FitPolicy.CATALOG_CARD;
+            float capeScale = VanillaBackEquipmentTransform.fitScale(width, 44, BackEquipmentPreviewRenderer.Mode.CAPE, policy);
+            float wingScale = VanillaBackEquipmentTransform.fitScale(width, 44, BackEquipmentPreviewRenderer.Mode.ELYTRA, policy);
+            double wingHeight = projectedHeight(NativeShape.SIMPLE_ELYTRA) * wingScale;
+            for (var cape : List.of(NativeShape.LEGACY_CAPE, NativeShape.MODERN_CAPE)) {
+                assertEquals(wingHeight, projectedHeight(cape) * capeScale, 1.0, "shared height at width " + width);
+            }
+        }
+    }
+
+    private static double projectedHeight(NativeShape shape) {
+        var corners = shape.projectedCorners();
+        return corners.stream().mapToDouble(Point::y).max().orElseThrow()
+                - corners.stream().mapToDouble(Point::y).min().orElseThrow();
+    }
+
+    @Test
+    void catalogFitCentersBothContoursAndPreservesLegacyUnion() {
+        for (int width : new int[]{1, 24, 44, 48, 49, 64}) for (int height : new int[]{1, 44, 96}) {
+            for (BackEquipmentPreviewRenderer.Mode mode : BackEquipmentPreviewRenderer.Mode.values()) {
+                float scale = VanillaBackEquipmentTransform.fitScale(width, height, mode,
+                        BackEquipmentPreviewRenderer.FitPolicy.CATALOG_CARD);
+                assertTrue(Float.isFinite(scale) && scale > 0);
+                var shapes = mode == BackEquipmentPreviewRenderer.Mode.CAPE
+                        ? List.of(NativeShape.LEGACY_CAPE, NativeShape.MODERN_CAPE)
+                        : List.of(NativeShape.SIMPLE_ELYTRA, NativeShape.INFLATED_PLAYER_ELYTRA);
+                float offset = VanillaBackEquipmentTransform.modelOffsetY(mode, BackEquipmentPreviewRenderer.FitPolicy.CATALOG_CARD);
+                for (var shape : shapes) {
+                    var corners = shape.projectedCorners();
+                    for (Point point : corners) {
+                        assertTrue(Math.abs(point.x() * scale) <= width * .5 + EPSILON);
+                        assertTrue(Math.abs((point.y() + offset) * scale) <= height * .5 + EPSILON);
+                    }
+                    double top = corners.stream().mapToDouble(point -> (point.y() + offset) * scale).min().orElseThrow();
+                    double bottom = corners.stream().mapToDouble(point -> (point.y() + offset) * scale).max().orElseThrow();
+                    assertEquals(0.0, (top + bottom) / 2, 0.65, "centered actual shape: " + shape);
+                    assertTrue(bottom - top >= .9 * Math.min(height, width * 1.09));
+                }
+                assertEquals(VanillaBackEquipmentTransform.fitScale(width, height),
+                        VanillaBackEquipmentTransform.fitScale(width, height, mode, BackEquipmentPreviewRenderer.FitPolicy.LEGACY_UNION));
+                assertEquals(0.0F, VanillaBackEquipmentTransform.modelOffsetY(mode, BackEquipmentPreviewRenderer.FitPolicy.LEGACY_UNION));
+            }
+        }
+        assertThrows(IllegalArgumentException.class, () -> VanillaBackEquipmentTransform.fitScale(0, 96,
+                BackEquipmentPreviewRenderer.Mode.CAPE, BackEquipmentPreviewRenderer.FitPolicy.CATALOG_CARD));
+    }
+
+    @Test
     void standalonePreviewUsesRearViewAndCenteredEquipmentPivotInExactOrder() {
         RecordingOperations operations = new RecordingOperations();
 

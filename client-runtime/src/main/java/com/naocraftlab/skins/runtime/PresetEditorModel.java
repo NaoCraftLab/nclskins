@@ -32,6 +32,8 @@ public final class PresetEditorModel {
     private static final int FOOTER_HEIGHT = 33;
     private static final int MODEL_CARD_ASPECT_WIDTH = 68;
     private static final int MODEL_CARD_ASPECT_HEIGHT = 86;
+    private static final int MODEL_CARD_MAX_WIDTH = 2 * CatalogCardSizing.COMPACT_HEIGHT
+            * MODEL_CARD_ASPECT_WIDTH / MODEL_CARD_ASPECT_HEIGHT;
     private static final int MODEL_GALLERY_TOP = 95;
     private static final int CAPE_SCROLLBAR_WIDTH = 6;
     private final Optional<UUID> originalPresetId;
@@ -436,6 +438,13 @@ public final class PresetEditorModel {
                 catalogVariants, reusableCatalogVariants, busy, status, preview, selectedEditorTab, value, frozenCatalogSelection);
     }
 
+    PresetEditorModel restoreSavedFields(LibraryEditorPort.EditorSaveRequest saved) {
+        return new PresetEditorModel(originalPresetId, saved.name(), saved.skin(), saved.initialVariant(), saved.variant(),
+                saved.capeId(), capeChoices, hasOwnedCapePreview, Optional.empty(), saved.catalogOrigin(), Map.of(), Map.of(),
+                false, Optional.empty(), preview.withOuterLayerVisibility(saved.outerLayerVisibility()), selectedEditorTab,
+                capeCatalog, saved.frozenCatalogSelection());
+    }
+
     private Optional<String> previewCapeId() {
         return capeCatalog == null ? capeId : capeCatalog.previewCape();
     }
@@ -776,30 +785,41 @@ public final class PresetEditorModel {
 
     public ViewSpec present(int width, int height, double capeScrollPosition, double modelScrollPosition,
             ViewChromeMetrics chromeMetrics, boolean showOuterLayers) {
+        return present(width, height, capeScrollPosition, modelScrollPosition, chromeMetrics, showOuterLayers, true);
+    }
+
+    ViewSpec present(int width, int height, double capeScrollPosition, double modelScrollPosition,
+                     ViewChromeMetrics chromeMetrics, boolean showOuterLayers, boolean dirty) {
+        return present(width, height, capeScrollPosition, modelScrollPosition, chromeMetrics, showOuterLayers, dirty, java.util.Set.of());
+    }
+
+    ViewSpec present(int width, int height, double capeScrollPosition, double modelScrollPosition,
+                     ViewChromeMetrics chromeMetrics, boolean showOuterLayers, boolean dirty, java.util.Set<String> savedAssignments) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("view dimensions must be positive");
         }
         Objects.requireNonNull(chromeMetrics, "chromeMetrics");
-        int dividerX = width / 2;
-        int controlsX = Math.min(width - 1, dividerX + CollectionGridLayout.CONTENT_LEFT_INSET);
-        EditorCardLayout modelGallery = modelGalleryLayout(width, height, modelScrollPosition);
+        EditorGeometry geometry = geometry(width, height, chromeMetrics);
+        int dividerX = geometry.dividerX();
+        int controlsX = geometry.contentX();
+        EditorCardLayout modelGallery = modelGalleryLayout(width, height, modelScrollPosition, chromeMetrics);
         int appearanceScroll = (int) Math.round(modelGallery.position());
-        int controlsWidth = Math.max(1, width - controlsX - CollectionGridLayout.CONTENT_LEFT_INSET);
-        Bounds previewBounds = new Bounds(0, 0, Math.max(1, dividerX), Math.max(1, height));
+        int controlsWidth = geometry.contentWidth();
+        Bounds previewBounds = geometry.anchor();
         int footerWidth = Math.min(260, Math.max(154, width / 2 - 28));
         int footerX = (width - footerWidth) / 2;
         int half = Math.max(54, (footerWidth - 4) / 2);
-        int bottom = new ViewChromeMetrics(FOOTER_HEIGHT).footerRowTop(height,20);
+        int bottom = chromeMetrics.footerRowTop(height,20);
 
         List<ViewSpec.Panel> panels = new ArrayList<>();
         panels.add(new ViewSpec.Panel(
                 "header", new Bounds(0, 0, width, 33), ViewSpec.Panel.Style.VANILLA_HEADER));
         panels.add(new ViewSpec.Panel(
-                "footer", new Bounds(0, Math.max(0, height - FOOTER_HEIGHT), width, FOOTER_HEIGHT), ViewSpec.Panel.Style.VANILLA_FOOTER));
+                "footer", new Bounds(0, Math.max(0, height - chromeMetrics.catalogFooterHeight()), width,
+                        Math.max(1, chromeMetrics.catalogFooterHeight())), ViewSpec.Panel.Style.VANILLA_FOOTER));
         panels.add(new ViewSpec.Panel(
                 "editor.tab_content",
-                new Bounds(dividerX, 33, Math.max(1, width - dividerX),
-                        Math.max(1, height - 33 - FOOTER_HEIGHT)),
+                geometry.workspace(),
                 ViewSpec.Panel.Style.VANILLA_TAB_CONTENT));
         List<ViewSpec.Widget> widgets = new ArrayList<>();
         List<ViewSpec.Text> texts = new ArrayList<>();
@@ -832,8 +852,7 @@ public final class PresetEditorModel {
         List<ViewSpec.ClipRegion> clipRegions = new ArrayList<>();
         List<ViewSpec.TooltipRegion> tooltipRegions = new ArrayList<>();
         List<ViewSpec.NavigationNode> navigationNodes = new ArrayList<>();
-        EditorCardLayout capeGallery = capeGalleryLayout(
-                dividerX, width - dividerX, height, capeScrollPosition, chromeMetrics);
+        EditorCardLayout capeGallery = capeGalleryLayout(geometry, height, capeScrollPosition, chromeMetrics);
         if (selectedEditorTab == EditorTab.APPEARANCE) {
             texts.add(new ViewSpec.Text(
                     "editor.model_label", new Bounds(controlsX, 79 - appearanceScroll, controlsWidth, 10),
@@ -850,19 +869,29 @@ public final class PresetEditorModel {
                     clipRegions,
                     tooltipRegions,
                     navigationNodes,
-                    capeGallery);
+                    capeGallery, savedAssignments);
         }
         addPreviewCycleControls(widgets, previewBounds, showOuterLayers);
-        widgets.add(ViewSpec.Widget.button(
-                "editor.save",
-                new Bounds(footerX, bottom, half, 20),
-                UiMessage.info("nclskins.editor.save"),
-                !busy && !name.trim().isEmpty()));
-        widgets.add(ViewSpec.Widget.button(
-                "editor.cancel",
-                new Bounds(footerX + (footerWidth + 4) / 2, bottom, half, 20),
-                UiMessage.info("gui.cancel"),
-                !busy));
+        if (originalPresetId.isPresent() && !dirty) {
+            int backWidth = Math.min(200, Math.max(1, width - 16));
+            widgets.add(ViewSpec.Widget.button("editor.back", new Bounds((width - backWidth) / 2, bottom, backWidth, 20),
+                    UiMessage.info("gui.back"), !busy));
+        } else if (originalPresetId.isPresent()) {
+            int total = Math.min(320, Math.max(1, width - 16));
+            int buttonWidth = Math.max(1, (total - 8) / 3);
+            int start = (width - total) / 2;
+            widgets.add(ViewSpec.Widget.button("editor.save", new Bounds(start, bottom, buttonWidth, 20),
+                    UiMessage.info("nclskins.editor.save"), !busy && !name.trim().isEmpty()));
+            widgets.add(ViewSpec.Widget.button("editor.cancel", new Bounds(start + buttonWidth + 4, bottom, buttonWidth, 20),
+                    UiMessage.info("gui.cancel"), !busy));
+            widgets.add(ViewSpec.Widget.button("editor.reset", new Bounds(start + (buttonWidth + 4) * 2, bottom, buttonWidth, 20),
+                    UiMessage.info("controls.reset"), !busy));
+        } else {
+            widgets.add(ViewSpec.Widget.button("editor.save", new Bounds(footerX, bottom, half, 20),
+                    UiMessage.info("nclskins.editor.save"), !busy && !name.trim().isEmpty()));
+            widgets.add(ViewSpec.Widget.button("editor.cancel", new Bounds(footerX + (footerWidth + 4) / 2, bottom, half, 20),
+                    UiMessage.info("gui.cancel"), !busy));
+        }
 
         texts.add(new ViewSpec.Text(
                 "editor.title",
@@ -888,15 +917,16 @@ public final class PresetEditorModel {
             navigationNodes.add(tabs.navigation(index, index, 0));
         }
         int tabOrder = capeCatalog != null && selectedEditorTab == EditorTab.CAPE
-                ? Math.max(4, navigationNodes.stream().mapToInt(ViewSpec.NavigationNode::tabOrder).max().orElse(3) + 1)
+                ? Math.max(5, navigationNodes.stream().mapToInt(ViewSpec.NavigationNode::tabOrder).max().orElse(4) + 1)
                 : 2;
         for (ViewSpec.Widget widget : widgets) {
             if (widget.kind() != ViewSpec.WidgetKind.TAB_BUTTON && widget.kind() != ViewSpec.WidgetKind.CAPE_CARD
                     && navigationNodes.stream().noneMatch(node -> node.id().equals(widget.id()))) {
                 int order = switch (widget.id()) {
-                    case "editor.cape_search" -> 1;
-                    case "editor.cape_filter" -> 2;
-                    case "editor.cape_disclosure" -> 3;
+                    case "editor.cape_import" -> 1;
+                    case "editor.cape_search" -> 2;
+                    case "editor.cape_filter" -> 3;
+                    case "editor.cape_disclosure" -> 4;
                     default -> tabOrder++;
                 };
                 ViewSpec.NavigationNode node = ViewSpec.NavigationNode.control(widget, navigationNodes.size(), order);
@@ -920,6 +950,7 @@ public final class PresetEditorModel {
                         variant, previewCapeId(), originalPresetId, previewCatalogImage,
                         capeCatalog == null || capeCatalog.previewHasElytra(), PreviewRenderer.PreviewIntent.EDITOR_DRAFT),
                 preview).withOwnedPng(png.isPresent());
+        previewSpec = previewSpec.withLayoutScale(previewSpec.layoutScale() * geometry.widthScale());
         return new ViewSpec(
                 "preset_editor",
                 UiMessage.info(originalPresetId.isPresent()
@@ -952,8 +983,7 @@ public final class PresetEditorModel {
     }
 
     public int maximumCapeScroll(int width, int height, ViewChromeMetrics chromeMetrics) {
-        int dividerX = width / 2;
-        return capeGalleryLayout(dividerX, width - dividerX, height, 0.0, chromeMetrics).maximum();
+        return capeGalleryLayout(geometry(width, height, chromeMetrics), height, 0.0, chromeMetrics).maximum();
     }
 
     public double normalizedCapeScrollPosition(int width, int height, double desired) {
@@ -975,8 +1005,7 @@ public final class PresetEditorModel {
 
     public double capePositionFromScrollbar(
             int width, int height, double desiredThumbTop, ViewChromeMetrics chromeMetrics) {
-        int dividerX = width / 2;
-        EditorCardLayout layout = capeGalleryLayout(dividerX, width - dividerX, height, 0.0, chromeMetrics);
+        EditorCardLayout layout = capeGalleryLayout(geometry(width, height, chromeMetrics), height, 0.0, chromeMetrics);
         if (layout.maximum() == 0 || layout.scrollbar().isEmpty()) {
             return 0.0;
         }
@@ -993,12 +1022,11 @@ public final class PresetEditorModel {
     }
 
     public double initialCapeScrollPosition(int width, int height, ViewChromeMetrics chromeMetrics) {
-        int dividerX = width / 2;
-        EditorCardLayout layout = capeGalleryLayout(dividerX, width - dividerX, height, 0.0, chromeMetrics);
+        EditorCardLayout layout = capeGalleryLayout(geometry(width, height, chromeMetrics), height, 0.0, chromeMetrics);
         int selected = selectedCapeIndex();
         CapeCatalogPresenter.CardPosition selectedPosition = capeCatalog == null
                 ? new CapeCatalogPresenter.CardPosition(
-                        selected / layout.columns() * (layout.cardHeight() + CatalogCardSizing.GAP), layout.cardHeight())
+                        selected / layout.columns() * (layout.cardHeight() + CatalogCardSizing.COMPACT_GAP), layout.cardHeight())
                 : CapeCatalogPresenter.selectedPosition(capeCatalog, layout.columns(), layout.cardHeight());
         double centered = selectedPosition.top() - (layout.viewport().height() - selectedPosition.height()) / 2.0;
         return Math.max(0.0, Math.min(layout.maximum(), centered));
@@ -1026,11 +1054,9 @@ public final class PresetEditorModel {
         clips.add(AppearanceCollections.clip("editor.models", layout.viewport(), prefixes));
         for (int index = 0; index < 2; index++) {
             SkinVariant choice = index == 0 ? SkinVariant.CLASSIC : SkinVariant.SLIM;
-            int cardWidth = layout.cardWidth() + (index == 1 ?
-                    (layout.contentWidth() - CatalogCardSizing.GAP) % 2 : 0);
             Bounds card = new Bounds(layout.cardStartX() + index * (layout.cardWidth() + CatalogCardSizing.GAP),
                     MODEL_GALLERY_TOP - (int) Math.round(layout.position()),
-                    cardWidth, (int) Math.round(cardWidth * (double) MODEL_CARD_ASPECT_HEIGHT / MODEL_CARD_ASPECT_WIDTH));
+                    layout.cardWidth(), layout.cardHeight());
             String suffix = index == 0 ? "classic" : "slim";
             String id = "editor.model_choice." + suffix;
             String prefix = "editor.model_card." + suffix;
@@ -1046,7 +1072,8 @@ public final class PresetEditorModel {
             var chrome = AppearanceCard.chrome(prefix, id, card, ViewSpec.WidgetKind.CAPE_CARD,
                     UiMessage.info(choice == variant ? "nclskins.editor.model_selected"
                             : enabled ? "nclskins.editor.model_available" : "nclskins.editor.model_unavailable", label),
-                    Optional.of(choice == variant ? "selected" : "unselected"), enabled);
+                    Optional.of(originalPresetId.isPresent() && choice == initialVariant ? "active"
+                            : choice == variant ? "selected" : "unselected"), enabled);
             panels.add(chrome.surface());
             texts.add(AppearanceCard.name(prefix + ".name", CatalogCardGeometry.name(card), label, card, List.of(id)));
             icons.add(new ViewSpec.IconDecoration(prefix + ".icon",
@@ -1059,36 +1086,42 @@ public final class PresetEditorModel {
         }
     }
 
-    private EditorCardLayout modelGalleryLayout(int width, int height, double desired) {
-        int paneX = width / 2;
-        int contentWidth = Math.max(2, width - paneX - CollectionGridLayout.CONTENT_LEFT_INSET
-                - CollectionGridLayout.CONTENT_RIGHT_INSET);
-        Bounds viewport = new Bounds(paneX, 33,
-                Math.max(1, width - paneX), Math.max(1, height - FOOTER_HEIGHT - 33));
-        int cardWidth = Math.max(1, (contentWidth - CatalogCardSizing.GAP) / 2);
-        int cardHeight = (int) Math.round((cardWidth + (contentWidth - CatalogCardSizing.GAP) % 2)
-                * (double) MODEL_CARD_ASPECT_HEIGHT / MODEL_CARD_ASPECT_WIDTH);
+    private EditorCardLayout modelGalleryLayout(int width, int height, double desired, ViewChromeMetrics chromeMetrics) {
+        EditorGeometry geometry = geometry(width, height, chromeMetrics);
+        int contentWidth = Math.max(2, geometry.contentWidth());
+        Bounds viewport = geometry.workspace();
+        int cardWidth = Math.max(1, Math.min(MODEL_CARD_MAX_WIDTH, (contentWidth - CatalogCardSizing.GAP) / 2));
+        int cardHeight = (int) Math.round(cardWidth * (double) MODEL_CARD_ASPECT_HEIGHT / MODEL_CARD_ASPECT_WIDTH);
+        int startX = geometry.contentX() + Math.max(0, contentWidth - 2 * cardWidth - CatalogCardSizing.GAP) / 2;
         int contentHeight = MODEL_GALLERY_TOP - viewport.y() + cardHeight;
         int maximum = Math.max(0, contentHeight - viewport.height());
         double position = Math.max(0.0, Math.min(maximum, desired));
         Optional<ViewSpec.Scrollbar> scrollbar = maximum == 0 ? Optional.empty()
-                : Optional.of(verticalScrollbar(width - CollectionGridLayout.SCROLLBAR_RIGHT_INSET,
+                : Optional.of(verticalScrollbar(geometry.scrollbarX(),
                         viewport, contentHeight, position, maximum));
         return new EditorCardLayout(viewport, contentWidth, 2,
-                paneX + CollectionGridLayout.CONTENT_LEFT_INSET, cardWidth, cardHeight,
+                startX, cardWidth, cardHeight,
                 maximum, position, scrollbar);
     }
 
     public double normalizedModelScrollPosition(int width, int height, double desired) {
+        return normalizedModelScrollPosition(width, height, desired, ViewChromeMetrics.STANDARD);
+    }
+
+    public double normalizedModelScrollPosition(int width, int height, double desired, ViewChromeMetrics chromeMetrics) {
 
         if (!Double.isFinite(desired)) {
             throw new IllegalArgumentException("model scroll position must be finite");
         }
-        return modelGalleryLayout(width, height, desired).position();
+        return modelGalleryLayout(width, height, desired, chromeMetrics).position();
     }
 
     public double modelPositionFromScrollbar(int width, int height, double desiredThumbTop) {
-        EditorCardLayout layout = modelGalleryLayout(width, height, 0.0);
+        return modelPositionFromScrollbar(width, height, desiredThumbTop, ViewChromeMetrics.STANDARD);
+    }
+
+    public double modelPositionFromScrollbar(int width, int height, double desiredThumbTop, ViewChromeMetrics chromeMetrics) {
+        EditorCardLayout layout = modelGalleryLayout(width, height, 0.0, chromeMetrics);
         if (layout.scrollbar().isEmpty()) {
             return 0.0;
         }
@@ -1106,11 +1139,12 @@ public final class PresetEditorModel {
             List<ViewSpec.ClipRegion> clipRegions,
             List<ViewSpec.TooltipRegion> tooltipRegions,
             List<ViewSpec.NavigationNode> navigationNodes,
-            EditorCardLayout layout) {
+            EditorCardLayout layout, java.util.Set<String> savedAssignments) {
         if (capeCatalog != null) {
             CapeCatalogPresenter.present(capeCatalog, layout.viewport(), layout.cardWidth(), layout.cardHeight(),
                     layout.columns(), layout.position(), busy, backEquipmentMode(), widgets, panels, texts,
-                    backEquipmentPreviews, iconDecorations, clipRegions, tooltipRegions, navigationNodes);
+                    backEquipmentPreviews, iconDecorations, clipRegions, tooltipRegions, navigationNodes,
+                    originalPresetId.isPresent(), savedAssignments);
             return;
         }
         if (capeChoices.isEmpty()) {
@@ -1128,7 +1162,7 @@ public final class PresetEditorModel {
         for (int index = 0; index < capeChoices.size(); index++) {
             CapeChoice choice = capeChoices.get(index);
             Bounds card = AppearanceCollections.gridCard(index, layout.columns(), layout.cardStartX(),
-                    layout.viewport().y() - scroll, layout.cardWidth(), layout.cardHeight(), CatalogCardSizing.GAP);
+                    layout.viewport().y() - scroll, layout.cardWidth(), layout.cardHeight(), CatalogCardSizing.COMPACT_GAP);
             String choiceWidgetId = "editor.cape_choice." + index;
             navigationNodes.add(AppearanceCollections.navigation(
                     choiceWidgetId,
@@ -1143,53 +1177,54 @@ public final class PresetEditorModel {
                 continue;
             }
             String prefix = "editor.cape_card." + index;
-            var chrome = AppearanceCard.chrome(prefix, choiceWidgetId, card, ViewSpec.WidgetKind.CAPE_CARD,
+            var chrome = AppearanceCard.chrome(prefix, choiceWidgetId, card, ViewSpec.WidgetKind.CATALOG_CARD,
                     choice.id().isEmpty() ? choice.label() : capeLabel(choice.label()),
-                    Optional.of(choice.id().equals(capeId) ? "selected" : "unselected"), !busy);
+                    savedAssignments.contains(choiceWidgetId) ? Optional.of("active")
+                            : choice.id().equals(capeId) ? Optional.of(originalPresetId.isPresent() ? "selected" : "active")
+                            : Optional.empty(), !busy);
             panels.add(chrome.surface());
-            texts.add(AppearanceCard.name(prefix + ".name", CatalogCardGeometry.name(card), choice.label(), card, List.of(choiceWidgetId)));
-            Bounds slot = AppearanceCard.Role.READ_ONLY.preview(card);
             if (choice.id().isPresent()) {
+                var namebar = AppearanceCard.compactNamebar(prefix + ".namebar", card, false);
+                if (AppearanceCollections.visibleVertically(namebar.bounds(), layout.viewport())) panels.add(namebar);
+                texts.add(AppearanceCard.compactName(prefix + ".name", choice.label(), card, false, false, List.of(choiceWidgetId)));
                 backEquipmentPreviews.add(new AppearanceCard.Cape(choice.id().orElseThrow(), backEquipmentMode(), true)
-                        .present(prefix + ".equipment", slot));
+                        .presentCatalog(prefix + ".equipment", card));
             } else {
-                iconDecorations.add(AppearanceCard.service(prefix + ".empty", slot, GuiIcon.APPEARANCE_CAPE_NONE, choiceWidgetId));
+                iconDecorations.add(AppearanceCard.service(prefix + ".empty", card,
+                        GuiIcon.APPEARANCE_CAPE_NONE, choiceWidgetId));
             }
             widgets.add(chrome.widget());
         }
     }
 
     private EditorCardLayout capeGalleryLayout(
-            int paneX,
-            int paneWidth,
+            EditorGeometry geometry,
             int height,
             double desiredPosition,
             ViewChromeMetrics chromeMetrics) {
         Objects.requireNonNull(chromeMetrics, "chromeMetrics");
-        int galleryTop = capeCatalog == null ? CAPE_GALLERY_TOP : CAPE_GALLERY_TOP + 28 + CapeCatalogPresenter.errorHeight(capeCatalog, Math.max(1, paneWidth - CollectionGridLayout.CONTENT_LEFT_INSET - CollectionGridLayout.CONTENT_RIGHT_INSET));
-        int viewportHeight = Math.max(1, height - FOOTER_HEIGHT - galleryTop);
-        int contentWidth = Math.max(1, paneWidth
-                - CollectionGridLayout.CONTENT_LEFT_INSET
-                - CollectionGridLayout.CONTENT_RIGHT_INSET);
+        int galleryTop = capeCatalog == null ? CAPE_GALLERY_TOP : CAPE_GALLERY_TOP + 28 + CapeCatalogPresenter.errorHeight(capeCatalog, geometry.contentWidth());
+        int viewportHeight = Math.max(1, geometry.workspace().bottom() - galleryTop);
+        int contentWidth = geometry.contentWidth();
         Bounds viewport = new Bounds(
-                paneX + CollectionGridLayout.CONTENT_LEFT_INSET,
+                geometry.contentX(),
                 galleryTop,
                 contentWidth,
                 viewportHeight);
-        CollectionGridLayout.CardMetrics metrics = CatalogCardSizing.pane(contentWidth, height, chromeMetrics);
+        CollectionGridLayout.CardMetrics metrics = CatalogCardSizing.compactSkin(contentWidth);
         int columns = metrics.columns();
         int cardWidth = metrics.width();
-        int cardHeight = capeCatalog == null ? AppearanceCard.Role.READ_ONLY.height(metrics.height()) : metrics.height();
+        int cardHeight = AppearanceCard.CAPE_PREVIEW_HEIGHT + 2 * AppearanceCard.CAPE_PREVIEW_VERTICAL_INSET;
         int cardStartX = viewport.x();
         int rows = (capeChoices.size() + columns - 1) / columns;
-        int totalHeight = capeCatalog == null ? (rows == 0 ? 0 : rows * (cardHeight + CatalogCardSizing.GAP) - CatalogCardSizing.GAP)
+        int totalHeight = capeCatalog == null ? (rows == 0 ? 0 : rows * (cardHeight + CatalogCardSizing.COMPACT_GAP) - CatalogCardSizing.COMPACT_GAP)
                 : CapeCatalogPresenter.contentHeight(capeCatalog, columns, cardHeight);
         int maximum = Math.max(0, totalHeight - viewport.height());
         double position = Math.max(0.0, Math.min(maximum, desiredPosition));
         Optional<ViewSpec.Scrollbar> scrollbar = maximum == 0
                 ? Optional.empty()
                 : Optional.of(verticalScrollbar(
-                        paneX + paneWidth - CollectionGridLayout.SCROLLBAR_RIGHT_INSET,
+                        geometry.scrollbarX(),
                         viewport,
                         totalHeight,
                         position,
@@ -1205,6 +1240,24 @@ public final class PresetEditorModel {
                 position,
                 scrollbar);
     }
+
+    private static EditorGeometry geometry(int width, int height, ViewChromeMetrics chromeMetrics) {
+        int visibleHeight = Math.max(1, height - chromeMetrics.catalogFooterHeight() - 33);
+        Bounds reference = PlayerAppearanceStage.galleryPreviewArea(
+                PlayerAppearanceStage.galleryColumnWidth(width, height), PlayerAppearanceStage.galleryFitWidth(width, height));
+        int preferred = Math.max(1, (int) Math.round(visibleHeight * (double) reference.width() / reference.height()));
+        int tabInset = VerticalTabStyle.WIDTH - VerticalTabStyle.DIVIDER_OVERLAP;
+        int divider = Math.min(preferred + tabInset, Math.max(1, width - 140));
+        int fitWidth = Math.min(preferred, divider);
+        int modelFitWidth = Math.max(1, (height - 2 * (33 + 6)) / 2);
+        return new EditorGeometry(divider, divider + 8, Math.max(1, width - divider - 16),
+                new Bounds(0, 0, divider, Math.max(1, height)),
+                new Bounds(divider, 33, Math.max(1, width - divider), visibleHeight),
+                width - CAPE_SCROLLBAR_WIDTH, Math.min(1F, fitWidth / (float) modelFitWidth));
+    }
+
+    private record EditorGeometry(int dividerX, int contentX, int contentWidth, Bounds anchor, Bounds workspace,
+                                  int scrollbarX, float widthScale) {}
 
     private static ViewSpec.Scrollbar verticalScrollbar(
             int x, Bounds viewport, int totalHeight, double position, int maximum) {

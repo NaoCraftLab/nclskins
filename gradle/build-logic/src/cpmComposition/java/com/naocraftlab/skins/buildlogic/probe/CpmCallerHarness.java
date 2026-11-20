@@ -12,13 +12,17 @@ import java.lang.reflect.Proxy;
 
 public final class CpmCallerHarness {
     public static ViewSpec previewFailureView(String screenId, TextResolver resolver, boolean failed) {
+        return previewFailureView(screenId, resolver, failed, 320, 240);
+    }
+
+    public static ViewSpec previewFailureView(String screenId, TextResolver resolver, boolean failed, int width, int height) {
         UUID asset = new UUID(0, 2);
         var account = new AccountState(AccountState.CURRENT_SCHEMA_VERSION, new UUID(0, 1),
                 List.of(new SkinAsset(asset, "Synthetic preview", "a".repeat(64), SkinVariant.CLASSIC,
                         SkinSource.VANILLA_DEFAULT, Instant.EPOCH, Instant.EPOCH)), List.of(), List.of(), Instant.EPOCH);
         var editor = PresetEditorModel.open(account,
                 Optional.empty(), Optional.empty(), Optional.empty(), resolver, 240, PreviewRenderer.CapeMode.OFF);
-        var base = editor.present(320, 240);
+        var base = editor.present(width, height);
         var view = new ViewSpec(screenId, base.title(), base.width(), base.height(), base.panels(), base.texts(),
                 base.widgets(), base.previews(), base.scrollbar(), base.tabGroups(), base.focusRequest(), base.clipRegions(),
                 base.backEquipmentPreviews(), base.iconDecorations(), base.scrollSurfaces(), base.tooltipRegions(),

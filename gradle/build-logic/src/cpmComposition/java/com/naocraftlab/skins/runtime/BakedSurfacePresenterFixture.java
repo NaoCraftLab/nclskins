@@ -6,6 +6,9 @@ import com.naocraftlab.skins.core.importing.ExternalImportSource;
 import java.util.*;
 
 public final class BakedSurfacePresenterFixture {
+    public static ViewSpec.Panel catalogMenuPanel(Bounds card) {
+        return AppearanceCard.compactNamebar("fixture.card.namebar", card, true);
+    }
     public record Case(String role, ViewSpec view, ViewSpec.Preview preview) {}
 
     public static ClientRuntime coldMenu(ClientOperations operations,PreviewModelFitStore store,TextureRegistry.TextureHandle handle) {
@@ -100,7 +103,7 @@ public final class BakedSurfacePresenterFixture {
     public static void verify(Case value) {
         var preview = value.preview();
         check(preview.intent() == PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL, "actual baked card intent " + value.role());
-        check(preview.layoutScale() == 1 && preview.scale() == (value.role().equals("right-Gallery") ? 0.88F : 1.0F), "cards must not inherit Editor layout or logical zoom " + value.role());
+        check(preview.layoutScale() == 1 && preview.scale() == 0.88F, "cards retain Gallery scale independently of Editor fit and zoom " + value.role());
         check(!ViewHostPolicy.screenOwnedBody(value.view().screenId(), preview), "cards have no full-body demand " + value.role());
         check(preview.bounds().equals(preview.anchorBounds()), "card slot is its own anchor " + value.role());
         check(value.view().clipFor(preview.id()).isPresent(), "actual card scroll clip " + value.role());

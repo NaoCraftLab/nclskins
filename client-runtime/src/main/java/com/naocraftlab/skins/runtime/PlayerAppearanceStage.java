@@ -17,6 +17,22 @@ final class PlayerAppearanceStage {
 
     record Control(String id, UiMessage label, GuiIcon icon, boolean enabled) {}
 
+    static int galleryColumnWidth(int width, int height) {
+        return Math.min((int) Math.round(galleryBaseColumnWidth(width, height) * 4.0 / 3), Math.max(70, width - 60));
+    }
+
+    static int galleryFitWidth(int width, int height) {
+        return Math.max(1, Math.min((height - 73) / 4, galleryBaseColumnWidth(width, height) - 6));
+    }
+
+    private static int galleryBaseColumnWidth(int width, int height) {
+        return Math.min(Math.max(64, (height - 73) / 4) + 6, Math.max(70, width - 60));
+    }
+
+    static Bounds galleryPreviewArea(int columnWidth, int fitWidth) {
+        return new Bounds(4, 36, Math.max(1, columnWidth - 6), (int) Math.round(fitWidth * 2 * 1.1));
+    }
+
     static ViewSpec.Preview present(String id, int width, int height, Bounds anchor,
                                     Appearance appearance, PreviewInteractionModel transform) {
         return new ViewSpec.Preview(id, new Bounds(0, 0, width, height), anchor,
@@ -76,14 +92,40 @@ final class PlayerAppearanceStage {
         int textX = original.x() + 26;
         int textWidth = Math.max(1, original.width() - 32);
         int textHeight = text.wrappedHeight(message, textWidth);
-        int bottom = Math.max(34, view.height() - 37);
-        Bounds error = new Bounds(textX, Math.max(33, bottom - textHeight), textWidth, textHeight);
+        int footerTop = view.panels().stream().filter(panel -> panel.style() == ViewSpec.Panel.Style.VANILLA_FOOTER)
+                .mapToInt(panel -> panel.bounds().y()).min().orElse(view.height() - 33);
+        int bottom = Math.max(34, footerTop - 4);
+        boolean editor = view.screenId().equals("preset_editor");
+        if (editor && textHeight <= bottom - 33) {
+            int captionTop = bottom - textHeight;
+            int captionRight = textX + textWidth;
+            int tabsLeft = view.tabGroups().stream().filter(group -> group.orientation() == ViewSpec.TabOrientation.VERTICAL)
+                    .map(ViewSpec.TabGroup::bounds)
+                    .filter(tabs -> tabs.y() < bottom && tabs.bottom() > captionTop && tabs.x() < captionRight)
+                    .mapToInt(Bounds::x).min().orElse(captionRight);
+            if (tabsLeft < captionRight) {
+                textWidth = Math.max(1, tabsLeft - textX - 2);
+                textHeight = text.wrappedHeight(message, textWidth);
+            }
+        }
         var texts = new ArrayList<>(view.texts());
-        texts.add(new ViewSpec.Text("editor.preview.error", error, message,
-                ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP));
+        var tooltips = new ArrayList<>(view.tooltipRegions());
+        if (editor && textHeight > bottom - 33) {
+            int glyphWidth = Math.min(9, Math.max(1, original.width() - 24));
+            Bounds bounds = new Bounds(Math.max(original.x() + 24, textX + (textWidth - glyphWidth) / 2),
+                    bottom - 9, glyphWidth, 9);
+            UiMessage glyph = UiMessage.literal("!", message.severity());
+            texts.add(new ViewSpec.Text("editor.preview.error.glyph", bounds, glyph, ViewSpec.Text.Alignment.CENTER));
+            tooltips.add(new ViewSpec.TooltipRegion("editor.preview.error", bounds, glyph,
+                    ViewSpec.Text.Alignment.CENTER, message));
+        } else {
+            Bounds error = new Bounds(textX, Math.max(33, bottom - textHeight), textWidth, textHeight);
+            texts.add(new ViewSpec.Text("editor.preview.error", error, message,
+                    ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP));
+        }
         return new ViewSpec(view.screenId(), view.title(), view.width(), view.height(), view.panels(), texts,
                 view.widgets(), view.previews(), view.scrollbar(), view.tabGroups(), view.focusRequest(), view.clipRegions(),
-                view.backEquipmentPreviews(), view.iconDecorations(), view.scrollSurfaces(), view.tooltipRegions(),
+                view.backEquipmentPreviews(), view.iconDecorations(), view.scrollSurfaces(), tooltips,
                 view.progressDecorations(), view.navigationNodes());
     }
 }

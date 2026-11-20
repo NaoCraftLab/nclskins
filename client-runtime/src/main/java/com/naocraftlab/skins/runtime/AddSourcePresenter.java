@@ -64,6 +64,12 @@ public final class AddSourcePresenter {
             int height,
             Optional<PersonalSkinRename> personalRename,
             ViewChromeMetrics chromeMetrics) {
+        return present(model, busy, operationStatus, width, height, personalRename, chromeMetrics, Optional.empty());
+    }
+
+    ViewSpec present(AddSourceModel model, boolean busy, Optional<UiMessage> operationStatus,
+                     int width, int height, Optional<PersonalSkinRename> personalRename,
+                     ViewChromeMetrics chromeMetrics, Optional<PersonalCatalogAction> personalMenu) {
         Objects.requireNonNull(model, "model");
         operationStatus = Objects.requireNonNull(operationStatus, "operationStatus");
         personalRename = Objects.requireNonNull(personalRename, "personalRename");
@@ -186,6 +192,8 @@ public final class AddSourcePresenter {
                     status,
                     ViewSpec.Text.Alignment.CENTER, ViewSpec.Text.Layout.WRAP)));
         } else {
+            navigationNodes.add(new ViewSpec.NavigationNode("add.tabs", new Bounds(0, 0, width, TAB_BAR_HEIGHT),
+                    Optional.empty(), 0, 0, !busy, ViewSpec.NavigationPattern.NONE, Optional.empty()));
             int controlsTop = scoped ? workspace.contentTop() - scrollOffset : CONTROLS_TOP;
             int filterWidth = Math.min(104, Math.max(72, width / 4));
             int disclosureX = width - 16 - DISCLOSURE_BUTTON_SIZE;
@@ -216,6 +224,12 @@ public final class AddSourcePresenter {
                     anyCollapsed ? GuiIcon.ACTION_EXPAND_ALL : GuiIcon.ACTION_COLLAPSE_ALL,
                     !busy && !model.availableCollectionIds().isEmpty()));
 
+            for (var widget : widgets) {
+                int order = navigationNodes.size();
+                var node = ViewSpec.NavigationNode.control(widget, order, order);
+                navigationNodes.add(scoped ? ViewSpec.NavigationNode.card(widget.id(), widget.bounds(), "add.catalog",
+                        order, order, node.enabled(), node.pattern(), node.activationActionId()) : node);
+            }
             CatalogLayout layout = workspace;
             addCatalogContent(
                     model,
@@ -228,13 +242,15 @@ public final class AddSourcePresenter {
                     iconDecorations,
                     tooltipRegions,
                     navigationNodes,
-                    personalRename);
+                    personalRename,
+                    personalMenu);
             if (!scoped) clipRegions.add(AppearanceCollections.clip(
                     "add.catalog.viewport",
                     new Bounds(0, CONTENT_TOP, width, Math.max(1, layout.contentBottom() - CONTENT_TOP)),
                     List.of(
                             "add.catalog.collection:",
                             "add.catalog.skin:",
+                            "add.catalog.more:",
                             "add.catalog.rename:",
                             "add.catalog.rename.",
                             "add.catalog.delete:",
@@ -301,6 +317,12 @@ public final class AddSourcePresenter {
                         && personalRename.isEmpty() && model.personalSkinDeletion().isEmpty())));
         if (scoped) navigationNodes.add(ViewSpec.NavigationNode.control(
                 widgets.get(widgets.size() - 1), navigationNodes.size(), navigationNodes.size()));
+
+        for (var widget : widgets) {
+            if (navigationNodes.stream().noneMatch(node -> node.id().equals(widget.id()))) {
+                navigationNodes.add(ViewSpec.NavigationNode.control(widget, navigationNodes.size(), navigationNodes.size()));
+            }
+        }
 
         Optional<ViewSpec.FocusRequest> focus = focusRequest(model);
         return new ViewSpec(
@@ -396,12 +418,11 @@ public final class AddSourcePresenter {
             List<ViewSpec.IconDecoration> iconDecorations,
             List<ViewSpec.TooltipRegion> tooltipRegions,
             List<ViewSpec.NavigationNode> navigationNodes,
-            Optional<PersonalSkinRename> personalRename) {
+            Optional<PersonalSkinRename> personalRename,
+            Optional<PersonalCatalogAction> personalMenu) {
         int contentBottom = layout.contentBottom();
-        boolean transientMode = model.personalSkinDeletion().isPresent()
-                || personalRename.isPresent();
         List<SkinCatalogSource.CollectionDescriptor> collections = model.visibleCollections();
-        var sections = AppearanceCollections.layout(collectionSections(model, collections, layout.cardHeight()), layout.columns());
+        var sections = AppearanceCollections.compactLayout(collectionSections(model, collections, layout.cardHeight()), layout.columns());
         Bounds viewport = new Bounds(0, layout.contentTop(), layout.contentRight(), Math.max(1, contentBottom - layout.contentTop()));
         int contentTop = layout.contentStart() - Math.min(model.scrollOffset(), layout.maximum());
         for (int sectionIndex = 0; sectionIndex < collections.size(); sectionIndex++) {
@@ -409,11 +430,11 @@ public final class AddSourcePresenter {
             var section = sections.sections().get(sectionIndex);
             List<SkinCatalogSource.SkinDescriptor> skins = model.visibleSkins(collection);
             boolean collapsed = section.section().collapsed();
-            Bounds header = section.header(16, contentTop, Math.max(1, layout.contentRight() - 16));
+            Bounds header = section.header(layout.cardStartX(), contentTop, Math.max(1, layout.contentRight() - layout.cardStartX()));
             String headerId = "add.catalog.collection:" + collection.id();
             var headerPresentation = AppearanceCollections.header(headerId, header,
                     UiMessage.literal((collapsed ? "▶ " : "▼ ") + model.collectionName(collection), UiMessage.Severity.INFO),
-                    !busy, viewport, "add.catalog", navigationNodes.size(), -1);
+                    !busy, viewport, "add.catalog", navigationNodes.size(), navigationNodes.size());
             navigationNodes.add(headerPresentation.navigation());
             headerPresentation.widget().ifPresent(widgets::add);
             if (headerPresentation.widget().isPresent()) {
@@ -428,15 +449,22 @@ public final class AddSourcePresenter {
                 Bounds card = section.card(index, layout.cardStartX(), contentTop, layout.cardWidth());
                 SkinCatalogSource.SkinDescriptor skin = skins.get(index);
                 String prefix = "add.catalog.skin:" + collection.id() + ":" + skin.id();
+                boolean personal = collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL;
+                boolean renamingThisCard = personalRename.filter(rename -> rename.collectionId().equals(collection.id())
+                        && rename.sha256().equals(skin.id())).isPresent();
+                boolean pendingDelete = model.personalSkinDeletion().filter(deletion -> deletion.collectionId().equals(collection.id())
+                        && deletion.sha256().equals(skin.id())).isPresent();
+                boolean expanded = renamingThisCard || pendingDelete || personalMenu.filter(menu ->
+                        menu.collectionId().equals(collection.id()) && menu.sha256().equals(skin.id())).isPresent();
                 navigationNodes.add(AppearanceCollections.navigation(
                         prefix,
                         card,
                         "add.catalog",
                         navigationNodes.size(),
-                        -1,
-                        !busy && !transientMode,
+                        navigationNodes.size(),
+                        !busy,
                         ViewSpec.NavigationPattern.GRID,
-                        Optional.empty()));
+                        expanded ? Optional.empty() : Optional.of(prefix)));
                 if (!intersectsViewport(card, contentBottom)) {
                     continue;
                 }
@@ -445,55 +473,57 @@ public final class AddSourcePresenter {
                         collection.id(), skin, variant);
                 boolean hasCompatibility = compatibility.status()
                         != SkinCompatibilityStatus.ORDINARY;
+                UiMessage label = UiMessage.literal(model.skinName(skin), UiMessage.Severity.INFO);
                 var chrome = AppearanceCard.chrome(prefix, prefix, card, ViewSpec.WidgetKind.CATALOG_CARD,
-                        UiMessage.literal(model.skinName(skin), UiMessage.Severity.INFO), Optional.empty(), !busy);
+                        label, expanded ? Optional.of("menu") : Optional.empty(), !busy);
                 panels.add(chrome.surface());
-                widgets.add(chrome.widget());
+                widgets.add(chrome.widget().withActivation(!expanded, null));
                 Optional<String> skinInfo = model.skinInfo(collection, skin);
-                boolean renamingThisCard = personalRename
-                        .filter(rename -> rename.collectionId().equals(collection.id()))
-                        .filter(rename -> rename.sha256().equals(skin.id()))
-                        .isPresent();
-                Bounds nameBounds = CatalogCardGeometry.name(card);
+                Bounds nameBounds = AppearanceCard.compactNameBounds(card, expanded, personal);
+                var namebar = AppearanceCard.compactNamebar(prefix + ".namebar", card, expanded);
+                if (intersectsViewport(namebar.bounds(), contentBottom)) panels.add(namebar);
                 if (!renamingThisCard && intersectsViewport(nameBounds, contentBottom)) {
-                    texts.add(AppearanceCard.name(prefix + ".name", nameBounds,
-                            UiMessage.literal(model.skinName(skin), UiMessage.Severity.INFO), card,
+                    texts.add(AppearanceCard.compactName(prefix + ".name",
+                            UiMessage.literal(model.skinName(skin), UiMessage.Severity.INFO), card, expanded, personal,
                             catalogMarqueeFocusIds(collection, skin, prefix)));
                     skinInfo.ifPresent(info -> tooltipRegions.add(AppearanceCard.info(
                             "add.catalog.tooltip:skin:" + collection.id() + ":" + skin.id(), nameBounds,
-                            UiMessage.literal(model.skinName(skin), UiMessage.Severity.INFO), ViewSpec.Text.Alignment.CENTER, info)));
+                            UiMessage.literal(model.skinName(skin), UiMessage.Severity.INFO), ViewSpec.Text.Alignment.LEFT, info)));
                 }
-                boolean personal = collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL;
-                AppearanceCard.Role role = personal ? AppearanceCard.Role.PERSONAL : AppearanceCard.Role.READ_ONLY;
-                Bounds previewBounds = role.preview(card);
-                if (intersectsViewport(previewBounds, contentBottom)) {
+                Bounds previewBounds = card;
+                if (!expanded && intersectsViewport(previewBounds, contentBottom)) {
                     previews.add(new AppearanceCard.Skin(SkinReference.accountDefault(),
                             "catalog:" + collection.id() + ":" + skin.id() + ":" + variant.name(), variant,
                             Optional.empty(), PreviewRenderer.CapeMode.OFF, OuterLayerVisibility.allVisible(),
-                            -20.0F, 0.0F, 1.0F, Optional.empty(),
+                            -20.0F, 0.0F, AppearanceCard.SKIN_THUMBNAIL_SCALE, Optional.empty(),
                             Optional.of(new ViewSpec.CatalogImage(collection.id(), skin.id())), Optional.empty(),
                             PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL, true).present(prefix + ".preview", previewBounds));
                 }
-                if (hasCompatibility) {
+                if (!expanded && hasCompatibility) {
                     String indicatorId = prefix + ".compatibility";
-                    int indicatorBottom = personal
-                            ? card.bottom() - 24
-                            : card.bottom() - 2;
-                    ViewSpec.Widget indicator = AppearanceCard.compatibility(indicatorId, card, indicatorBottom, compatibility);
-                    addIntersectingWidget(widgets, indicator, contentBottom);
+                    ViewSpec.Widget indicator = AppearanceCard.compatibility(indicatorId, card, card.y() + 22, compatibility);
+                    addIntersectingNavigableWidget(widgets, indicator, viewport, navigationNodes);
                 }
-                if (renamingThisCard || personal) {
-                    boolean pendingDelete = model.personalSkinDeletion()
-                            .filter(deletion -> deletion.collectionId().equals(collection.id()))
-                            .filter(deletion -> deletion.sha256().equals(skin.id())).isPresent();
-                    List<ViewSpec.Widget> actions = personalActions(collection, skin, card, busy, transientMode,
+                if (!renamingThisCard) {
+                    var titleControl = personal ? AppearanceCard.compactToggle(AddSourceModel.personalActionId("add.catalog.more:",
+                            collection.id(), skin.id()), card, expanded, !busy)
+                            : AppearanceCard.compactTitleControl(prefix, card, label, !busy);
+                    addIntersectingNavigableWidget(widgets, titleControl, viewport, navigationNodes);
+                }
+                if (expanded) {
+                    List<ViewSpec.Widget> actions = personalActions(collection, skin, card, busy,
                             renamingThisCard ? personalRename : Optional.empty(), pendingDelete);
+                    if (pendingDelete || renamingThisCard) {
+                        var prompt = AppearanceCard.compactPrompt(prefix + (pendingDelete ? ".confirmation" : ".rename_prompt"),
+                                card, renamingThisCard, UiMessage.info(pendingDelete ? "nclskins.your_skins.delete_confirmation"
+                                        : "nclskins.catalog.rename_confirmation"), model::messageHeight);
+                        if (intersectsViewport(prompt.bounds(), contentBottom)) texts.add(prompt);
+                    }
+                    if (pendingDelete) {
+                        actions = List.of(actions.get(1), actions.get(0));
+                    }
                     for (var action : actions) {
-                        if (pendingDelete && !renamingThisCard) {
-                            addIntersectingNavigableWidget(widgets, action, contentBottom, navigationNodes);
-                        } else {
-                            addIntersectingWidget(widgets, action, contentBottom);
-                        }
+                        addIntersectingNavigableWidget(widgets, action, viewport, navigationNodes);
                     }
                 }
             }
@@ -501,7 +531,7 @@ public final class AddSourcePresenter {
     }
 
     private static List<ViewSpec.Widget> personalActions(SkinCatalogSource.CollectionDescriptor collection, SkinCatalogSource.SkinDescriptor skin,
-            Bounds card, boolean busy, boolean transientMode, Optional<PersonalSkinRename> rename,
+            Bounds card, boolean busy, Optional<PersonalSkinRename> rename,
             boolean pendingDelete) {
         Optional<AppearanceCard.Rename> field = rename.map(value -> new AppearanceCard.Rename(
                 "add.catalog.rename.name", UiMessage.info("nclskins.your_skins.rename"), value.value(),
@@ -518,11 +548,11 @@ public final class AddSourcePresenter {
             right = new AppearanceCard.Action("add.catalog.delete.cancel", UiMessage.info("gui.cancel"), NativeGuiIcon.REJECT, !busy);
         } else {
             left = new AppearanceCard.Action(AddSourceModel.personalActionId("add.catalog.rename:", collection.id(), skin.id()),
-                    UiMessage.info("nclskins.your_skins.rename"), GuiIcon.ACTION_RENAME, !busy && !transientMode);
+                    UiMessage.info("nclskins.your_skins.rename"), GuiIcon.ACTION_RENAME, !busy);
             right = new AppearanceCard.Action(AddSourceModel.personalActionId("add.catalog.delete:", collection.id(), skin.id()),
-                    UiMessage.info("nclskins.your_skins.delete"), GuiIcon.ACTION_DELETE, !busy && !transientMode);
+                    UiMessage.info("nclskins.your_skins.delete"), GuiIcon.ACTION_DELETE, !busy);
         }
-        return AppearanceCard.actions(card, field, left, right);
+        return AppearanceCard.compactActions(card, field, left, right);
     }
 
     private static List<String> catalogMarqueeFocusIds(
@@ -532,10 +562,13 @@ public final class AddSourcePresenter {
         List<String> ids = new ArrayList<>();
         ids.add(cardId);
         if (collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL) {
+            ids.add(AddSourceModel.personalActionId("add.catalog.more:", collection.id(), skin.id()));
             ids.add(AddSourceModel.personalActionId(
                     "add.catalog.rename:", collection.id(), skin.id()));
             ids.add(AddSourceModel.personalActionId(
                     "add.catalog.delete:", collection.id(), skin.id()));
+        } else {
+            ids.add(cardId + ".title_control");
         }
         return List.copyOf(ids);
     }
@@ -550,9 +583,7 @@ public final class AddSourcePresenter {
 
     private static int collectionCardHeight(
             SkinCatalogSource.CollectionDescriptor collection, int personalHeight) {
-        AppearanceCard.Role role = collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL
-                ? AppearanceCard.Role.PERSONAL : AppearanceCard.Role.READ_ONLY;
-        return role.height(personalHeight);
+        return personalHeight;
     }
 
     private static List<AppearanceCollections.Section> collectionSections(AddSourceModel model,
@@ -581,15 +612,12 @@ public final class AddSourcePresenter {
         CollectionGridLayout.CardMetrics metrics = CatalogCardSizing.reference(width, height, chromeMetrics);
         List<CollectionGridLayout.Section> sections = AppearanceCollections.gridSections(
                 form ? List.of() : collectionSections(model, collections, metrics.height()));
-        CollectionGridLayout.Layout layout = CollectionGridLayout.calculate(
+        CollectionGridLayout.Layout layout = CollectionGridLayout.compact(
                 width,
                 height,
                 contentTop,
                 chromeMetrics.catalogFooterHeight(),
                 prefix + (scoped && !form && sections.isEmpty() ? 24 : 0),
-                0,
-                COLLECTION_HEADER_HEIGHT,
-                CatalogCardSizing.GAP,
                 metrics,
                 model.scrollOffset(),
                 sections);
@@ -658,22 +686,17 @@ public final class AddSourcePresenter {
                 new Bounds(0, CONTENT_TOP, 1, Math.max(1, contentBottom - CONTENT_TOP)));
     }
 
-    private static void addIntersectingWidget(
-            List<ViewSpec.Widget> widgets, ViewSpec.Widget widget, int contentBottom) {
-        if (intersectsViewport(widget.bounds(), contentBottom)) {
-            widgets.add(widget);
-        }
-    }
-
     private static void addIntersectingNavigableWidget(
             List<ViewSpec.Widget> widgets,
             ViewSpec.Widget widget,
-            int contentBottom,
+            Bounds viewport,
             List<ViewSpec.NavigationNode> navigationNodes) {
-        if (intersectsViewport(widget.bounds(), contentBottom)) {
+        if (AppearanceCollections.intersects(widget.bounds(), viewport)) {
             widgets.add(widget);
-            navigationNodes.add(ViewSpec.NavigationNode.control(
-                    widget, navigationNodes.size(), -1));
+            int order = navigationNodes.size();
+            var node = ViewSpec.NavigationNode.control(widget, order, order);
+            navigationNodes.add(ViewSpec.NavigationNode.card(node.id(), node.bounds(), "add.catalog", order, order,
+                    node.enabled(), node.pattern(), node.activationActionId()));
         }
     }
 

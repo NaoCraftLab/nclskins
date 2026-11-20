@@ -25,12 +25,31 @@ public record CapeCatalogModel(
         Optional<String> minecraft, String query, int filter, Set<String> collapsed,
         Card inspected, UUID editing, boolean deleting, String renameValue,
         UiMessage importError, TextResolver textResolver, PreviewAccessories accessories,
-        PreviewAssets.SneakyResult sneaky, long sneakyTicket, SneakyReadiness sneakyReadiness) {
+        PreviewAssets.SneakyResult sneaky, long sneakyTicket, SneakyReadiness sneakyReadiness,
+        boolean menuOnly, PreviewAccessories accessoryFacts) {
     private static final String PERSONAL_COLLECTION = "OFFLINE";
     private static final String MINECRAFT_COLLECTION = "MINECRAFT";
     private static final String RESOURCE_PREFIX = "resource:";
 
     public enum SneakyReadiness { UNKNOWN, PENDING, FAILED, ABSENCE, VALUE }
+
+    public CapeCatalogModel(List<Card> cards, AppearanceProviders providers, LocalCapeReference offline,
+            Optional<String> minecraft, String query, int filter, Set<String> collapsed,
+            Card inspected, UUID editing, boolean deleting, String renameValue,
+            UiMessage importError, TextResolver textResolver, PreviewAccessories accessories,
+            PreviewAssets.SneakyResult sneaky, long sneakyTicket, SneakyReadiness sneakyReadiness, boolean menuOnly) {
+        this(cards, providers, offline, minecraft, query, filter, collapsed, inspected, editing, deleting,
+                renameValue, importError, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness, menuOnly, accessories);
+    }
+
+    public CapeCatalogModel(List<Card> cards, AppearanceProviders providers, LocalCapeReference offline,
+            Optional<String> minecraft, String query, int filter, Set<String> collapsed,
+            Card inspected, UUID editing, boolean deleting, String renameValue,
+            UiMessage importError, TextResolver textResolver, PreviewAccessories accessories,
+            PreviewAssets.SneakyResult sneaky, long sneakyTicket, SneakyReadiness sneakyReadiness) {
+        this(cards, providers, offline, minecraft, query, filter, collapsed, inspected, editing, deleting,
+                renameValue, importError, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness, false);
+    }
 
     public CapeCatalogModel(List<Card> cards, AppearanceProviders providers, LocalCapeReference offline,
             Optional<String> minecraft, String query, int filter, Set<String> collapsed,
@@ -79,7 +98,7 @@ public record CapeCatalogModel(
                     ? next.stream().filter(card -> card.provider() == BuiltinProvider.SNEAKY).findFirst().orElse(null) : null;
         }
         return new CapeCatalogModel(next, providers, offline, minecraft, query, filter, collapsed,
-                inspection, editing, deleting, renameValue, importError, textResolver, accessories, result, ticket, readiness);
+                inspection, editing, deleting, renameValue, importError, textResolver, accessories, result, ticket, readiness, menuOnly, accessoryFacts);
     }
 
     public CapeCatalogModel(List<Card> cards, AppearanceProviders providers, LocalCapeReference offline,
@@ -97,6 +116,7 @@ public record CapeCatalogModel(
         minecraft = Objects.requireNonNull(minecraft, "minecraft");
         textResolver = Objects.requireNonNull(textResolver, "textResolver");
         sneakyReadiness = Objects.requireNonNull(sneakyReadiness, "sneakyReadiness");
+        Objects.requireNonNull(accessoryFacts, "accessoryFacts");
     }
 
     public CapeCatalogModel(List<Card> cards, AppearanceProviders providers, LocalCapeReference offline,
@@ -118,18 +138,32 @@ public record CapeCatalogModel(
                 textResolver);
     }
 
-    public CapeCatalogModel withAccessories(com.naocraftlab.skins.client.PreviewAccessories value) {
+    public CapeCatalogModel withAccessories(PreviewAccessories value) {
+        return projectAccessories(value, value, false);
+    }
+
+    CapeCatalogModel observeAccessories(PreviewAccessories value, boolean sameInput) {
+        boolean pending = value.availability() == PreviewAccessories.Availability.UNKNOWN
+                || value.availability() == PreviewAccessories.Availability.PENDING;
+        boolean retain = sameInput && pending && value.liveReason() != PreviewRenderer.LiveReason.WORLD_REQUIRED
+                && accessoryFacts.present() && accessoryFacts.canInspect();
+        return projectAccessories(value, retain ? accessoryFacts : value, sameInput);
+    }
+
+    CapeCatalogModel projectAccessories(PreviewAccessories value, PreviewAccessories facts, boolean sameInput) {
         List<Card> next = new ArrayList<>(cards.stream().filter(card -> card.provider() != BuiltinProvider.CPM).toList());
-        boolean visible = providers.cape().enabled(BuiltinProvider.CPM) && value.present();
-        if (visible) next.add(0, Card.cpm(value, textResolver));
+        boolean visible = providers.cape().enabled(BuiltinProvider.CPM) && facts.present();
+        if (visible) next.add(0, Card.cpm(facts, textResolver));
         boolean same = Objects.equals(accessories.scope(), value.scope())
                 && accessories.generation() == value.generation();
+        boolean retaining = facts != value;
+        boolean handover = sameInput && accessoryFacts != accessories;
         Card inspection = inspected;
         if (inspection != null && inspection.provider() == BuiltinProvider.CPM) {
-            inspection = same && value.canInspect() && visible ? next.get(0) : null;
+            inspection = visible && (retaining || (same || handover) && value.canInspect()) ? next.get(0) : null;
         }
         return new CapeCatalogModel(next, providers, offline, minecraft, query, filter, collapsed,
-                inspection, editing, deleting, renameValue, importError, textResolver, value, sneaky, sneakyTicket, sneakyReadiness);
+                inspection, editing, deleting, renameValue, importError, textResolver, value, sneaky, sneakyTicket, sneakyReadiness, menuOnly, facts);
     }
 
     public boolean formatError() {
@@ -138,7 +172,7 @@ public record CapeCatalogModel(
 
     public CapeCatalogModel withImportError(UiMessage message) {
         return new CapeCatalogModel(cards, providers, offline, minecraft, query, filter, collapsed,
-                inspected, editing, deleting, renameValue, message, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness);
+                inspected, editing, deleting, renameValue, message, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness, menuOnly, accessoryFacts);
     }
 
     public static CapeCatalogModel open(AccountState account, AppearanceProviders providers,
@@ -180,8 +214,6 @@ public record CapeCatalogModel(
         }
 
         UiMessage personalLabel = UiMessage.info("nclskins.capes.personal");
-        cards.add(Card.personalService(
-                "import", personalLabel, UiMessage.info("nclskins.capes.import"), true));
         cards.add(Card.personalService(
                 "none", personalLabel, UiMessage.info("nclskins.editor.no_cape"), false));
         account.personalCapes().stream()
@@ -276,7 +308,7 @@ public record CapeCatalogModel(
                 .filter(card -> card.widgetId().equals(inspected.widgetId()))
                 .findFirst().orElse(inspected);
         return new CapeCatalogModel(updated, providers, offline, minecraft, query, filter,
-                collapsed, inspection, editing, deleting, renameValue, importError, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness);
+                collapsed, inspection, editing, deleting, renameValue, importError, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness, menuOnly, accessoryFacts);
     }
 
     public CapeCatalogModel refreshed(AccountState account, AppearanceProviders currentProviders,
@@ -288,8 +320,6 @@ public record CapeCatalogModel(
                 .collect(java.util.stream.Collectors.toSet());
         List<Card> updated = new ArrayList<>();
         UiMessage personalLabel = UiMessage.info("nclskins.capes.personal");
-        updated.add(Card.personalService(
-                "import", personalLabel, UiMessage.info("nclskins.capes.import"), true));
         updated.add(Card.personalService(
                 "none", personalLabel, UiMessage.info("nclskins.editor.no_cape"), false));
         account.personalCapes().stream()
@@ -313,20 +343,21 @@ public record CapeCatalogModel(
             nextInspection = updated.stream().filter(card -> card.widgetId().equals(widgetId))
                     .findFirst().orElse(null);
         }
-        if (nextInspection == null && currentOffline != null && currentOffline.entryId() != null) {
+        if (currentOffline != null && currentOffline.entryId() != null) {
             String selectedIdentity = account.personalCapes().stream()
                     .filter(entry -> entry.texture().equals(currentOffline))
                     .map(com.naocraftlab.skins.core.model.PersonalCapeEntry::renderSha256)
                     .findFirst().orElse(null);
             if (selectedIdentity != null) {
-                nextInspection = updated.stream().filter(card -> card.resource() != null)
+                Card remapped = updated.stream().filter(card -> card.resource() != null)
                         .filter(card -> card.resource().contentIdentity().equals(selectedIdentity))
                         .findFirst().orElse(null);
-                if (nextInspection != null) {
+                if (remapped != null) {
                     nextOffline = new LocalCapeReference(
                             null,
-                            nextInspection.resource().sourceSha256(),
-                            nextInspection.resource().hasElytra());
+                            remapped.resource().sourceSha256(),
+                            remapped.resource().hasElytra());
+                    if (nextInspection == null) nextInspection = remapped;
                 }
             }
         }
@@ -336,8 +367,8 @@ public record CapeCatalogModel(
         return new CapeCatalogModel(updated, currentProviders, nextOffline, currentMinecraft,
                 query, filter, collapsed, nextInspection, nextEditing,
                 nextEditing != null && deleting, nextEditing == null ? "" : renameValue,
-                importError, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness)
-                .withAccessories(accessories).withSneakyState(sneaky, sneakyTicket, sneakyReadiness);
+                importError, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness, nextEditing != null && menuOnly, accessoryFacts)
+                .projectAccessories(accessories, accessoryFacts, true).withSneakyState(sneaky, sneakyTicket, sneakyReadiness);
     }
 
     public CapeCatalogModel withQuery(String value) {
@@ -426,7 +457,7 @@ public record CapeCatalogModel(
         Optional<String> nextMinecraft = card.provider() == BuiltinProvider.MINECRAFT
                 ? card.key().equals("none") ? Optional.empty() : Optional.of(card.key())
                 : minecraft;
-        Card nextInspection = card.embedded() && card.equals(inspected) ? null : card;
+        Card nextInspection = card;
         return copy(nextOffline, nextMinecraft, query, filter, collapsed, nextInspection, null, false, "", false);
     }
 
@@ -489,7 +520,19 @@ public record CapeCatalogModel(
     public CapeCatalogModel edit(UUID id, boolean delete) {
         String name = cards.stream().filter(card -> card.key().equals(id.toString()))
                 .map(Card::name).findFirst().orElse("");
-        return copy(offline, minecraft, query, filter, collapsed, inspected, id, delete, name, false);
+        return new CapeCatalogModel(cards, providers, offline, minecraft, query, filter, collapsed, inspected,
+                id, delete, name, null, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness, false, accessoryFacts);
+    }
+
+    public CapeCatalogModel menu(UUID id) {
+        if (menuOnly && Objects.equals(editing, id)) return closeCardMode();
+        if (cards.stream().noneMatch(card -> card.local() != null && id.equals(card.local().entryId()))) return this;
+        return new CapeCatalogModel(cards, providers, offline, minecraft, query, filter, collapsed, inspected,
+                id, false, "", null, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness, true, accessoryFacts);
+    }
+
+    public CapeCatalogModel closeCardMode() {
+        return copy(offline, minecraft, query, filter, collapsed, inspected, null, false, "", false);
     }
 
     public CapeCatalogModel rename(String value) {
@@ -498,7 +541,7 @@ public record CapeCatalogModel(
     }
 
     public CapeCatalogModel cancelEdit() {
-        return copy(offline, minecraft, query, filter, collapsed, inspected, null, false, "", false);
+        return editing == null || menuOnly ? closeCardMode() : closeCardMode().menu(editing);
     }
 
     public CapeCatalogModel error(boolean value) {
@@ -507,7 +550,7 @@ public record CapeCatalogModel(
     }
 
     public boolean nativePreview() {
-        return previewBundle().source() == BuiltinProvider.CPM && accessories.canInspect();
+        return previewBundle().source() == BuiltinProvider.CPM && accessoryFacts.canInspect();
     }
 
     public boolean nativeChain() {
@@ -529,8 +572,8 @@ public record CapeCatalogModel(
 
     public ResolvedBundle defaultBundle() {
         for (BuiltinProvider provider : providers.cape().order()) {
-            if (provider == BuiltinProvider.CPM && accessories.present()) {
-                return new ResolvedBundle(provider, Optional.empty(), accessories.elytra());
+            if (provider == BuiltinProvider.CPM && accessoryFacts.present()) {
+                return new ResolvedBundle(provider, Optional.empty(), accessoryFacts.elytra());
             }
             if (provider == BuiltinProvider.SNEAKY && sneakyReadiness == SneakyReadiness.VALUE && sneaky != null) {
                 return new ResolvedBundle(provider, Optional.of("sneaky:preview:" + sneakyTicket + ":" + sneaky.identity()), sneaky.hasElytra());
@@ -573,6 +616,11 @@ public record CapeCatalogModel(
         if (inspected != null && inspected.provider() == card.provider()) {
             return inspected.widgetId().equals(card.widgetId());
         }
+        return assigned(card);
+    }
+
+    public boolean assigned(Card card) {
+        if (card.embedded()) return providers.cape().enabled(card.provider()) && cards.contains(card);
         if (card.resource() != null) {
             return selectedResource().filter(card.resource()::equals).isPresent();
         }
@@ -624,7 +672,8 @@ public record CapeCatalogModel(
             int selection, Set<String> disclosure, Card inspection, UUID edit, boolean delete,
             String rename, boolean error) {
         return new CapeCatalogModel(cards, providers, local, owned, search, selection, disclosure,
-                inspection, edit, delete, rename, error ? UiMessage.error("nclskins.capes.format_error") : null, textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness);
+                inspection, edit, delete, rename, error ? UiMessage.error("nclskins.capes.format_error") : null,
+                textResolver, accessories, sneaky, sneakyTicket, sneakyReadiness, menuOnly && Objects.equals(edit, editing), accessoryFacts);
     }
 
     public record Card(

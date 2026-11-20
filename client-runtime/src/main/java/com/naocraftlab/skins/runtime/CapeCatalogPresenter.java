@@ -67,13 +67,26 @@ final class CapeCatalogPresenter {
             List<ViewSpec.ClipRegion> clips,
             List<ViewSpec.TooltipRegion> tooltips,
             List<ViewSpec.NavigationNode> navigation) {
+        present(model, viewport, cardWidth, cardHeight, columns, scroll, busy, mode, widgets, panels, texts, previews,
+                icons, clips, tooltips, navigation, false, java.util.Set.of());
+    }
+
+    static void present(CapeCatalogModel model, Bounds viewport, int cardWidth, int cardHeight, int columns,
+                        double scroll, boolean busy, com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode mode,
+                        List<ViewSpec.Widget> widgets, List<ViewSpec.Panel> panels, List<ViewSpec.Text> texts,
+                        List<ViewSpec.BackEquipmentPreview> previews, List<ViewSpec.IconDecoration> icons,
+                        List<ViewSpec.ClipRegion> clips, List<ViewSpec.TooltipRegion> tooltips,
+                        List<ViewSpec.NavigationNode> navigation, boolean existing, java.util.Set<String> savedAssignments) {
         int toolbarY = viewport.y() - 28 - errorHeight(model, viewport.width());
         int disclosureX = viewport.right() - 20;
         int filterWidth = Math.min(92, Math.max(50, viewport.width() / 3));
         int filterX = disclosureX - 4 - filterWidth;
+        widgets.add(ViewSpec.Widget.iconButton("editor.cape_import",
+                new Bounds(viewport.x(), toolbarY, 20, 20), UiMessage.info("nclskins.capes.import"),
+                GuiIcon.ACTION_ADD_LOOK, !busy && model.providers().cape().enabled(com.naocraftlab.skins.core.provider.BuiltinProvider.OFFLINE)));
         widgets.add(ViewSpec.Widget.textField(
                 "editor.cape_search",
-                new Bounds(viewport.x(), toolbarY, Math.max(1, filterX - viewport.x() - 4), 20),
+                new Bounds(viewport.x() + 24, toolbarY, Math.max(1, filterX - viewport.x() - 28), 20),
                 UiMessage.info("nclskins.capes.search"),
                 model.query(),
                 UiMessage.info("nclskins.add_source.search_hint"),
@@ -110,12 +123,12 @@ final class CapeCatalogPresenter {
         clips.add(AppearanceCollections.clip(
                 "editor.capes",
                 viewport,
-                List.of("editor.cape_item.", "editor.cape_surface.", "editor.cape_header.", "editor.cape_action.")));
+                List.of("editor.cape_item.", "editor.cape_surface.", "editor.cape_header.", "editor.cape_action.", "editor.cape_tooltip.")));
 
         AppearanceCollections.Layout layout = layout(model, columns, cardHeight);
         int scrollOffset = (int) Math.round(scroll);
         int ordinal = 2;
-        int tabOrder = 4;
+        int tabOrder = 5;
         for (var section : layout.sections()) {
             String collectionId = section.section().id();
             String headerId = "editor.cape_header." + collectionId;
@@ -138,16 +151,21 @@ final class CapeCatalogPresenter {
                 CapeCatalogModel.Card card = cards.get(index);
                 Bounds bounds = section.card(index, viewport.x(), viewport.y() - scrollOffset, cardWidth);
                 String id = card.widgetId();
+                boolean expanded = card.local() != null && card.local().entryId().equals(model.editing());
+                boolean renaming = expanded && !model.menuOnly() && !model.deleting();
                 navigation.add(AppearanceCollections.navigation(
                         id,
                         bounds,
                         "editor.capes",
                         ordinal++,
                         tabOrder++,
-                        !busy,
+                        !busy && !expanded,
                         ViewSpec.NavigationPattern.GRID,
                         card.embedded() && !model.canInspect(card) ? Optional.empty() : Optional.of(id)));
                 List<ViewSpec.Widget> actions = personalActions(model, card, bounds, busy);
+                ViewSpec.Widget toggle = card.local() != null && !renaming
+                        ? AppearanceCard.compactToggle("editor.cape_action.more." + card.local().entryId(), bounds, expanded, !busy) : null;
+                if (toggle != null) actions = java.util.stream.Stream.concat(java.util.stream.Stream.of(toggle), actions.stream()).toList();
                 for (ViewSpec.Widget action : actions) {
                     ViewSpec.NavigationNode node = ViewSpec.NavigationNode.control(action, ordinal++, tabOrder++);
                     navigation.add(new ViewSpec.NavigationNode(
@@ -158,28 +176,36 @@ final class CapeCatalogPresenter {
                     continue;
                 }
                 String surface = "editor.cape_surface." + collectionId + "." + card.key();
-                var chrome = AppearanceCard.chrome(surface, id, bounds, ViewSpec.WidgetKind.CAPE_CARD,
-                        card.label(), Optional.of(model.selected(card) ? "selected" : "unselected"), !busy);
+                var chrome = AppearanceCard.chrome(surface, id, bounds, ViewSpec.WidgetKind.CATALOG_CARD,
+                        card.label(), savedAssignments.contains(id) || card.embedded() && model.assigned(card) ? Optional.of("active")
+                                : model.assigned(card) ? Optional.of(existing ? "selected" : "active")
+                                : expanded ? Optional.of("menu") : Optional.empty(), !busy && !expanded);
                 panels.add(chrome.surface());
                 widgets.add(card.provider() == com.naocraftlab.skins.core.provider.BuiltinProvider.CPM ? chrome.widget().withActivation(model.canInspect(card),
                         AccessoryInspection.reason(model.accessories())) : chrome.widget());
-                boolean editing = card.local() != null
-                        && card.local().entryId().equals(model.editing());
-                if (!(editing && !model.deleting()) && !card.importCard()) {
-                    Bounds nameBounds = CatalogCardGeometry.name(bounds);
-                    texts.add(AppearanceCard.name(surface + ".name", nameBounds, card.label(), bounds, List.of(id)));
+                if (expanded && model.deleting()) {
+                    var prompt = AppearanceCard.compactPrompt(surface + ".delete_prompt", bounds, false,
+                            UiMessage.info("nclskins.capes.delete_confirmation"), model.textResolver()::wrappedHeight);
+                    if (AppearanceCollections.visibleVertically(prompt.bounds(), viewport)) texts.add(prompt);
+                }
+                boolean noCape = card.service() && !card.importCard();
+                if (!noCape) {
+                    var namebar = AppearanceCard.compactNamebar(surface + ".namebar", bounds, expanded);
+                    if (AppearanceCollections.visibleVertically(namebar.bounds(), viewport)) panels.add(namebar);
+                }
+                if (!renaming && !noCape) {
+                    Bounds nameBounds = AppearanceCard.compactNameBounds(bounds, expanded, card.local() != null);
+                    texts.add(AppearanceCard.compactName(surface + ".name", card.label(), bounds, expanded,
+                            card.local() != null, toggle == null ? List.of(id) : List.of(id, toggle.id())));
                     card.info().ifPresent(info -> tooltips.add(AppearanceCard.info(
                             "editor.cape_tooltip.card." + collectionId + "." + card.key(),
-                            nameBounds, card.label(), ViewSpec.Text.Alignment.CENTER, info)));
+                            nameBounds, card.label(), ViewSpec.Text.Alignment.LEFT, info)));
                 }
-                AppearanceCard.Role role = collectionId.equals("OFFLINE")
-                        ? AppearanceCard.Role.PERSONAL : AppearanceCard.Role.READ_ONLY;
-                Bounds previewBounds = role.preview(bounds);
-                if (card.texture().isPresent()) {
+                if (!expanded && card.texture().isPresent()) {
                     previews.add(new AppearanceCard.Cape(card.texture().orElseThrow(), mode,
-                            !Boolean.FALSE.equals(card.hasElytra())).present(surface + ".preview", previewBounds));
-                } else {
-                    icons.add(AppearanceCard.service(surface + ".icon", card.embedded() ? bounds : previewBounds,
+                            !Boolean.FALSE.equals(card.hasElytra())).presentCatalog(surface + ".preview", bounds));
+                } else if (!expanded) {
+                    icons.add(AppearanceCard.service(surface + ".icon", noCape ? bounds : AppearanceCard.Cape.catalogSlot(bounds),
                             card.embedded() ? GuiIcon.SOURCE_CPM : card.importCard() ? GuiIcon.ACTION_ADD_CAPE : GuiIcon.APPEARANCE_CAPE_NONE, id));
                 }
                 widgets.addAll(actions);
@@ -189,16 +215,15 @@ final class CapeCatalogPresenter {
 
     private static List<ViewSpec.Widget> personalActions(
             CapeCatalogModel model, CapeCatalogModel.Card card, Bounds bounds, boolean busy) {
-        if (card.local() == null) return List.of();
+        if (card.local() == null || !card.local().entryId().equals(model.editing())) return List.of();
         String key = card.local().entryId().toString();
-        boolean editing = card.local().entryId().equals(model.editing());
-        Optional<AppearanceCard.Rename> rename = editing && !model.deleting()
+        Optional<AppearanceCard.Rename> rename = !model.menuOnly() && !model.deleting()
                 ? Optional.of(new AppearanceCard.Rename("editor.cape_action.name", UiMessage.info("nclskins.capes.rename"),
                         model.renameValue(), UiMessage.info("nclskins.your_skins.rename_hint"), !busy,
                         "editor.cape_action.save." + key)) : Optional.empty();
         AppearanceCard.Action left;
         AppearanceCard.Action right;
-        if (editing) {
+        if (!model.menuOnly()) {
             left = new AppearanceCard.Action("editor.cape_action." + (model.deleting() ? "confirm." : "save.") + key,
                     UiMessage.info(model.deleting() ? "nclskins.capes.delete" : "nclskins.editor.save"),
                     NativeGuiIcon.ACCEPT, !busy && (model.deleting() || !model.renameValue().trim().isEmpty()));
@@ -206,11 +231,11 @@ final class CapeCatalogPresenter {
                     NativeGuiIcon.REJECT, !busy);
         } else {
             left = new AppearanceCard.Action("editor.cape_action.rename." + key, UiMessage.info("nclskins.capes.rename"),
-                    GuiIcon.ACTION_RENAME, !busy && model.editing() == null);
+                    GuiIcon.ACTION_RENAME, !busy);
             right = new AppearanceCard.Action("editor.cape_action.delete." + key, UiMessage.info("nclskins.capes.delete"),
-                    GuiIcon.ACTION_DELETE, !busy && model.editing() == null);
+                    GuiIcon.ACTION_DELETE, !busy);
         }
-        return AppearanceCard.actions(bounds, rename, left, right);
+        return AppearanceCard.compactActions(bounds, rename, left, right);
     }
 
     private static AppearanceCollections.Layout layout(CapeCatalogModel model, int columns, int cardHeight) {
@@ -218,12 +243,10 @@ final class CapeCatalogPresenter {
         for (String collectionId : model.visibleCollections()) {
             int count = model.matches(collectionId).size();
             if (count == 0) continue;
-            AppearanceCard.Role role = collectionId.equals("OFFLINE")
-                    ? AppearanceCard.Role.PERSONAL : AppearanceCard.Role.READ_ONLY;
             sections.add(new AppearanceCollections.Section(collectionId, count,
-                    model.collapsed().contains(collectionId), role.height(cardHeight)));
+                    model.collapsed().contains(collectionId), cardHeight));
         }
-        return AppearanceCollections.layout(sections, columns);
+        return AppearanceCollections.compactLayout(sections, columns);
     }
 
     private static boolean selected(CapeCatalogModel model, CapeCatalogModel.Card card) {

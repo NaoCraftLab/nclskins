@@ -204,8 +204,7 @@ public final class NclSkinsScreen extends Screen {
                 || showingAccountLink || runtime.closed() || view == null) return Optional.empty();
         ViewSpec current = runtime.view(width, height, mouseX, mouseY);
         if (!"preset_editor".equals(current.screenId()) && !"providers".equals(current.screenId())) return Optional.empty();
-        return current.texts().stream().filter(text -> text.id().equals("editor.preview.error"))
-                .findFirst().map(text -> SubmissionComponents.resolve(text.message()));
+        return ViewHostPolicy.previewErrorMessage(current).map(SubmissionComponents::resolve);
     }
 
     private Optional<Component> importStatusNarration() {
@@ -516,6 +515,11 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private boolean focusWidget(String id) {
+        var addTabs = nativeTabGroups.get("add.tabs");
+        if (addTabs != null && id.equals("add.tabs")) {
+            setInitialFocus(addTabs.bar());
+            return true;
+        }
         AbstractWidget widget = widgets.get(id);
         if (widget == null || !widget.isActive()) {
             return false;
@@ -525,6 +529,8 @@ public final class NclSkinsScreen extends Screen {
     }
 
     private String focusedWidgetId() {
+        var addTabs = nativeTabGroups.get("add.tabs");
+        if (addTabs != null && addTabs.bar().isFocused()) return "add.tabs";
         return widgets.entrySet().stream()
                 .filter(entry -> entry.getValue().isFocused())
                 .map(Map.Entry::getKey)
@@ -570,6 +576,7 @@ public final class NclSkinsScreen extends Screen {
         NativeSurfaceAdapter.renderFramePanels(graphics, current);
         renderScrollbar(graphics, current, mouseX, mouseY);
         if ("gallery".equals(current.screenId())) renderSurfaceOverlays(graphics, current);
+        else renderCompactMenuScrims(graphics, current);
         graphics.nextStratum();
         renderWidgetsClipped(graphics, current, mouseX, mouseY, partialTick);
         if (!"gallery".equals(current.screenId())) renderSurfaceOverlays(graphics, current);
@@ -666,8 +673,18 @@ public final class NclSkinsScreen extends Screen {
         addRenderableWidget(bar);
     }
 
+    private void renderCompactMenuScrims(GuiGraphics graphics, ViewSpec view) {
+        for (ViewSpec.Panel panel : view.panels()) {
+            if (panel.style() != ViewSpec.Panel.Style.COMPACT_MENU_SCRIM) continue;
+            Bounds b = panel.bounds();
+            clipped(graphics, view, panel.id(), () -> graphics.fill(b.x(), b.y(), b.right(), b.bottom(),
+                    ViewHostPolicy.panelOverlayColor(panel.style())));
+        }
+    }
+
     private void renderSurfaceOverlays(GuiGraphics graphics, ViewSpec view) {
         for (ViewSpec.Panel panel : view.panels()) {
+            if (panel.style() == ViewSpec.Panel.Style.COMPACT_MENU_SCRIM) continue;
             int color = ViewHostPolicy.panelOverlayColor(view.screenId(), panel.style());
             if (color == 0) continue;
             Bounds b = panel.bounds();
@@ -675,21 +692,21 @@ public final class NclSkinsScreen extends Screen {
         }
         for (ViewSpec.Widget widget : view.widgets()) {
             if (!widget.visible() || widget.kind() != ViewSpec.WidgetKind.TRANSPARENT_BUTTON) continue;
-            Bounds b = widget.bounds();
-            clipped(graphics, view, widget.id(), () -> graphics.drawCenteredString(font, SubmissionComponents.resolve(ViewHostPolicy.transparentLabel(widget)),
-                    widget.id().endsWith(".more") ? b.right()-6 : b.x() + b.width() / 2, ViewHostPolicy.transparentTextY(widget,font.lineHeight),
-                    widget.enabled() ? 0xFFFFFFFF : 0xFFA0A0A0));
-            if (keyboardNavigationActive() && Optional.ofNullable(widgets.get(widget.id())).map(AbstractWidget::isFocused).orElse(false)) {
-                clipped(graphics, view, widget.id(), () -> drawCardFocusFrame(graphics, b.x(), b.y(), b.width(), b.height()));
-            }
+            ViewHostPolicy.transparentLabel(widget).ifPresent(label -> clipped(graphics, view, widget.id(),
+                    () -> graphics.drawCenteredString(font, SubmissionComponents.resolve(label),
+                    ViewHostPolicy.transparentTextX(widget), ViewHostPolicy.transparentTextY(widget,font.lineHeight),
+                    widget.enabled() ? 0xFFFFFFFF : 0xFFA0A0A0)));
         }
     }
 
     private void renderStateFrames(GuiGraphics graphics, ViewSpec view) {
         for (ViewSpec.Widget widget : view.widgets()) {
             boolean cape="gallery".equals(view.screenId()) && widget.id().startsWith("gallery.inspect.") && widget.kind()==ViewSpec.WidgetKind.CAPE_CARD;
-            if (!widget.visible() || !cape && (widget.kind() != ViewSpec.WidgetKind.CATALOG_CARD || widget.value().isEmpty())) continue;
+            boolean model = widget.kind() == ViewSpec.WidgetKind.CAPE_CARD && widget.id().startsWith("editor.model_choice.");
+            if (!widget.visible() || !cape && !model && widget.kind() != ViewSpec.WidgetKind.CATALOG_CARD
+                    && widget.kind() != ViewSpec.WidgetKind.TRANSPARENT_BUTTON) continue;
             boolean focused = keyboardNavigationActive() && Optional.ofNullable(widgets.get(widget.id())).map(AbstractWidget::isFocused).orElse(false);
+            if (!cape && !focused && ViewHostPolicy.cardFrameColor(widget, false) == 0) continue;
             var segments = cape ? ViewHostPolicy.galleryCapePaint(view,widget,mouseX,mouseY,focused) : ViewHostPolicy.cardFrameSegments(widget, focused);
             clipped(graphics, view, widget.id(), () -> {
                 for (var segment : segments) {
@@ -1062,8 +1079,8 @@ public final class NclSkinsScreen extends Screen {
     private void renderBackEquipment(GuiGraphics graphics, ViewSpec current) {
         for (ViewSpec.BackEquipmentPreview preview : current.backEquipmentPreviews()) {
             var preparation = capeTextures.imageState(ViewHostPolicy.cardCapeKey(preview), preview.capeId());
-            if (preview.projection() == ViewSpec.BackEquipmentPreview.Projection.EQUIPMENT) {
-                bakedRenderer("equipment:" + preview.id()).prepareImage(java.util.List.of(preview.capeId(), preview.mode(), preview.capeHasElytra()),
+            if (preview.projection() != ViewSpec.BackEquipmentPreview.Projection.PROVIDER_THUMBNAIL) {
+                bakedRenderer("equipment:" + preview.id()).prepareImage(java.util.List.of(preview.capeId(), preview.mode(), preview.capeHasElytra(), preview.fitPolicy()),
                         preparation.status() == PreviewAssetCache.ImageStatus.PREPARING ? preparation.startedNanos() : System.nanoTime(),
                         preparation.status() != PreviewAssetCache.ImageStatus.PREPARING);
             }
@@ -1088,7 +1105,7 @@ public final class NclSkinsScreen extends Screen {
                                     preview.bounds().x(),
                                     preview.bounds().y(),
                                     preview.bounds().width(),
-                                    preview.bounds().height(), preview.capeHasElytra()))));
+                                    preview.bounds().height(), preview.capeHasElytra(), preview.fitPolicy()))));
         }
     }
 
@@ -1119,9 +1136,11 @@ public final class NclSkinsScreen extends Screen {
             ViewSpec.Text text,
             int mouseX,
             int mouseY) {
-        if (text.id().startsWith("gallery.preset.") && text.id().endsWith(".name")) {
-            var arrow=current.widget(text.id().substring(0,text.id().length()-5)+".more");
-            if (arrow.isPresent()) text=ViewHostPolicy.galleryNameText(current,text,font.width(SubmissionComponents.resolve(ViewHostPolicy.transparentLabel(arrow.orElseThrow()))));
+        var arrow = ViewHostPolicy.cardTitleToggle(current, text);
+        if (arrow.isPresent()) {
+            int arrowWidth = arrow.flatMap(ViewHostPolicy::transparentLabel)
+                    .map(label -> font.width(SubmissionComponents.resolve(label))).orElse(0);
+            text = ViewHostPolicy.galleryNameText(current, text, arrowWidth);
         }
         Component component = SubmissionComponents.resolve(text.message());
         int color = textColor(text);
@@ -1299,7 +1318,9 @@ public final class NclSkinsScreen extends Screen {
             capeTextures.requestCape(
                     surfaceKey, preview.capeId(), () -> runtime.openPreparedCapePreview(preview.capeId(), true),
                     () -> runtime.loadCapePreview(preview.capeId()),
-                    ViewHostPolicy.capeCardHovered(current, preview, mouseX, mouseY), () -> {});
+                    ViewHostPolicy.capeCardPlaying(current, preview, mouseX, mouseY,
+                            preview.projection() == ViewSpec.BackEquipmentPreview.Projection.CATALOG_CARD
+                                    && keyboardNavigationActive() ? focusedWidgetId() : null), () -> {});
             runtime.reconcileCapePreviewIdentity(preview.capeId(),
                     capeTextures.capeVisualIdentity(surfaceKey, preview.capeId()));
         }

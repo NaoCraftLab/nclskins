@@ -10,6 +10,7 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
@@ -162,9 +163,10 @@ final class PreviewModelFitRuntimeTest {
     }
 
     private void openSurface(String surface) {
-        if(surface.equals("editor")) {
+        if(surface.equals("editor") || surface.equals("create")) {
             f.runtime.dispatchWidget("gallery.preset."+GalleryRuntimeSelectionTest.A+".more");
-            f.runtime.dispatchWidget("gallery.preset."+GalleryRuntimeSelectionTest.A+".edit");
+            f.runtime.dispatchWidget("gallery.preset."+GalleryRuntimeSelectionTest.A
+                    +(surface.equals("create") ? ".duplicate" : ".edit"));
         } else if(surface.equals("providers")) f.runtime.dispatchWidget("gallery.providers");
     }
 
@@ -519,7 +521,7 @@ final class PreviewModelFitRuntimeTest {
         assertEquals(3,attempts.get());
     }
 
-    @ParameterizedTest @CsvSource({"gallery,false", "editor,false", "gallery,true", "editor,true"})
+    @ParameterizedTest @CsvSource({"gallery,false", "editor,false", "create,false", "gallery,true", "editor,true", "create,true"})
     void pendingNativeOwnerRolloverContinuesOnlyBeforeOriginalDeadline(String surface, boolean timeout) throws Exception {
         var environment = ClientRuntime.class.getDeclaredField("skinExtensionEnvironment");
         environment.setAccessible(true);
@@ -529,6 +531,10 @@ final class PreviewModelFitRuntimeTest {
         reopen();
         environment.set(f.runtime, new SkinExtensionEnvironment(0, Map.of(), true));
         openSurface(surface);
+        if (!surface.equals("gallery")) {
+            assertEquals(surface.equals("create"), f.runtime.snapshot().editor().orElseThrow().originalPresetId().isEmpty());
+            f.runtime.dispatchWidget("editor.tab.cape");
+        }
         long[] now = {0};
         var gallery = new EditorPreviewSession.Gallery(() -> now[0]);
         var attempts = new AtomicInteger();
@@ -570,12 +576,29 @@ final class PreviewModelFitRuntimeTest {
         }
         var live = new PreviewAccessories(new UUID(0, 51), 1, PreviewAccessories.Availability.CONFIRMED,
                 false, true, PreviewRenderer.LiveReason.AVAILABLE);
-        f.runtime.observePreviewAccessories(initial, () -> live);
+        var oldAccessory = f.runtime.observePreviewAccessories(initial, () -> live);
         var refined = surfacePreview(surface);
         assertTrue(refined.nativeAccessories());
+        String embeddedCard = surface.equals("gallery") ? null : f.runtime.view(854, 480, 0, 0).widgets().stream()
+                .filter(w -> w.id().startsWith("editor.cape_item.CPM.")).findFirst().orElseThrow().id();
         assertNotEquals(source, f.runtime.previewBodySource(refined));
         assertEquals(demand, f.runtime.previewBodyDemand(refined));
         var successor = gallery.prepare(f.runtime.previewBodySource(refined), demand, true, true, () -> true);
+        var waiting = new PreviewAccessories(new UUID(0, 52), 0, PreviewAccessories.Availability.UNKNOWN,
+                false, false, PreviewRenderer.LiveReason.AVAILABLE);
+        var successorValue = new AtomicReference<>(waiting);
+        var successorAccessory = f.runtime.observePreviewAccessories(refined, successorValue::get);
+        for (int frame = 0; frame < 5; frame++) {
+            oldAccessory.accept(live);
+            var current = surfacePreview(surface);
+            assertTrue(current.nativeAccessories(), "Unresolved replacement slot must not withdraw same-input CPM facts");
+            assertEquals(f.runtime.previewBodySource(refined), f.runtime.previewBodySource(current));
+            if (embeddedCard != null) {
+                var view = f.runtime.view(854, 480, 0, 0);
+                assertTrue(view.widget("editor.preview_mode").isPresent());
+                assertFalse(view.widget(embeddedCard).orElseThrow().activationEnabled());
+            }
+        }
         assertFalse(gates.get(0).ownerCurrent()); assertFalse(gates.get(0).current());
         nativePreparations.get(0).close();
         f.drain();
@@ -603,6 +626,13 @@ final class PreviewModelFitRuntimeTest {
             assertEquals(2, attempts.get()); assertEquals(loads, store.loads);
         }
         assertEquals(timeout ? 0 : 1, store.creates);
+        if (embeddedCard != null) {
+            successorValue.set(PreviewAccessories.unavailable(PreviewRenderer.LiveReason.WORLD_REQUIRED));
+            successorAccessory.accept(successorValue.get());
+            assertFalse(surfacePreview(surface).nativeAccessories());
+            oldAccessory.accept(live);
+            assertFalse(surfacePreview(surface).nativeAccessories());
+        }
         gallery.close();
     }
 

@@ -2893,7 +2893,8 @@ public final class CpmExtractionBodyProbe {
     public static final class Pose {
         public void pushPose() { CpmBakedDisplayProbe.push(); }
         public void popPose() { CpmBakedDisplayProbe.pop(); }
-        public void translate(float x, float y, float z) {} public void scale(float x, float y, float z) {} public void mulPose(org.joml.Quaternionfc value) {} public void rotate(org.joml.Quaternionfc value) {}
+        public void translate(float x, float y, float z) { CpmBakedDisplayProbe.equipmentConsumerTranslated(y); }
+        public void scale(float x, float y, float z) {} public void mulPose(org.joml.Quaternionfc value) {} public void rotate(org.joml.Quaternionfc value) {}
     }
     public static final class Skin { public Texture cape() { return null; } }
     public static final class Texture {}

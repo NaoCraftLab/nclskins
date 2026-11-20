@@ -245,7 +245,7 @@ final class AvatarPipPreviewRenderer
 
     @Override
     public void render(GuiGraphicsExtractor graphics, BackEquipmentPreviewRenderer.Request request) {
-        if (imageSource == null) imageSession.beginImage(java.util.List.of(request.texture(), request.mode(), request.capeHasElytra()));
+        if (imageSource == null) imageSession.beginImage(java.util.List.of(request.texture(), request.mode(), request.capeHasElytra(), request.fitPolicy()));
         if (!imageSession.imageVisible() && !imageSession.imagePreparing()) return;
         if (imageSession.imageSpinner()) {
             var frame = com.naocraftlab.skins.client.PreviewLoading.frame((long) imageSession.imageFrame() * 100_000_000L,
@@ -256,7 +256,7 @@ final class AvatarPipPreviewRenderer
         }
         if (imageSession.imageVisible()) { renderEquipment(graphics, request, null); return; }
         var hidden = new BackEquipmentPreviewRenderer.Request(request.texture(), request.mode(), -request.width() - 1,
-                request.top(), request.width(), request.height(), request.capeHasElytra());
+                request.top(), request.width(), request.height(), request.capeHasElytra(), request.fitPolicy());
         var completion = imageSession.imagePreparation(() -> true);
         renderEquipment(graphics, hidden, completion);
     }
@@ -267,7 +267,7 @@ final class AvatarPipPreviewRenderer
         VanillaPreviewModels.AttachmentModels attachment = attachment(request.mode());
         Object submittedModel = PLAYER_MODEL_SKIN ? attachment.player() : attachment.simple();
         float scale = VanillaBackEquipmentTransform.fitScale(
-                request.width(), request.height());
+                request.width(), request.height(), request.mode(), request.fitPolicy());
         PreviewRenderer.CapeMode mode = request.mode() == BackEquipmentPreviewRenderer.Mode.ELYTRA
                 ? PreviewRenderer.CapeMode.ELYTRA
                 : PreviewRenderer.CapeMode.CAPE;
@@ -291,7 +291,7 @@ final class AvatarPipPreviewRenderer
                 request.left() + request.width(),
                 request.top() + request.height(),
                 0.0F,
-                0.0F,
+                VanillaBackEquipmentTransform.modelOffsetY(request.mode(), request.fitPolicy()),
                 scale,
                 false,
                 true,

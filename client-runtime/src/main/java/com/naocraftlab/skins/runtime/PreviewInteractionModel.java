@@ -30,14 +30,16 @@ public record PreviewInteractionModel(
         Objects.requireNonNull(outerLayerVisibility, "outerLayerVisibility");
     }
 
+    private static final float INITIAL_YAW = 25.0F;
+
     public static PreviewInteractionModel gallery() {
         return new PreviewInteractionModel(
-                25.0F, -8.0F, 1.0F, OuterLayerVisibility.allVisible(), PreviewRenderer.CapeMode.CAPE, false);
+                INITIAL_YAW, -8.0F, 1.0F, OuterLayerVisibility.allVisible(), PreviewRenderer.CapeMode.CAPE, false);
     }
 
     public static PreviewInteractionModel editor(int viewportHeight, PreviewRenderer.CapeMode capeMode) {
         return new PreviewInteractionModel(
-                -22.0F, -5.0F, 1.0F, OuterLayerVisibility.allVisible(), capeMode, false);
+                INITIAL_YAW, -5.0F, 1.0F, OuterLayerVisibility.allVisible(), capeMode, false);
     }
 
     public PreviewInteractionModel beginRotate(Bounds bounds, double mouseX, double mouseY) {

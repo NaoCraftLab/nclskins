@@ -11,6 +11,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ViewHostPolicyTest {
+    @Test
+    void passiveTitlePaintDoesNotCreateAnEmptyMessageOrLoseTheAccessibleName() {
+        var label = UiMessage.literal("Appearance", UiMessage.Severity.INFO);
+        var bounds = new Bounds(8, 12, 56, 96);
+        var title = AppearanceCard.compactTitleControl("test", bounds, label, true);
+        assertTrue(ViewHostPolicy.transparentLabel(title).isEmpty());
+        assertEquals(label, title.label());
+        assertFalse(title.activationEnabled());
+        var arrow = AppearanceCard.compactToggle("test.more", bounds, false, true);
+        assertEquals(Optional.of(UiMessage.literal("▲", UiMessage.Severity.INFO)),
+                ViewHostPolicy.transparentLabel(arrow));
+    }
+
 
     @Test
     void galleryMainSelectsOwnedRendererWithoutPromotingItsBakedCards() {

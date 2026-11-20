@@ -72,6 +72,8 @@ public final class ViewNavigationPolicy {
         List<ViewSpec.NavigationNode> nodes = view.navigationNodes().stream()
                 .filter(ViewSpec.NavigationNode::enabled)
                 .filter(node -> node.tabOrder() >= 0)
+                .filter(node -> !viewportTab(node) || view.scrollSurface(node.surfaceId().orElseThrow())
+                        .filter(surface -> AppearanceCollections.intersects(node.bounds(), surface.viewport())).isPresent())
                 .sorted(Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder)
                         .thenComparingInt(ViewSpec.NavigationNode::documentOrder))
                 .toList();
@@ -86,6 +88,13 @@ public final class ViewNavigationPolicy {
             }
         }
         if (current < 0) {
+            var precedingOrder = focusedId == null ? Optional.<ViewSpec.NavigationNode>empty() : view.navigationNode(focusedId);
+            if (precedingOrder.filter(ViewNavigationPolicy::viewportTab).isPresent()) {
+                int order = precedingOrder.orElseThrow().tabOrder();
+                var adjacent = reverse ? nodes.stream().filter(node -> node.tabOrder() < order).reduce((a, b) -> b)
+                        : nodes.stream().filter(node -> node.tabOrder() > order).findFirst();
+                if (adjacent.isPresent()) return adjacent;
+            }
             return Optional.of(reverse ? nodes.get(nodes.size() - 1) : nodes.get(0));
         }
         int next = Math.floorMod(current + (reverse ? -1 : 1), nodes.size());
@@ -100,7 +109,13 @@ public final class ViewNavigationPolicy {
         ViewSpec.NavigationNode current = view.navigationNode(focusedId)
                 .filter(ViewSpec.NavigationNode::enabled)
                 .orElse(null);
-        if (current == null || current.pattern() == ViewSpec.NavigationPattern.NONE) {
+        if (current == null) {
+            return Optional.empty();
+        }
+        if ("add_source".equals(view.screenId())) {
+            return catalogDirection(view, current, command);
+        }
+        if (current.pattern() == ViewSpec.NavigationPattern.NONE) {
             return Optional.empty();
         }
         List<ViewSpec.NavigationNode> peers = view.navigationNodes().stream()
@@ -197,6 +212,44 @@ public final class ViewNavigationPolicy {
             case UP, DOWN -> Math.abs(centerX(bounds) - currentX);
             default -> Integer.MAX_VALUE;
         };
+    }
+
+    static boolean viewportTab(ViewSpec.NavigationNode node) {
+        return node.surfaceId().filter(id -> id.equals("gallery.cards") || id.equals("external.review") || id.equals("add.catalog")
+                && (node.id().startsWith("add.catalog.skin:") || node.id().startsWith("add.catalog.collection:")
+                || node.id().startsWith("add.catalog.more:") || node.id().startsWith("add.catalog.rename")
+                || node.id().startsWith("add.catalog.delete"))).isPresent();
+    }
+
+    private static Optional<ViewSpec.NavigationNode> catalogDirection(ViewSpec view,
+            ViewSpec.NavigationNode current, ViewSpec.NavigationCommand command) {
+        if (view.scrollSurface("add.catalog").isEmpty()) return Optional.empty();
+        var anchors = view.navigationNodes().stream().filter(ViewSpec.NavigationNode::enabled)
+                .filter(node -> node.pattern() == ViewSpec.NavigationPattern.GRID)
+                .filter(node -> node.surfaceId().filter("add.catalog"::equals).isPresent()).toList();
+        var order = Comparator.comparingInt(ViewSpec.NavigationNode::documentOrder);
+        if (current.id().equals("add.catalog.disclosure") && command == ViewSpec.NavigationCommand.DOWN)
+            return anchors.stream().min(order);
+        if (current.id().equals("add.cancel") && command == ViewSpec.NavigationCommand.UP)
+            return anchors.stream().max(order);
+        if (!viewportTab(current)) return Optional.empty();
+        var anchor = current.pattern() == ViewSpec.NavigationPattern.GRID ? current : anchors.stream()
+                .filter(node -> node.documentOrder() < current.documentOrder()).max(order).orElse(null);
+        if (anchor == null) return Optional.empty();
+        if (command == ViewSpec.NavigationCommand.LEFT || command == ViewSpec.NavigationCommand.RIGHT) {
+            var row = anchors.stream().filter(node -> node.bounds().y() == anchor.bounds().y());
+            return command == ViewSpec.NavigationCommand.LEFT
+                    ? row.filter(node -> node.documentOrder() < anchor.documentOrder()).max(order).or(() -> Optional.of(anchor))
+                    : row.filter(node -> node.documentOrder() > anchor.documentOrder()).min(order).or(() -> Optional.of(anchor));
+        }
+        int x = centerX(anchor.bounds());
+        int y = anchor.bounds().y();
+        boolean up = command == ViewSpec.NavigationCommand.UP;
+        return anchors.stream().filter(node -> up ? node.bounds().y() < y : node.bounds().y() > y)
+                .min(Comparator.comparingInt((ViewSpec.NavigationNode node) -> Math.abs(node.bounds().y() - y))
+                        .thenComparingInt(node -> Math.abs(centerX(node.bounds()) - x)).thenComparing(order))
+                .or(() -> view.navigationNode(up ? "add.catalog.disclosure" : "add.cancel")
+                        .filter(ViewSpec.NavigationNode::enabled));
     }
 
     private static int centerX(Bounds bounds) {

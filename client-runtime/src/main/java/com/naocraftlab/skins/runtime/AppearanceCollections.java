@@ -7,13 +7,13 @@ import java.util.Optional;
 final class AppearanceCollections {
     record Section(String id, int itemCount, boolean collapsed, int cardHeight) {}
 
-    record SectionLayout(Section section, int headerTop, int cardsTop, int columns) {
+    record SectionLayout(Section section, int headerTop, int cardsTop, int columns, int gap) {
         Bounds header(int x, int top, int width) {
             return new Bounds(x, top + headerTop, width, CollectionGridLayout.COLLECTION_HEADER_HEIGHT);
         }
 
         Bounds card(int index, int x, int top, int width) {
-            return gridCard(index, columns, x, top + cardsTop, width, section.cardHeight(), CatalogCardSizing.GAP);
+            return gridCard(index, columns, x, top + cardsTop, width, section.cardHeight(), gap);
         }
     }
 
@@ -25,14 +25,18 @@ final class AppearanceCollections {
 
     record Header(Optional<ViewSpec.Widget> widget, ViewSpec.NavigationNode navigation) {}
 
-    static Layout layout(List<Section> sections, int columns) {
+    static Layout compactLayout(List<Section> sections, int columns) {
+        return layout(sections, columns, CatalogCardSizing.COMPACT_GAP, 2);
+    }
+
+    private static Layout layout(List<Section> sections, int columns, int gap, int bottomPadding) {
         var positioned = new ArrayList<SectionLayout>();
         int y = 0;
         for (Section section : sections) {
             int cardsTop = y + CollectionGridLayout.COLLECTION_HEADER_HEIGHT + CollectionGridLayout.COLLECTION_HEADER_GAP;
-            positioned.add(new SectionLayout(section, y, cardsTop, columns));
+            positioned.add(new SectionLayout(section, y, cardsTop, columns, gap));
             y += CollectionGridLayout.sectionHeight(section.itemCount(), section.collapsed(), columns,
-                    section.cardHeight(), CollectionGridLayout.COLLECTION_HEADER_HEIGHT, CatalogCardSizing.GAP);
+                    section.cardHeight(), CollectionGridLayout.COLLECTION_HEADER_HEIGHT, gap, bottomPadding);
         }
         return new Layout(positioned, y);
     }

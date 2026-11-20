@@ -50,6 +50,7 @@ final class CatalogImportFlow {
     private double addSourceScrollPosition;
     private double addSourceScrollTarget;
     private long catalogDisclosureRevision;
+    private final Set<PersonalCatalogAction> pendingPersonalRenames = new java.util.HashSet<>();
 
     CatalogImportFlow(Context context) { this.context = Objects.requireNonNull(context, "context"); }
 
@@ -83,10 +84,10 @@ final class CatalogImportFlow {
     void cycleCatalogFilter(boolean reverse) {
         if (state.model != null || context.busy()
                 || state.addSource == null
-                || state.addSource.personalSkinDeletion().isPresent()
                 || state.addSource.selectedTab() != AddSourceTab.CATALOG) {
             return;
         }
+        resetPersonalCatalogInteraction();
         state.addSource = state.addSource.cycleFilter(reverse);
         resetAddSourceScroll();
         if (state.addSource.filter() != AddSourceModel.CatalogFilter.ALL) {
@@ -188,7 +189,6 @@ final class CatalogImportFlow {
         if (state.dependency != null) return;
         if (context.busy()
                 || state.addSource == null
-                || state.addSource.personalSkinDeletion().isPresent()
                 || state.addSource.selectedTab() != AddSourceTab.CATALOG) {
             return;
         }
@@ -213,6 +213,7 @@ final class CatalogImportFlow {
         if (skin == null || !state.addSource.visibleSkins(collection).contains(skin)) {
             return;
         }
+        resetPersonalCatalogInteraction();
         SkinVariant initialVariant = state.addSource.selectedVariant(skin);
         if (state.model != null) {
             SkinModel required = state.model.requiredVariant().orElse(SkinModel.valueOf(initialVariant.name()));
@@ -1494,6 +1495,7 @@ final class CatalogImportFlow {
         resetPersonalCatalogInteraction();
         state.addSource = state.addSource.requestPersonalSkinDeletion(
                 collection, skin, origin.keyboard());
+        state.personalMenu = new PersonalCatalogAction(collectionId, sha256);
         draggingAddSourceScrollbar = false;
         context.showFeedback(UiMessage.info("nclskins.your_skins.delete_note"));
         context.publish();
@@ -1516,6 +1518,7 @@ final class CatalogImportFlow {
             return;
         }
         resetPersonalCatalogInteraction();
+        state.personalMenu = new PersonalCatalogAction(collectionId, sha256);
         state.personalRenameCollectionId = collectionId;
         state.personalRenameHash = sha256;
         state.personalRenameValue = state.addSource.skinName(skin);
@@ -1545,25 +1548,23 @@ final class CatalogImportFlow {
         String collectionId = state.personalRenameCollectionId;
         String hash = state.personalRenameHash;
         String name = UntrustedDisplayName.sanitize(state.personalRenameValue, "");
-        if (name.isBlank()) {
+        if (name.isBlank()) return;
+        var target = new PersonalCatalogAction(collectionId, hash);
+        if (!pendingPersonalRenames.add(target)) {
             return;
         }
-        context.submit(
-                UiMessage.info("nclskins.status.saving"),
-                () -> context.libraryEditorPort().renamePersonalSkin(hash, name),
-                account -> {
-                    context.personalSkinRenamed(account);
-                    if (state.addSource != null) {
-                        state.addSource = state.addSource
-                                .renamedPersonalSkin(collectionId, hash, name)
-                                .withRequestedFocus(AddSourceModel.personalActionId(
-                                        "add.catalog.rename:", collectionId, hash));
-                    }
-                    state.personalRenameCollectionId = null;
-                    state.personalRenameHash = null;
-                    state.personalRenameValue = "";
-                    context.showFeedback(UiMessage.success("nclskins.your_skins.renamed"));
-                });
+        cancelPersonalSkinRename();
+        context.submitPersonalSkinRename(hash, name, confirmed -> {
+            pendingPersonalRenames.remove(target);
+            if (state.addSource != null) {
+                confirmed.ifPresent(value -> state.addSource = state.addSource.renamedPersonalSkin(collectionId, hash, value));
+                if (state.addSource.selectedTab() == AddSourceTab.CATALOG) {
+                    context.showFeedback(confirmed.isPresent() ? UiMessage.success("nclskins.your_skins.renamed")
+                            : UiMessage.error("nclskins.error.save"));
+                }
+            }
+            context.publish();
+        });
     }
 
     void cancelPersonalSkinDeletion(InteractionOrigin origin) {
@@ -1664,14 +1665,15 @@ final class CatalogImportFlow {
                 .map(AddSourceModel.PersonalSkinDeletion::collectionId)
                 .filter(collectionId::equals)
                 .isPresent();
-        return deletionBelongs || Objects.equals(state.personalRenameCollectionId, collectionId);
+        return deletionBelongs || Objects.equals(state.personalRenameCollectionId, collectionId)
+                || state.personalMenu != null && state.personalMenu.collectionId().equals(collectionId);
     }
 
     void resetPersonalCatalogInteraction() {
         boolean hasRename = state.personalRenameHash != null;
         boolean hasDeletion = state.addSource != null
                 && state.addSource.personalSkinDeletion().isPresent();
-        if (!hasRename && !hasDeletion) {
+        if (!hasRename && !hasDeletion && state.personalMenu == null) {
             return;
         }
         if (state.addSource != null) {
@@ -1680,6 +1682,30 @@ final class CatalogImportFlow {
         state.personalRenameCollectionId = null;
         state.personalRenameHash = null;
         state.personalRenameValue = "";
+        state.personalMenu = null;
+        context.clearRuntimeFocus("add_source");
+    }
+
+    boolean closePersonalCatalogMenu() {
+        if (state.personalMenu == null || context.busy()) return false;
+        resetPersonalCatalogInteraction();
+        context.publish();
+        return true;
+    }
+
+    private void togglePersonalCatalogMenu(PersonalCatalogAction action, InteractionOrigin origin) {
+        if (context.busy() || state.addSource == null || state.addSource.selectedTab() != AddSourceTab.CATALOG) return;
+        boolean eligible = state.addSource.visibleCollections().stream()
+                .filter(collection -> collection.order().kind() == CatalogCollectionOrder.Kind.PERSONAL)
+                .filter(collection -> collection.id().equals(action.collectionId()) && !state.addSource.collectionCollapsed(collection.id()))
+                .anyMatch(collection -> state.addSource.visibleSkins(collection).stream().anyMatch(skin -> skin.id().equals(action.sha256())));
+        if (!eligible) return;
+        boolean close = action.equals(state.personalMenu);
+        resetPersonalCatalogInteraction();
+        if (!close) state.personalMenu = action;
+        if (origin.keyboard()) context.requestRuntimeFocus("add_source", AddSourceModel.personalActionId(
+                "add.catalog.more:", action.collectionId(), action.sha256()));
+        context.publish();
     }
 
     Optional<ViewSpec.ScrollSurface> addSourceSurface() {
@@ -1762,6 +1788,10 @@ final class CatalogImportFlow {
         }
         if (state.preparation != null && !widgetId.equals("add.cancel")) return widgetId.startsWith("add.") || widgetId.startsWith("external.");
         if (!externalImportsAllowed() && (widgetId.startsWith("external.") || widgetId.startsWith("add.external."))) return true;
+        if (widgetId.startsWith("add.catalog.more:")) {
+            context.personalCatalogAction(widgetId, "add.catalog.more:").ifPresent(action -> togglePersonalCatalogMenu(action, origin));
+            return true;
+        }
         if (widgetId.startsWith("add.catalog.collection:")) {
             toggleCatalogCollection(widgetId.substring("add.catalog.collection:".length()));
             return true;
@@ -1903,7 +1933,7 @@ final class CatalogImportFlow {
                             state.personalRenameCollectionId,
                             state.personalRenameHash,
                             state.personalRenameValue)),
-                    context.viewChromeMetrics()));
+                    context.viewChromeMetrics(), Optional.ofNullable(state.personalMenu)));
         }
 
         throw new IllegalStateException("Catalog flow is not open");
@@ -1919,6 +1949,8 @@ final class CatalogImportFlow {
     }
 
     void resetSession() {
+        pendingPersonalRenames.clear();
+        resetPersonalCatalogInteraction();
         cancelCpmPublication();
         state.settlements.clear();
         retireModel();
@@ -1931,6 +1963,7 @@ final class CatalogImportFlow {
     }
 
     void closeScreens() {
+        resetPersonalCatalogInteraction();
         cancelCpmPublication();
         state.settlements.clear();
         retireModel();
@@ -1953,6 +1986,7 @@ final class CatalogImportFlow {
 
     void searchCatalog(String value) {
         if (state.preparation != null || state.dependency != null) return;
+        resetPersonalCatalogInteraction();
         state.addSource = state.addSource.withQuery(value);
     }
 
@@ -2146,7 +2180,7 @@ final class CatalogImportFlow {
         void catalogCollectionDisclosureChanged(String id, boolean collapsed);
         void catalogDisclosureChanged(Set<String> collapsed);
         void externalImportCompleted(ImportOperations.ExternalImportResult result);
-        void personalSkinRenamed(AccountState account);
+        void submitPersonalSkinRename(String hash, String name, Consumer<Optional<String>> completion);
         void personalSkinDeleted(AccountState account);
     }
 
@@ -2185,6 +2219,7 @@ final class CatalogImportFlow {
         String personalRenameCollectionId;
         String personalRenameHash;
         String personalRenameValue = "";
+        PersonalCatalogAction personalMenu;
         final Map<String, SkinFeatureEvidence> catalogEvidence = new LinkedHashMap<>();
     }
 }

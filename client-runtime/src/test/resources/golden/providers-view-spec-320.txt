@@ -29,7 +29,7 @@ widgets
 17|providers.back|BUTTON|60,214,200,20|key:gui.back:INFO|value=-|hint=-|enabled=true|visible=true|max=0
 18|providers.preview_mode|ICON_ONLY_BUTTON|2,35,20,20|key:item.minecraft.elytra:INFO|value=appearance/back/elytra|hint=key:item.minecraft.elytra:INFO|enabled=true|visible=true|max=0
 previews
-0|editor.preview|0,0,320,240|anchor=0,0,160,240|skin=ASSET:014842d4-80b5-3149-9a4a-0363793f7367|revision=provider:skin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|variant=SLIM|cape=provider:cape:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=-22.0|pitch=-5.0|scale=1.0|layoutScale=0.6958763|preset=-
+0|editor.preview|0,0,320,240|anchor=0,0,160,240|skin=ASSET:014842d4-80b5-3149-9a4a-0363793f7367|revision=provider:skin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|variant=SLIM|cape=provider:cape:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|mode=ELYTRA|capeHasElytra=true|outer=HEAD,BODY,LEFT_ARM,RIGHT_ARM,LEFT_LEG,RIGHT_LEG|yaw=25.0|pitch=-5.0|scale=1.0|layoutScale=0.6958763|preset=-
 back_equipment_previews
 icon_decorations
 0|providers.tab.SKIN.icon|142,49,16,16|icon=provider/skin/no_value|owner=providers.tab.SKIN|idle=1.0|active=1.0|provider=provider:skin:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|overlay=true|capeGlint=false

@@ -750,7 +750,14 @@ public final class DefaultClientOperations implements ClientOperations {
 
     @Override
     public AccountState renamePersonalSkin(String sha256, String newName) throws IOException {
-        UUID accountId = resolveAccountId(pinCurrentSession().identity());
+        return renamePersonalSkin(resolveAccountId(pinCurrentSession().identity()), sha256, newName);
+    }
+
+    @Override
+    public AccountState renamePersonalSkin(UUID accountId, String sha256, String newName) throws IOException {
+        if (!accountId.equals(resolveAccountId(pinCurrentSession().identity()))) {
+            throw new IOException("Personal skin rename account has changed");
+        }
         AccountState renamed = library.renamePersonalSkin(
                 accountId,
                 sha256,

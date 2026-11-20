@@ -300,10 +300,27 @@ public final class CpmBakedDisplayProbe {
 
     static final java.util.List<CpmPreviewScopeProbe.Location> immediateMaterials = new java.util.ArrayList<>();
     static final java.util.List<Float> immediateTranslations = new java.util.ArrayList<>();
+    static final java.util.List<Float> immediateVerticalTranslations = new java.util.ArrayList<>();
+    static java.util.List<Float> equipmentConsumerOffsets;
+    static final java.util.List<float[]> immediateScales = new java.util.ArrayList<>();
+    static int immediateMaterialConsumptions, immediateFlushes;
     private static final List<CpmPreviewScopeProbe.Location> immediateDrawnMaterials = new java.util.ArrayList<>();
     static boolean observeImmediateMenu;
     private static boolean immediateStaticJoin;
-    public static void translated(float x) { if (observeImmediateMenu) immediateTranslations.add(x); }
+    public static void translated(float x, float y) {
+        if (observeImmediateMenu) {
+            immediateTranslations.add(x);
+            if (immediateTranslations.size() == 1) {
+                immediateVerticalTranslations.clear();
+                immediateVerticalTranslations.add(y);
+            }
+        }
+    }
+
+    static void equipmentConsumerTranslated(float y) {
+        if (equipmentConsumerOffsets != null) equipmentConsumerOffsets.add(y);
+    }
+    public static void scaled(float x,float y,float z) { if(observeImmediateMenu) immediateScales.add(new float[]{x,y,z}); }
 
     static void immediateMenu(String family) throws Exception {
         String prefix = "com.naocraftlab.skins.compat.client.resourcelocation." + family + ".";
@@ -703,6 +720,52 @@ public final class CpmBakedDisplayProbe {
                     System.out.println("PASS IMMEDIATE CARD actual presenter="+surface.role()+" -> compiled clipped static host -> own hidden native flush -> separate visible own material; synthetic GPU terminal");
                 }
             }
+            var capeView=subject.capeSurface();
+            var equipment=capeView.backEquipmentPreviews().stream().filter(p -> p.projection()==com.naocraftlab.skins.runtime.ViewSpec.BackEquipmentPreview.Projection.CATALOG_CARD).findFirst().orElseThrow();
+            for(var mode:com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.values()) {
+                Object host=hostType.getConstructor().newInstance();
+                var registry=new CpmOwnedPreviewDispatchProbe.Registry();
+                try(var skins=new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,TextureRegistry.TextureKind.PLAYER_SKIN,com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding());
+                    var capes=new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry,TextureRegistry.TextureKind.IMAGE,com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding())) {
+                    for(var field:hostType.getDeclaredFields()) {
+                        Object value=switch(field.getName()) {
+                            case "runtime" -> subject.runtime;case "capeTextures" -> capes;case "skinTextures" -> skins;
+                            case "capabilities" -> new CpmOwnedPreviewDispatchProbe.Capabilities() {
+                                @SuppressWarnings({"unchecked","rawtypes"}) public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createSimplePreviewRenderer(){return (PreviewRenderer)newImmediateRenderer(rendererType);}
+                                @SuppressWarnings({"unchecked","rawtypes"}) public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createEditorPreviewRenderer(){return (PreviewRenderer)newImmediateRenderer(rendererType);}
+                            };
+                            default -> field.getType()==Map.class?new HashMap<>():null;
+                        };if(value!=null)field.set(host,value);
+                    }
+                    var selected=new com.naocraftlab.skins.runtime.ViewSpec.BackEquipmentPreview(equipment.id(),equipment.bounds(),equipment.capeId(),mode,true,equipment.projection());
+                    var view=new com.naocraftlab.skins.runtime.ViewSpec("preset_editor",capeView.title(),854,480,java.util.List.of(),java.util.List.of(),java.util.List.of(),java.util.List.of(),java.util.Optional.empty(),java.util.List.of(),java.util.Optional.empty(),capeView.clipRegions(),java.util.List.of(selected));
+                    var sync=hostType.getDeclaredMethod("synchronizePreviews",com.naocraftlab.skins.runtime.ViewSpec.class);sync.setAccessible(true);
+                    sync.invoke(host,view);subject.drainWorkers();sync.invoke(host,view);subject.drainWorkers();
+                    var handle=capes.handle(com.naocraftlab.skins.runtime.ViewHostPolicy.cardCapeKey(selected)).orElseThrow();
+                    var paint=hostType.getDeclaredMethod("renderBackEquipmentPreviews",CpmPreviewScopeProbe.Graphics.class,com.naocraftlab.skins.runtime.ViewSpec.class);paint.setAccessible(true);
+                    float expected=com.naocraftlab.skins.client.VanillaBackEquipmentTransform.fitScale(selected.bounds().width(),selected.bounds().height(),mode,selected.fitPolicy());
+                    float expectedY=selected.bounds().y()+selected.bounds().height()/2.0F
+                            +expected*com.naocraftlab.skins.client.VanillaBackEquipmentTransform.modelOffsetY(mode,selected.fitPolicy());
+                    observeImmediateMenu=true;
+                    try {
+                    for(boolean visible:java.util.List.of(false,true)) {
+                        immediateTranslations.clear();immediateMaterials.clear();immediateScales.clear();immediateMaterialConsumptions=0;immediateFlushes=0;
+                        paint.invoke(host,new CpmPreviewScopeProbe.Graphics(),view);
+                        check(immediateMaterialConsumptions>0 && immediateFlushes>0 && !immediateTranslations.isEmpty() && (visible?immediateTranslations.get(0)>0:immediateTranslations.get(0)<0)
+                                && immediateMaterials.equals(java.util.List.of(new CpmPreviewScopeProbe.Location(handle.location()))),"IMMEDIATE EQUIPMENT actual own hidden/visible native material/flush "+mode+" visible="+visible);
+                        check(!immediateScales.isEmpty() && Math.abs(immediateScales.get(0)[0]-expected)<.0001F
+                                && immediateScales.get(0)[1]==immediateScales.get(0)[0] && immediateScales.get(0)[2]==-immediateScales.get(0)[0],
+                                "CATALOG_FIT immediate actual renderer preserves selected mode policy "+mode+" visible="+visible+" expected="+expected+" scales="+immediateScales.stream().map(java.util.Arrays::toString).toList());
+                        check(immediateVerticalTranslations.size()==1 && Math.abs(immediateVerticalTranslations.get(0)-expectedY)<.0001F,
+                                "CATALOG_FIT immediate alignment "+mode+" visible="+visible);
+                    }
+                    } finally {
+                        @SuppressWarnings("unchecked") var renderers=(Map<String,Object>)field(host,"backEquipmentRenderers");
+                        for(var renderer:renderers.values())if(renderer instanceof AutoCloseable owned)owned.close();renderers.clear();
+                    }
+                    System.out.println("PASS IMMEDIATE EQUIPMENT actual CapeCatalog producer -> compiled host -> actual hidden/visible renderer scale/material/flush; mode="+mode+"; "+rendererType.getName()+"; synthetic pose/buffer/GPU terminal");
+                }
+            }
         } finally {observeImmediateMenu=false;immediateMaterials.clear();immediateTranslations.clear();}
     }
 
@@ -869,27 +932,44 @@ public final class CpmBakedDisplayProbe {
                 var capeView=subject.capeSurface();
                 var sync=hostType.getDeclaredMethod(extraction?"syncPreviewAssets":"synchronizePreviewAssets",com.naocraftlab.skins.runtime.ViewSpec.class);sync.setAccessible(true);
                 sync.invoke(host,capeView);subject.drainWorkers();sync.invoke(host,capeView);subject.drainWorkers();
-                var equipment=capeView.backEquipmentPreviews().stream().filter(p -> p.projection()==com.naocraftlab.skins.runtime.ViewSpec.BackEquipmentPreview.Projection.EQUIPMENT).findFirst().orElseThrow();
+                var equipment=capeView.backEquipmentPreviews().stream().filter(p -> p.projection()==com.naocraftlab.skins.runtime.ViewSpec.BackEquipmentPreview.Projection.CATALOG_CARD).findFirst().orElseThrow();
                 var paint=hostType.getDeclaredMethod(extraction?"drawBackEquipmentPreviews":"renderBackEquipment",Graphics.class,com.naocraftlab.skins.runtime.ViewSpec.class);paint.setAccessible(true);
                 var replace=loader.loadClass(bakedType.getPackageName()+"."+(extraction?"NclBakedPlayerSubmission":"BakedPreviewSubmission")).getMethod("replace",Object.class,PipState.class);
                 for(var mode:com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.values()) {
-                    var selected=new com.naocraftlab.skins.runtime.ViewSpec.BackEquipmentPreview(equipment.id(),equipment.bounds(),equipment.capeId(),mode,true);
+                    var selected=new com.naocraftlab.skins.runtime.ViewSpec.BackEquipmentPreview(equipment.id(),equipment.bounds(),equipment.capeId(),mode,true,equipment.projection());
                     var selectedView=new com.naocraftlab.skins.runtime.ViewSpec("editor",capeView.title(),854,480,java.util.List.of(),java.util.List.of(),java.util.List.of(),java.util.List.of(),java.util.Optional.empty(),java.util.List.of(),java.util.Optional.empty(),capeView.clipRegions(),java.util.List.of(selected));
                     Object[] queued={null};enqueue=graphics -> queued[0]=call(replace,null,graphics,new MenuState(((Graphics)graphics).scissor));
                     var handle=capes.handle(com.naocraftlab.skins.runtime.ViewHostPolicy.cardCapeKey(selected)).orElseThrow();
                     var materials=CpmExtractionBodyProbe.queuedMaterials();materials.clear();
                     paint.invoke(host,new Graphics(),selectedView);
                     check(queued[0]!=null && ((PipState)queued[0]).x1()<0,"EQUIPMENT actual clipped cape catalog hidden own payload "+mode);
+                    float expectedScale=com.naocraftlab.skins.client.VanillaBackEquipmentTransform.fitScale(selected.bounds().width(),selected.bounds().height(),mode,selected.fitPolicy());
+                    float expectedOffset=com.naocraftlab.skins.client.VanillaBackEquipmentTransform.modelOffsetY(mode,selected.fitPolicy());
+                    check(Math.abs(((Number)queued[0].getClass().getMethod("scale").invoke(queued[0])).floatValue()-expectedScale)<.0001F,
+                            "CATALOG_FIT hidden actual renderer must preserve mode-specific policy "+mode);
                     scheduledBaked(queued[0],extraction);
-                    CpmExtractionBodyProbe.consumerFrame(loader,()->prepareRaw(prepare,dispatcher,queued[0],late),()->{check(materials.size()==1 && materials.get(0).texture.data.equals(new Identifier(handle.location())),"EQUIPMENT own cape material "+mode);CpmExtractionBodyProbe.consumerSubmitted();});
+                    consumeCatalogEquipment(loader,()->prepareRaw(prepare,dispatcher,queued[0],late),()->{check(materials.size()==1 && materials.get(0).texture.data.equals(new Identifier(handle.location())),"EQUIPMENT own cape material "+mode);CpmExtractionBodyProbe.consumerSubmitted();},expectedOffset);
                     CpmExtractionBodyProbe.signalConsumers();materials.clear();
                     paint.invoke(host,new Graphics(),selectedView);check(((PipState)queued[0]).x0()>=0,"EQUIPMENT own prepared cape catalog becomes visible "+mode);scheduledBaked(queued[0],extraction);
-                    CpmExtractionBodyProbe.consumerFrame(loader,()->prepareRaw(prepare,dispatcher,queued[0],late),()->{check(materials.size()==1 && materials.get(0).texture.data.equals(new Identifier(handle.location())),"EQUIPMENT visible own material "+mode);CpmExtractionBodyProbe.consumerSubmitted();});
+                    check(Math.abs(((Number)queued[0].getClass().getMethod("scale").invoke(queued[0])).floatValue()-expectedScale)<.0001F,
+                            "CATALOG_FIT visible actual renderer must preserve mode-specific policy "+mode);
+                    consumeCatalogEquipment(loader,()->prepareRaw(prepare,dispatcher,queued[0],late),()->{check(materials.size()==1 && materials.get(0).texture.data.equals(new Identifier(handle.location())),"EQUIPMENT visible own material "+mode);CpmExtractionBodyProbe.consumerSubmitted();},expectedOffset);
                     CpmExtractionBodyProbe.signalConsumers();
                     @SuppressWarnings("unchecked") var renderers=(Map<String,Object>)field(host,extraction?"galleryRenderers":"bakedRenderers");for(var value:renderers.values())((AutoCloseable)value).close();renderers.clear();
                     System.out.println("PASS EQUIPMENT actual CapeCatalog presenter -> clipped host -> SDK collector -> own hidden/visible material/fences mode="+mode);
                 }
             }
+        }
+    }
+
+    private static void consumeCatalogEquipment(Loader loader, Runnable preparation, Runnable draw, float expectedY) throws Exception {
+        equipmentConsumerOffsets = new java.util.ArrayList<>();
+        try {
+            CpmExtractionBodyProbe.consumerFrame(loader, preparation, draw);
+            check(equipmentConsumerOffsets.stream().anyMatch(y -> Math.abs(y - expectedY) < .0001F),
+                    "CATALOG_FIT deferred consumer applies alignment: expected="+expectedY+" actual="+equipmentConsumerOffsets);
+        } finally {
+            equipmentConsumerOffsets = null;
         }
     }
 
@@ -2185,7 +2265,7 @@ public final class CpmBakedDisplayProbe {
         catch (ReflectiveOperationException e) { throw new AssertionError(e); }
     }
     static void primary() { draws++; draw.run(); }
-    static void flush() { flushed.run(); }
+    static void flush() { if(observeImmediateMenu) immediateFlushes++; flushed.run(); }
     static void push() { poses++; }
     static void pop() { poses--; pop.run(); }
     private static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
@@ -4055,7 +4135,10 @@ public final class CpmBakedDisplayProbe {
             return new Vertex() {
                 public void consumeMaterial() {
                     if (type.texture != null) consumedMaterials.add(type.texture);
-                    if (observeImmediateMenu && type.immediateTexture != null) immediateDrawnMaterials.add(type.immediateTexture);
+                    if (observeImmediateMenu) {
+                        immediateMaterialConsumptions++;
+                        if (type.immediateTexture != null) immediateDrawnMaterials.add(type.immediateTexture);
+                    }
                 }
             };
         }

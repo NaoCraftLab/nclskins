@@ -7,20 +7,47 @@ import java.util.UUID;
 
 
 public final class ViewHostPolicy {
-    public static UiMessage transparentLabel(ViewSpec.Widget widget) {
-        return widget.id().startsWith("gallery.preset.") && widget.id().endsWith(".more")
+    public static Optional<UiMessage> previewErrorMessage(ViewSpec view) {
+        return view.texts().stream().filter(text -> text.id().equals("editor.preview.error"))
+                .map(ViewSpec.Text::message).findFirst().or(() -> view.tooltipRegions().stream()
+                        .filter(region -> region.id().equals("editor.preview.error"))
+                        .map(ViewSpec.TooltipRegion::tooltip).findFirst());
+    }
+
+    public static Optional<UiMessage> transparentLabel(ViewSpec.Widget widget) {
+        if (passiveTitleControl(widget)) return Optional.empty();
+        return Optional.of(cardMenuToggle(widget)
                 ? UiMessage.literal(widget.value().filter("down"::equals).isPresent() ? "▼" : "▲", UiMessage.Severity.INFO)
-                : widget.label();
+                : widget.label());
+    }
+
+    private static boolean passiveTitleControl(ViewSpec.Widget widget) {
+        return widget.kind() == ViewSpec.WidgetKind.TRANSPARENT_BUTTON
+                && widget.value().filter("passive_title"::equals).isPresent();
     }
 
     public static int transparentTextY(ViewSpec.Widget widget, int lineHeight) {
         return widget.bounds().y()+Math.max(0,(widget.bounds().height()-lineHeight)/2)
-                +(widget.id().startsWith("gallery.preset.") && widget.id().endsWith(".more") ? 2 : 0);
+                +(cardMenuToggle(widget) ? 2 : 0);
+    }
+
+    public static int transparentTextX(ViewSpec.Widget widget) {
+        return cardMenuToggle(widget) ? widget.bounds().right() - 6
+                : widget.bounds().x() + widget.bounds().width() / 2;
+    }
+
+    private static boolean cardMenuToggle(ViewSpec.Widget widget) {
+        return widget.kind() == ViewSpec.WidgetKind.TRANSPARENT_BUTTON
+                && widget.value().filter(value -> value.equals("up") || value.equals("down")).isPresent();
+    }
+
+    public static Optional<ViewSpec.Widget> cardTitleToggle(ViewSpec view, ViewSpec.Text text) {
+        return text.marqueeActivation().stream().flatMap(activation -> activation.focusWidgetIds().stream())
+                .map(view::widget).flatMap(Optional::stream).filter(ViewHostPolicy::cardMenuToggle).findFirst();
     }
 
     public static ViewSpec.Text galleryNameText(ViewSpec view, ViewSpec.Text text, int arrowAdvance) {
-        if (!view.screenId().equals("gallery") || !text.id().startsWith("gallery.preset.")
-                || !text.id().endsWith(".name") || text.marqueeActivation().isEmpty()) return text;
+        if (cardTitleToggle(view, text).isEmpty()) return text;
         var activation=text.marqueeActivation().orElseThrow();
         var card=activation.hoverBounds();
         int left=card.right()-6-Math.max(0,arrowAdvance)/2;
@@ -99,7 +126,7 @@ public final class ViewHostPolicy {
         Objects.requireNonNull(view, "view");
         ViewSpec.Widget owner = null;
         for (ViewSpec.Widget widget : view.widgets()) {
-            if (widget.visible()
+            if (widget.visible() && !passiveTitleControl(widget)
                     && widget.bounds().contains(pointerX, pointerY)
                     && pointerInsideClip(view, widget.id(), pointerX, pointerY)) {
                 owner = widget;
@@ -195,12 +222,20 @@ public final class ViewHostPolicy {
 
     public static boolean capeCardHovered(ViewSpec view, ViewSpec.BackEquipmentPreview preview,
             double pointerX, double pointerY) {
+        return capeCardPlaying(view, preview, pointerX, pointerY, null);
+    }
+
+    public static boolean capeCardPlaying(ViewSpec view, ViewSpec.BackEquipmentPreview preview,
+            double pointerX, double pointerY, String keyboardFocusId) {
+        boolean compact = preview.projection() == ViewSpec.BackEquipmentPreview.Projection.CATALOG_CARD;
         int centerX = preview.bounds().x() + preview.bounds().width() / 2;
         int centerY = preview.bounds().y() + preview.bounds().height() / 2;
         return view.widgets().stream()
-                .filter(widget -> widget.kind() == ViewSpec.WidgetKind.CAPE_CARD)
+                .filter(widget -> widget.kind() == (compact ? ViewSpec.WidgetKind.CATALOG_CARD : ViewSpec.WidgetKind.CAPE_CARD))
                 .filter(widget -> widget.bounds().contains(centerX, centerY))
-                .anyMatch(widget -> hoverInside(view, widget, pointerX, pointerY));
+                .anyMatch(widget -> hoverInside(view, widget, pointerX, pointerY)
+                        || compact && widget.enabled() && widget.id().equals(keyboardFocusId)
+                        && widget.visible() && visibleIntersection(view, widget.id()));
     }
 
     public static boolean providerCapeRowHovered(ViewSpec view, ViewSpec.IconDecoration decoration,
@@ -322,6 +357,7 @@ public final class ViewHostPolicy {
 
     public static int panelOverlayColor(ViewSpec.Panel.Style style) {
         return switch (style) {
+            case COMPACT_NAMEBAR, COMPACT_MENU_SCRIM -> 0x6D000000;
             case TRANSLUCENT_NAMEBAR -> 0x88000000;
             default -> 0;
         };

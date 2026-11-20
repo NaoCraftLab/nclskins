@@ -55,8 +55,12 @@ final class EditorFlow {
     private double editorCapeScrollTarget;
     private long editorChromeLifetime;
     private String confirmedOrdinaryChromeSource;
+    private LibraryEditorPort.EditorSaveRequest baseline;
+    private String baselineSkinIdentity;
 
     EditorFlow(Context context) { this.context = Objects.requireNonNull(context, "context"); }
+
+    long editorPreviewLifetime() { return editorChromeLifetime; }
 
     boolean editorPreviewStillCurrent(ViewSpec.Preview preview) {
         return editorEvidenceStillCurrent(preview.imageRevision(), preview.variant());
@@ -77,9 +81,16 @@ final class EditorFlow {
     }
 
     boolean acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories value) {
-        if (state.editor == null || state.editor.capeCatalog() == null
-                || state.editor.capeCatalog().accessories().equals(value)) return false;
-        state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().withAccessories(value));
+        return acceptAccessories(value, false);
+    }
+
+    boolean acceptAccessories(com.naocraftlab.skins.client.PreviewAccessories value, boolean sameInput) {
+        if (state.editor == null || state.editor.capeCatalog() == null) return false;
+        var previous = state.editor.capeCatalog();
+        if (previous.accessories().equals(value) && (sameInput || previous.accessoryFacts().equals(value))) return false;
+        var next = previous.observeAccessories(value, sameInput);
+        if (previous.equals(next)) return false;
+        state.editor = state.editor.withCapeCatalog(next);
         return true;
     }
 
@@ -199,8 +210,13 @@ final class EditorFlow {
 
     boolean dispatchCapeCatalog(String id, boolean reverse, InteractionOrigin origin) {
         CapeCatalogModel catalog = state.editor.capeCatalog();
+        if (catalog.editing() != null && !id.startsWith("editor.cape_action.")) {
+            context.clearRuntimeFocus("preset_editor");
+        }
         UUID capeAccountId = context.account().accountId();
-        if (id.startsWith("editor.cape_item.")) {
+        if (id.equals("editor.cape_import") || id.equals("editor.cape_item.OFFLINE.import")) {
+            chooseCapePng();
+        } else if (id.startsWith("editor.cape_item.")) {
             var card = catalog.cards().stream().filter(value -> value.widgetId().equals(id)).findFirst();
             if (card.isPresent()) {
                 pendingCapeProviderInspection = null;
@@ -219,8 +235,12 @@ final class EditorFlow {
             if (parts.length != 4) return true;
             UUID entry = UUID.fromString(parts[3]);
             switch (parts[2]) {
+                case "more" -> {
+                    context.clearRuntimeFocus("preset_editor");
+                    updateEditor(editor -> editor.withCapeCatalog(catalog.menu(entry)));
+                }
                 case "rename", "delete" -> {
-                    if (catalog.editing() != null) return true;
+                    context.clearRuntimeFocus("preset_editor");
                     updateEditor(editor -> editor.withCapeCatalog(catalog.edit(entry, parts[2].equals("delete"))));
                     if (parts[2].equals("rename") || origin == InteractionOrigin.KEYBOARD) {
                         String focusId = parts[2].equals("delete") ? "editor.cape_action.cancel." + entry : "editor.cape_action.name";
@@ -231,8 +251,7 @@ final class EditorFlow {
                     }
                 }
                 case "cancel" -> {
-                    updateEditor(editor -> editor.withCapeCatalog(catalog.cancelEdit()));
-                    if (origin == InteractionOrigin.KEYBOARD) context.requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
+                    cancelCapeCardMode(origin);
                 }
                 case "save" -> {
                     if (!catalog.renameValue().trim().isEmpty()) {
@@ -242,7 +261,8 @@ final class EditorFlow {
                                     context.capeRenamed(account);
                                     refreshCapeCatalog(catalog.offline(), catalog.minecraft());
                                     state.editor = state.editor.withCapeCatalog(
-                                            state.editor.capeCatalog().cancelEdit());
+                                            state.editor.capeCatalog().closeCardMode());
+                                    context.clearRuntimeFocus("preset_editor");
                                     if (origin == InteractionOrigin.KEYBOARD) {
                                         context.requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE." + entry);
                                     }
@@ -255,7 +275,17 @@ final class EditorFlow {
                     editorCapeScrollPosition = state.editor.normalizedCapeScrollPosition(
                             context.viewportWidth(), context.viewportHeight(), editorCapeScrollPosition, context.viewChromeMetrics());
                     editorCapeScrollTarget = editorCapeScrollPosition;
-                    if (origin == InteractionOrigin.KEYBOARD) context.requestRuntimeFocus("preset_editor", "editor.cape_item.OFFLINE.none");
+                    if (origin == InteractionOrigin.KEYBOARD) {
+                        int deletedIndex = catalog.matches(BuiltinProvider.OFFLINE).stream()
+                                .map(CapeCatalogModel.Card::key).toList().indexOf(entry.toString());
+                        var remaining = state.editor.capeCatalog().matches(BuiltinProvider.OFFLINE);
+                        String focus = remaining.isEmpty() ? "editor.cape_search"
+                                : remaining.get(Math.min(Math.max(0, deletedIndex), remaining.size() - 1)).widgetId();
+                        ViewSpec view = context.view(context.viewportWidth(), context.viewportHeight(), 0, 0);
+                        view.navigationNode(focus).ifPresent(node -> ViewNavigationPolicy.ensureVisibleOffset(view, node)
+                                .ifPresent(offset -> context.applyNavigationScroll(node, offset)));
+                        context.requestRuntimeFocus("preset_editor", focus);
+                    }
                 });
                 default -> { }
             }
@@ -292,6 +322,18 @@ final class EditorFlow {
         }, context.worker());
     }
 
+    boolean cancelCapeCardMode(InteractionOrigin origin) {
+        if (state.editor == null || state.editor.capeCatalog() == null || state.editor.capeCatalog().editing() == null) return false;
+        UUID entry = state.editor.capeCatalog().editing();
+        boolean deleting = state.editor.capeCatalog().deleting();
+        context.clearRuntimeFocus("preset_editor");
+        state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().cancelEdit());
+        if (origin == InteractionOrigin.KEYBOARD) context.requestRuntimeFocus("preset_editor",
+                "editor.cape_action." + (deleting ? "delete." : "more.") + entry);
+        context.publish();
+        return true;
+    }
+
     void reloadEditorCatalog() {
         if (state.editor == null || context.account() == null) return;
         UUID accountId = context.account().accountId();
@@ -319,8 +361,9 @@ final class EditorFlow {
                     .filter(card -> card.widgetId().equals(previous.inspected().widgetId())).findFirst().orElse(null);
             state.editor = state.editor.withCapeCatalog(new CapeCatalogModel(fresh.cards(), fresh.providers(), fresh.offline(), previous.minecraft(),
                     previous.query(), previous.filter(), previous.collapsed(), inspection, previous.editing(), previous.deleting(), previous.renameValue(), previous.importError(), context.textResolver(),
-                    previous.accessories(), previous.sneaky(), previous.sneakyTicket(), previous.sneakyReadiness())
-                    .withAccessories(previous.accessories()).withSneakyState(previous.sneaky(), previous.sneakyTicket(), previous.sneakyReadiness()));
+                    previous.accessories(), previous.sneaky(), previous.sneakyTicket(), previous.sneakyReadiness(), previous.menuOnly(), previous.accessoryFacts())
+                    .projectAccessories(previous.accessories(), previous.accessoryFacts(), true)
+                    .withSneakyState(previous.sneaky(), previous.sneakyTicket(), previous.sneakyReadiness()));
             if (pendingCapeProviderInspection != null) {
                 state.editor = state.editor.withCapeCatalog(
                         state.editor.capeCatalog().inspect(pendingCapeProviderInspection, context.account()));
@@ -355,6 +398,10 @@ final class EditorFlow {
 
     void chooseCapePng() {
         if (editor() == null || state.editor.busy()) return;
+        if (state.editor.capeCatalog() != null && state.editor.capeCatalog().editing() != null) {
+            state.editor = state.editor.withCapeCatalog(state.editor.capeCatalog().closeCardMode());
+            context.clearRuntimeFocus("preset_editor");
+        }
         UUID accountId = context.account().accountId();
         String fallbackName = context.textResolver().resolve(UiMessage.info("options.modelPart.cape"));
         ScreenOperationTicket ticket = context.beginScreenOperation();
@@ -628,7 +675,7 @@ final class EditorFlow {
 
     double editorPositionFromScrollbar(int width, int height, double top) {
         return state.editor.selectedEditorTab() == EditorTab.APPEARANCE
-                ? state.editor.modelPositionFromScrollbar(width, height, top)
+                ? state.editor.modelPositionFromScrollbar(width, height, top, context.viewChromeMetrics())
                 : state.editor.capePositionFromScrollbar(width, height, top, context.viewChromeMetrics());
     }
 
@@ -637,7 +684,7 @@ final class EditorFlow {
             return;
         }
         if (state.editor.selectedEditorTab() == EditorTab.APPEARANCE) {
-            double bounded = state.editor.normalizedModelScrollPosition(context.viewportWidth(), context.viewportHeight(), position);
+            double bounded = state.editor.normalizedModelScrollPosition(context.viewportWidth(), context.viewportHeight(), position, context.viewChromeMetrics());
             if (Math.abs(bounded - editorModelScrollPosition) > 0.001) {
                 editorModelScrollPosition = bounded;
                 context.publish();
@@ -700,7 +747,7 @@ final class EditorFlow {
 
     boolean clampEditorScroll() {
         double modelPosition = state.editor.normalizedModelScrollPosition(
-                context.viewportWidth(), context.viewportHeight(), editorModelScrollPosition);
+                context.viewportWidth(), context.viewportHeight(), editorModelScrollPosition, context.viewChromeMetrics());
         boolean modelChanged = Math.abs(modelPosition - editorModelScrollPosition) > 0.001;
         editorModelScrollPosition = modelPosition;
         double position = state.editor.normalizedCapeScrollPosition(
@@ -929,6 +976,14 @@ final class EditorFlow {
                 cancelEditor();
                 return true;
             }
+            case "editor.back" -> {
+                cancelEditor();
+                return true;
+            }
+            case "editor.reset" -> {
+                resetEditorDraft();
+                return true;
+            }
             default -> { return false; }
         }
     }
@@ -951,7 +1006,7 @@ final class EditorFlow {
         boolean showLayers = showOuterLayerChrome();
         boolean layersAdmitted = admitOuterLayerAction();
         ViewSpec editorView = editor.present(width, height, editorCapeScrollPosition, editorModelScrollPosition,
-                context.viewChromeMetrics(), showLayers);
+                context.viewChromeMetrics(), showLayers, editorDirty(), savedCapeAssignments());
         if (showLayers && !layersAdmitted) editorView = disableOuterLayerActions(editorView);
         SkinFeatureEvidence evidence = state.editorEvidence;
             if (evidence != null) {
@@ -1018,6 +1073,9 @@ final class EditorFlow {
         if (transfer.saveScope().isEmpty()) retireSaveScope();
         state.saveScope = transfer.saveScope();
         state.editor = transfer.draft();
+        baseline = state.editor.originalPresetId().isPresent()
+                ? state.editor.saveRequest().withOfflineCape(transfer.capeSeed()) : null;
+        baselineSkinIdentity = baseline == null ? null : semanticSkinIdentity(state.editor);
         initializeEditorCapeCatalog(transfer.capeSeed());
         prepareEditorEvidence(state.editor);
         resetEditorScroll();
@@ -1026,6 +1084,72 @@ final class EditorFlow {
 
     void acceptPreviewMode(PreviewRenderer.CapeMode mode) {
         if (state.editor != null) state.editor = state.editor.withPreview(state.editor.preview().withCapeMode(mode));
+    }
+
+    private String semanticSkinIdentity(PresetEditorModel draft) {
+        return draft.png().map(png -> "content:" + png.revision().substring("draft:".length()))
+                .orElseGet(() -> draft.skin().optionalAssetId().flatMap(id -> context.account().skinAssets().stream()
+                        .filter(asset -> asset.id().equals(id)).findFirst()).map(asset -> "content:" + asset.sha256())
+                        .orElse("reference:" + draft.skin()));
+    }
+
+    private LocalCapeReference normalizedBaselineCape() {
+        var cape = baseline.offlineCape();
+        return cape != null && cape.entryId() != null && context.account().personalCapes().stream()
+                .noneMatch(entry -> entry.texture().entryId().equals(cape.entryId())) ? null : cape;
+    }
+
+    private String semanticCapeIdentity(LocalCapeReference cape) {
+        if (cape == null) return null;
+        if (cape.entryId() != null) return context.account().personalCapes().stream()
+                .filter(entry -> entry.texture().entryId().equals(cape.entryId()))
+                .map(com.naocraftlab.skins.core.model.PersonalCapeEntry::renderSha256).findFirst().orElse(null);
+        return state.editor.capeCatalog().cards().stream().filter(card -> card.resource() != null)
+                .filter(card -> card.resource().sourceSha256().equals(cape.sha256()))
+                .map(card -> card.resource().contentIdentity()).findFirst().orElse(cape.sha256());
+    }
+
+    private java.util.Set<String> savedCapeAssignments() {
+        if (baseline == null || state.editor.capeCatalog() == null) return java.util.Set.of();
+        String offline = semanticCapeIdentity(normalizedBaselineCape());
+        return state.editor.capeCatalog().cards().stream().filter(card -> !card.embedded()).filter(card -> {
+            if (card.provider() == BuiltinProvider.MINECRAFT)
+                return baseline.capeId().map(card.key()::equals).orElse(card.key().equals("none"));
+            if (card.provider() != BuiltinProvider.OFFLINE) return false;
+            String identity = card.resource() != null ? card.resource().contentIdentity() : semanticCapeIdentity(card.local());
+            return Objects.equals(offline, identity);
+        }).map(CapeCatalogModel.Card::widgetId).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private boolean editorDirty() {
+        if (baseline == null) return true;
+        var current = state.editor.saveRequest();
+        return !baseline.name().equals(current.name()) || !baselineSkinIdentity.equals(semanticSkinIdentity(state.editor))
+                || baseline.variant() != current.variant() || !baseline.outerLayerVisibility().equals(current.outerLayerVisibility())
+                || !baseline.capeId().equals(current.capeId())
+                || !Objects.equals(semanticCapeIdentity(normalizedBaselineCape()), semanticCapeIdentity(current.offlineCape()));
+    }
+
+    private void resetEditorDraft() {
+        if (state.editor == null || baseline == null || state.editor.busy()) return;
+        var before = state.editor;
+        var restored = baseline.withOfflineCape(normalizedBaselineCape());
+        var catalog = before.capeCatalog();
+        state.editor = before.restoreSavedFields(restored);
+        if (catalog != null) state.editor = state.editor.withCapeCatalog(catalog.refreshed(context.account(), context.providers(),
+                restored.offlineCape(), restored.capeId(), before.capeChoices()).resetInspection());
+        pendingCapeProviderInspection = null;
+        context.clearRuntimeFocus("preset_editor");
+        if (!before.skin().equals(state.editor.skin()) || before.variant() != state.editor.variant()
+                || !before.png().equals(state.editor.png())) {
+            draftRevision++;
+            prepareEditorEvidence(state.editor);
+        }
+        editorCapeScrollPosition = state.editor.normalizedCapeScrollPosition(context.viewportWidth(), context.viewportHeight(),
+                editorCapeScrollPosition, context.viewChromeMetrics());
+        editorCapeScrollTarget = editorCapeScrollPosition;
+        editorModelScrollPosition = state.editor.normalizedModelScrollPosition(context.viewportWidth(), context.viewportHeight(), editorModelScrollPosition, context.viewChromeMetrics());
+        context.publish();
     }
 
     void previewPreferenceFailed(UiMessage message) {
@@ -1138,7 +1262,7 @@ final class EditorFlow {
 
     void navigateModelsTo(double offsetPixels) {
         editorModelScrollPosition = state.editor.normalizedModelScrollPosition(
-                context.viewportWidth(), context.viewportHeight(), offsetPixels);
+                context.viewportWidth(), context.viewportHeight(), offsetPixels, context.viewChromeMetrics());
     }
 
     void navigateCapesTo(double offsetPixels) {

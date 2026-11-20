@@ -48,6 +48,10 @@ public final class CpmOwnedPreviewDispatchProbe {
             focusConsumers(Files.readAllBytes(Path.of(args[1]).resolve("classic-base.png")));
             return;
         }
+        if (args.length==2 && args[0].equals("overlay-only")) {
+            rootOverlayConsumer(Files.readAllBytes(Path.of(args[1]).resolve("classic-base.png")));
+            return;
+        }
         if (args.length==2 && args[0].equals("ui-only")) {
             previewCaptionConsumers();
             byte[] skin=Files.readAllBytes(Path.of(args[1]).resolve("classic-base.png"));
@@ -673,15 +677,22 @@ public final class CpmOwnedPreviewDispatchProbe {
         TextResolver resolver = message -> Text.translatable(message.key(), message.arguments().toArray()).getString();
         var missingNarration = new ArrayList<String>();
         for (String context : List.of("preset_editor", "providers")) {
-            var failed = CpmCallerHarness.previewFailureView(context, resolver, true);
-            var ordinary = CpmCallerHarness.previewFailureView(context, resolver, false);
-            var caption = failed.texts().stream().filter(text -> text.id().equals("editor.preview.error")).findFirst().orElseThrow();
-            String expected = resolver.resolve(caption.message());
+        for (boolean compact : List.of(false, true)) {
+            if (compact && context.equals("providers")) continue;
+            int width = compact ? 190 : 320;
+            int height = compact ? 151 : 240;
+            var failed = CpmCallerHarness.previewFailureView(context, resolver, true, width, height);
+            var ordinary = CpmCallerHarness.previewFailureView(context, resolver, false, width, height);
+            var caption = failed.texts().stream().filter(text -> text.id().equals(compact ? "editor.preview.error.glyph" : "editor.preview.error")).findFirst().orElseThrow();
+            String expected = resolver.resolve(compact ? failed.tooltipRegions().stream()
+                    .filter(region -> region.id().equals("editor.preview.error")).findFirst().orElseThrow().tooltip() : caption.message());
             check(expected.equals("Не удалось загрузить модель CPM"), "Exact resolved current caption");
             var boundary = new RuntimeBoundary(null, null, SkinVariant.CLASSIC, new byte[0]);
             boundary.presented = failed;
             Object screen = type.getConstructor().newInstance();
             var host = (ScreenTerminal) screen;
+            host.width = width;
+            host.height = height;
             host.font = new FontTerminal();
             host.minecraft = new ClientTerminal();
             host.minecraft.screen = host;
@@ -700,7 +711,25 @@ public final class CpmOwnedPreviewDispatchProbe {
             var graphics = new Graphics();
             invoke(type, screen, owner.contains("extraction") ? "drawText" : "renderText",
                     new Class<?>[]{Graphics.class, ViewSpec.class, ViewSpec.Text.class, int.class, int.class}, graphics, failed, caption, 0, 0);
-            check(String.join("", graphics.drawn).equals(expected), "Caption is drawn completely");
+            check(String.join("", graphics.drawn).equals(compact ? "!" : expected), "Caption or compact glyph is drawn completely");
+            if (compact) {
+                check(((TextValue) type.getMethod("getNarrationMessage").invoke(screen)).getString().equals("Screen\n" + expected),
+                        "Compact glyph keeps the full current narration");
+                String tooltipMethod = owner.endsWith("NclSkinsImmediateScreen") ? "renderPreciseTooltip"
+                        : owner.contains("submission") ? "renderTooltips" : "drawPreciseTooltip";
+                int x = caption.bounds().x() + caption.bounds().width() / 2;
+                int y = caption.bounds().y() + caption.bounds().height() / 2;
+                invoke(type, screen, tooltipMethod, new Class<?>[]{Graphics.class, ViewSpec.class, int.class, int.class}, graphics, failed, x, y);
+                check(graphics.tooltips.size() == 1 && graphics.tooltips.get(0).stream().map(TextValue::getString)
+                        .collect(java.util.stream.Collectors.joining()).equals(expected), "Actual compiled tooltip supplies the full current cause");
+                graphics.tooltips.clear();
+                invoke(type, screen, tooltipMethod, new Class<?>[]{Graphics.class, ViewSpec.class, int.class, int.class}, graphics, failed, x, 0);
+                check(graphics.tooltips.isEmpty(), "Compact tooltip rejects pointer outside glyph");
+                invoke(type, screen, tooltipMethod, new Class<?>[]{Graphics.class, ViewSpec.class, int.class, int.class}, graphics, ordinary, x, y);
+                check(graphics.tooltips.isEmpty(), "Resolved error has no stale tooltip");
+                check(failed.widgets().equals(ordinary.widgets()) && failed.navigationNodes().equals(ordinary.navigationNodes()),
+                        "Compact caption adds no widget or focus/activation target");
+            }
             if (!((TextValue) type.getMethod("getNarrationMessage").invoke(screen)).getString().equals("Screen\n" + expected))
                 missingNarration.add(context);
             boundary.presented = ordinary;
@@ -726,6 +755,7 @@ public final class CpmOwnedPreviewDispatchProbe {
             var link = type.getField("showingAccountLink");
             link.setBoolean(screen, true);
             check(((TextValue) type.getMethod("getNarrationMessage").invoke(screen)).getString().equals("Screen"), "Account-link host rejects caption");
+        }
         }
         check(missingNarration.isEmpty(), "Drawn Text alone is not narration: " + missingNarration);
         System.out.println("PASS compiled current caption draw/getNarrationMessage for Editor and Providers: " + owner + "; source/close/current-screen/removed/rebuilding/account-link guards, synthetic terminals, NOT GPU/spoken narration");
@@ -956,10 +986,27 @@ public final class CpmOwnedPreviewDispatchProbe {
             invoke(type,screen,"renderStateFrames",new Class<?>[]{Graphics.class,ViewSpec.class},graphics,rowView);
             check(graphics.fills.stream().anyMatch(f -> f[4]==0xFF80C880)==state.contains("active"),"Native active segment: "+state);
             check(graphics.fills.stream().anyMatch(f -> f[4]==0xFF80C8FF)==state.contains("selected"),"Native draft segment: "+state);
-            check(graphics.fills.stream().anyMatch(f -> f[4]==0xFFFFFFFF)==(focused&&!state.isEmpty()),"Native independent white focus: "+state);
-            if(state.isEmpty()) check(graphics.fills.isEmpty(),"Default Catalog/Import frames remain native widget-owned");
+            check(graphics.fills.stream().anyMatch(f -> f[4]==0xFFFFFFFF)==focused,"Native independent white focus in foreground phase: "+state);
+            if(state.isEmpty()&&!focused) check(graphics.fills.isEmpty(),"Unfocused unmarked cards do not paint a frame");
             check(graphics.fills.stream().allMatch(f -> f[0]>=10 && f[1]>=20 && f[2]<=60 && f[3]<=116),"Frame bounds unchanged");
         }
+        for (String screenId : List.of("add_source", "external_review", "preset_editor")) {
+            var compact = new ViewSpec.Widget("compact.card",ViewSpec.WidgetKind.CATALOG_CARD,b,card.label(),
+                    Optional.empty(),Optional.empty(),true,true,0);
+            var namebar = new ViewSpec.Panel("compact.card.namebar",bar.bounds(),ViewSpec.Panel.Style.COMPACT_NAMEBAR);
+            var passiveTitle = new ViewSpec.Widget("compact.card.title_control", ViewSpec.WidgetKind.TRANSPARENT_BUTTON,
+                    namebar.bounds(), card.label(), Optional.of("passive_title"), Optional.empty(), true, true, 0)
+                    .withActivation(false, null);
+            var compactView = new ViewSpec(screenId,view.title(),200,200,List.of(namebar),List.of(),List.of(compact, passiveTitle),List.of(),Optional.empty());
+            map.clear();map.put(compact.id(),new WidgetTerminal(true));graphics.fills.clear();
+            graphics.drawn.clear();
+            invoke(type,screen,"renderSurfaceOverlays",new Class<?>[]{Graphics.class,ViewSpec.class},graphics,compactView);
+            check(graphics.drawn.isEmpty(), "Passive title does not draw its accessible label: " + screenId);
+            check(graphics.fills.size()==1 && graphics.fills.get(0)[4]==0x6D000000,"Compact foreground namebar baseline: "+screenId);
+            invoke(type,screen,"renderStateFrames",new Class<?>[]{Graphics.class,ViewSpec.class},graphics,compactView);
+            check(graphics.fills.stream().skip(1).anyMatch(f->f[1]==b.bottom()-2 && f[4]==0xFFFFFFFF),"Compact card white bottom edge is painted above its namebar: "+screenId);
+        }
+        if (owner.endsWith("NclSkinsImmediateScreen")) capeSearchHintConsumer(type, screen);
         var cape=new ViewSpec.Widget("gallery.inspect.CPM",ViewSpec.WidgetKind.CAPE_CARD,b,card.label(),Optional.of("active"),Optional.empty(),true,true,0);
         var alpha=new ViewSpec.Panel("gallery.preset.fixture.namebar",new com.naocraftlab.skins.runtime.Bounds(12,22,46,92),ViewSpec.Panel.Style.TRANSLUCENT_NAMEBAR);
         var capeView=new ViewSpec("gallery",view.title(),200,200,List.of(alpha),List.of(),List.of(cape),List.of(),Optional.empty());
@@ -1020,19 +1067,23 @@ public final class CpmOwnedPreviewDispatchProbe {
                 if(field.getType()==Map.class) {var map=new HashMap<String,WidgetTerminal>();map.put(action.id(),widget);field.set(host,map);}
                 if(field.getType()==List.class) field.set(host,new ArrayList<>(List.of(widget)));
             }
-            for(boolean hover:List.of(true,false)) {
+            var bounds = new com.naocraftlab.skins.runtime.Bounds(b.x()-2,b.y()-36,b.width()+24,60);
+            var scrim = com.naocraftlab.skins.runtime.BakedSurfacePresenterFixture.catalogMenuPanel(bounds);
+            for (var menu : List.of(view,
+                    new ViewSpec("add_source",view.title(),view.width(),view.height(),List.of(scrim),List.of(),List.of(action),List.of(),Optional.empty()),
+                    new ViewSpec("preset_editor",view.title(),view.width(),view.height(),List.of(scrim),List.of(),List.of(action),List.of(),Optional.empty()))) for(boolean hover:List.of(true,false)) {
                 var graphics=new Graphics();
                 int x=hover?b.x()+b.width()/2:-100,y=hover?b.y()+b.height()/2:-100;
                 graphics.pointerX = x;
                 graphics.pointerY = y;
-                invoke(type,host,"nclskins$paintRoot",new Class<?>[]{Graphics.class,int.class,int.class,float.class,ViewSpec.class},graphics,x,y,0F,view);
+                invoke(type,host,"nclskins$paintRoot",new Class<?>[]{Graphics.class,int.class,int.class,float.class,ViewSpec.class},graphics,x,y,0F,menu);
                 int overlay=-1,button=-1;
                 for(int i=0;i<graphics.fills.size();i++) {
                     int[] fill=graphics.fills.get(i);
                     if(fill[4]==0x6D000000 && fill[0]<=b.x() && fill[2]>=b.right() && fill[1]<=b.y() && fill[3]>=b.bottom()) overlay=i;
                     if(fill[4]==(hover?0xFFEEEEEE:0xFF444444) && fill[0]==b.x() && fill[1]==b.y() && fill[2]==b.right() && fill[3]==b.bottom()) button=i;
                 }
-                check(overlay>=0 && button>overlay,"UI16 actual root expanded overlay must paint below native action button, hover="+hover);
+                check(overlay>=0 && button>overlay,"UI16 actual root expanded overlay must paint below native action button, screen="+menu.screenId()+" hover="+hover);
                 check(graphics.paintStrata.get(button)>=graphics.paintStrata.get(overlay),"UI16 native button cannot occupy an earlier stratum");
             }
             System.out.println("PASS UI16 actual compiled expanded-menu root phase -> actual overlay fill alpha/geometry -> native button paint terminal; hover/outside; "+owner+"; NOT game/GPU");
@@ -1053,10 +1104,10 @@ public final class CpmOwnedPreviewDispatchProbe {
         };
         try(var cache=new PreviewAssetCache<Object>(registry,TextureRegistry.TextureKind.IMAGE,DiagnosticSinks.discarding())) {
             for(var mode:com.naocraftlab.skins.client.BackEquipmentPreviewRenderer.Mode.values()) {
-                for(boolean thumbnail:List.of(false,true)) {
+                for(var projection:ViewSpec.BackEquipmentPreview.Projection.values()) {
+                    boolean thumbnail=projection==ViewSpec.BackEquipmentPreview.Projection.PROVIDER_THUMBNAIL;
                     var slot=new com.naocraftlab.skins.runtime.Bounds(10,20,32,32);
-                    var preview=new ViewSpec.BackEquipmentPreview("equipment",slot,"fixture-cape",mode,true);
-                    if(thumbnail) preview=preview.asProviderThumbnail();
+                    var preview=new ViewSpec.BackEquipmentPreview("equipment",slot,"fixture-cape",mode,true,projection);
                     var view=new ViewSpec("gallery",UiMessage.info("nclskins.title"),180,120,List.of(),List.of(),List.of(),List.of(),Optional.empty(),List.of(),Optional.empty(),
                             List.of(new ViewSpec.ClipRegion("clip",new com.naocraftlab.skins.runtime.Bounds(12,24,26,24),List.of("equipment"))),List.of(preview));
                     cache.request(com.naocraftlab.skins.runtime.ViewHostPolicy.cardCapeKey(preview),()->CompletableFuture.completedFuture(Optional.of(bytes.toByteArray())),()->{});
@@ -1079,7 +1130,9 @@ public final class CpmOwnedPreviewDispatchProbe {
                     if(thumbnail) check(graphics.capeCrops.size()==1 && Arrays.equals(graphics.capeCrops.get(0),new int[]{10,20,32,32,1,4,10,10,64,32}),
                             "Gallery thumbnail must use actual square Providers atlas crop, not portrait equipment renderer: "+owner);
                     else check(graphics.capeCrops.isEmpty() && graphics.equipmentRequests.size()==1
-                            && graphics.equipmentRequests.get(0).mode()==mode,"Ordinary cape/elytra keep existing equipment renderer");
+                            && graphics.equipmentRequests.get(0).mode()==mode
+                            && graphics.equipmentRequests.get(0).fitPolicy()==preview.fitPolicy(),
+                            "Actual host must preserve cape/elytra fit role: "+projection+"; "+owner);
                     check(graphics.scissors.stream().anyMatch(b->Arrays.equals(b,new int[]{12,24,38,48})),"Thumbnail/equipment share viewport clip");
                 }
             }
@@ -1282,16 +1335,16 @@ public final class CpmOwnedPreviewDispatchProbe {
                         var opened=fixture.runtime.view(854,480,0,0);
                         check(opened.widgets().stream().anyMatch(w->w.id().endsWith(".edit")),"Single pointer toggle opens action mode");
                     } else check(!fixture.runtime.view(854,480,0,0).equals(current),"Actual inspect producer changes view");
-                    String paint=branch.equals(".more")?"renderSurfaceOverlays":"renderStateFrames";
                     type.getField("mouseX").setInt(screen,-100);type.getField("mouseY").setInt(screen,-100);
-                    var negative=new Graphics();invoke(type,screen,paint,new Class<?>[]{Graphics.class,ViewSpec.class},negative,current);
+                    var negative=new Graphics();invoke(type,screen,"renderStateFrames",new Class<?>[]{Graphics.class,ViewSpec.class},negative,current);
                     check(negative.fills.stream().noneMatch(f->f[4]==0xFFFFFFFF),"Pointer off-hover exact branch has no keyboard frame: "+branch);
                     ClientTerminal.instance.lastInputType=net.minecraft.client.InputType.KEYBOARD_TAB;
-                    var positive=new Graphics();invoke(type,screen,paint,new Class<?>[]{Graphics.class,ViewSpec.class},positive,current);
+                    var positive=new Graphics();invoke(type,screen,"renderStateFrames",new Class<?>[]{Graphics.class,ViewSpec.class},positive,current);
                     check(positive.fills.stream().anyMatch(f->f[4]==0xFFFFFFFF),"Keyboard exact branch retains frame: "+branch);
                     ClientTerminal.instance.lastInputType=net.minecraft.client.InputType.MOUSE;
                     type.getField("mouseX").setInt(screen,target.bounds().x()+3);type.getField("mouseY").setInt(screen,target.bounds().y()+3);
-                    var hover=new Graphics();invoke(type,screen,paint,new Class<?>[]{Graphics.class,ViewSpec.class},hover,current);
+                    String hoverPaint=branch.equals(".more")?"renderSurfaceOverlays":"renderStateFrames";
+                    var hover=new Graphics();invoke(type,screen,hoverPaint,new Class<?>[]{Graphics.class,ViewSpec.class},hover,current);
                     if(!branch.equals(".more")) check(hover.fills.stream().anyMatch(f->f[4]==0x18FFFFFF),"Actual cape hover foreground preserved");
                     else check(hover.drawn.stream().anyMatch(s->s.contains("▲") || s.contains("▼")),"Transparent glyph preserved without invented hover frame: "+hover.drawn);
                     check(same.isFocused() && count[0]==1,"Painting preserves same logical focus and single action");
@@ -1533,48 +1586,60 @@ public final class CpmOwnedPreviewDispatchProbe {
 
     private static void navigationConsumers(Class<?> type,Object screen,com.naocraftlab.skins.runtime.GalleryNativePassFixture fixture) throws Exception {
         var host=(ScreenTerminal)screen;
-        host.width=240; host.height=112;
+
+        host.width=190; host.height=208;
         var initial=fixture.runtime.view(host.width,host.height,0,0);
         type.getField("view").set(screen,initial);
         invoke(type,screen,"rebuildNativeWidgets",new Class<?>[]{ViewSpec.class,Map.class},initial,Map.of());
         var selection=fixture.runtime.snapshot().selectedPresetId();
-        var nodes=initial.navigationNodes().stream().filter(n -> n.enabled() && n.pattern()==ViewSpec.NavigationPattern.GRID).toList();
-        check(nodes.size()>=2 && initial.scrollSurface("gallery.cards").orElseThrow().maximumPixels()>0,"Navigation fixture has actual offscreen cards");
-        String previous=initial.navigationNodes().stream().filter(n -> n.enabled() && n.tabOrder()<nodes.get(0).tabOrder())
-                .max(java.util.Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder)).orElseThrow().id();
+        var surface=initial.scrollSurface("gallery.cards").orElseThrow();
+        var viewport=surface.viewport();
+        var ordered=initial.navigationNodes().stream().filter(n -> n.enabled() && n.tabOrder()>=0)
+                .sorted(java.util.Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder)).toList();
+        var workspace=ordered.stream().filter(n -> n.surfaceId().filter(surface.id()::equals).isPresent()).toList();
+        var visible=workspace.stream().filter(n -> n.bounds().bottom()>viewport.y()
+                && n.bounds().y()<viewport.bottom()).toList();
+        var visibleCards=visible.stream().filter(n -> n.id().startsWith("gallery.card.")).toList();
+        var offscreenCards=workspace.stream().filter(n -> n.id().startsWith("gallery.card.")
+                && n.bounds().y()>=viewport.bottom()).toList();
+        check(surface.maximumPixels()>0 && !visibleCards.isEmpty() && !offscreenCards.isEmpty(),
+                "Navigation fixture has both visible and offscreen cards: "+viewport+" / "+workspace);
+        String previous=ordered.stream().filter(n -> n.tabOrder()<visible.get(0).tabOrder()
+                && !workspace.contains(n)).reduce((a,b) -> b).orElseThrow().id();
+        String following=ordered.stream().filter(n -> n.tabOrder()>visible.get(visible.size()-1).tabOrder()
+                && !workspace.contains(n)).findFirst().orElseThrow().id();
         @SuppressWarnings("unchecked") var widgets=(Map<String,WidgetTerminal>)type.getField("widgets").get(screen);
         host.setFocused(widgets.get(previous));
-        for (var target : nodes) {
-            var current=fixture.runtime.view(host.width,host.height,0,0);
-            var ordered=current.navigationNodes().stream().filter(ViewSpec.NavigationNode::enabled)
-                    .sorted(java.util.Comparator.comparingInt(ViewSpec.NavigationNode::tabOrder)).toList();
-            int guard=0;
-            while (!target.id().equals(invokeResult(type,screen,"focusedWidgetId",new Class<?>[0]))) {
-                check(++guard<=ordered.size()+1,"Native Tab reaches each logical card without an entry override");
-                check((Boolean)invokeResult(type,screen,"keyPressed",new Class<?>[]{KeyEvent.class},new KeyEvent(258,false)),"Native Tab is consumed");
-                var next=fixture.runtime.view(host.width,host.height,0,0);
-                var request=next.focusRequest().orElseThrow();
-                check(widgets.get(request.widgetId())==null || !widgets.get(request.widgetId()).isFocused(),"Pending request is not already forced focus");
-                invoke(type,screen,"rebuildNativeWidgets",new Class<?>[]{ViewSpec.class,Map.class},next,Map.of());
-                type.getField("view").set(screen,next);
-                type.getField("nativeDispatchDepth").setInt(screen,0);
-                invoke(type,screen,"applyFocusRequest",new Class<?>[]{ViewSpec.class},next);
-                type.getField("nativeDispatchDepth").setInt(screen,1);
-                check(request.widgetId().equals(invokeResult(type,screen,"focusedWidgetId",new Class<?>[0])),"Actual host focus consumer applies materialized requested target");
-                check(fixture.runtime.view(host.width,host.height,0,0).focusRequest().isEmpty(),"Runtime acknowledges native focus");
-            }
-            var revealed=fixture.runtime.view(host.width,host.height,0,0);
-            var node=revealed.navigationNodes().stream().filter(n -> n.id().equals(target.id())).findFirst().orElseThrow();
-            var viewport=revealed.scrollSurface("gallery.cards").orElseThrow().viewport();
-            check(node.bounds().bottom()>viewport.y() && node.bounds().y()<viewport.bottom(),"Offscreen logical card is revealed before native focus");
-            check(fixture.runtime.snapshot().selectedPresetId().equals(selection),"Tab focus is not draft selection");
+        for (var target : visible) {
+            check(navigationKey(type,screen,fixture,new KeyEvent(258,false)).equals(target.id()),
+                    "Tab reaches the next visible Gallery control: "+target.id());
         }
-        var last=fixture.runtime.view(host.width,host.height,0,0);
-        String lastCard=(String)invokeResult(type,screen,"focusedWidgetId",new Class<?>[0]);
-        check((Boolean)invokeResult(type,screen,"keyPressed",new Class<?>[]{KeyEvent.class},new KeyEvent(258,true)),"Shift Tab admitted");
-        applyNavigationFocus(type,screen,fixture);
-        String reverse=(String)invokeResult(type,screen,"focusedWidgetId",new Class<?>[0]);
-        check(reverse.endsWith(".more") && !reverse.equals(lastCard),"ShiftTab crosses to preceding card own child, not selected anchor");
+        check(navigationKey(type,screen,fixture,new KeyEvent(258,false)).equals(following),
+                "Tab exits the workspace rather than revealing the next card");
+        for (int index=visible.size()-1;index>=0;index--) {
+            var target=visible.get(index);
+            check(navigationKey(type,screen,fixture,new KeyEvent(258,true)).equals(target.id()),
+                    "Shift+Tab reaches the preceding visible Gallery control: "+target.id());
+        }
+        check(navigationKey(type,screen,fixture,new KeyEvent(258,true)).equals(previous),
+                "Shift+Tab exits the workspace at its visible leading edge");
+        check(fixture.runtime.view(host.width,host.height,0,0).scrollSurface(surface.id()).orElseThrow()
+                .offsetPixels()==surface.offsetPixels(),"Neither Tab direction scrolls Gallery cards");
+
+        String lastVisible=visibleCards.get(visibleCards.size()-1).id();
+        check((Boolean)invokeResult(type,screen,"focusWidget",new Class<?>[]{String.class},lastVisible),
+                "Last visible card is a native focus target");
+        String revealed=navigationKey(type,screen,fixture,new KeyEvent(264,false));
+        check(offscreenCards.stream().anyMatch(n -> n.id().equals(revealed)),
+                "Down reveals an initially offscreen Gallery card: "+revealed);
+        var scrolled=fixture.runtime.view(host.width,host.height,0,0);
+        check(scrolled.scrollSurface(surface.id()).orElseThrow().offsetPixels()>surface.offsetPixels()
+                && scrolled.widget(revealed).isPresent(),"Arrow scrolls and materializes its exact target");
+        check(fixture.runtime.snapshot().selectedPresetId().equals(selection),"Navigation focus is not draft selection");
+
+        String more=revealed.replace("gallery.card.","gallery.preset.")+".more";
+        check((Boolean)invokeResult(type,screen,"focusWidget",new Class<?>[]{String.class},more),
+                "Revealed card's actions are a native focus target");
         check((Boolean)invokeResult(type,screen,"keyPressed",new Class<?>[]{KeyEvent.class},new KeyEvent(257,false)),"Enter admitted exactly once");
         var expanded=fixture.runtime.view(host.width,host.height,0,0);
         check(expanded.widgets().stream().anyMatch(w -> w.id().endsWith(".edit")),"One Enter opens own action mode; double handler would close it");
@@ -1582,8 +1647,9 @@ public final class CpmOwnedPreviewDispatchProbe {
         type.getField("view").set(screen,expanded);
         var pending=expanded.focusRequest();
         if(pending.isPresent()) applyNavigationFocus(type,screen,fixture);
-        var focused=(String)invokeResult(type,screen,"focusedWidgetId",new Class<?>[0]);
-        check((Boolean)invokeResult(type,screen,"focusWidget",new Class<?>[]{String.class},reverse),"Visible own mode control remains a real native target");
+        check((Boolean)invokeResult(type,screen,"focusWidget",new Class<?>[]{String.class},revealed),
+                "Expanded card remains a native focus target");
+        check((Boolean)invokeResult(type,screen,"focusWidget",new Class<?>[]{String.class},more),"Visible own mode control remains a real native target");
         check((Boolean)invokeResult(type,screen,"keyPressed",new Class<?>[]{KeyEvent.class},new KeyEvent(32,false)),"Space admitted exactly once");
         check(fixture.runtime.view(host.width,host.height,0,0).widgets().stream().noneMatch(w -> w.id().endsWith(".edit")),"One Space closes mode without bubbling");
         fixture.runtime.dispatchText("gallery.search","no-footer-navigation-match");
@@ -1591,8 +1657,23 @@ public final class CpmOwnedPreviewDispatchProbe {
         check(hidden.navigationNodes().stream().noneMatch(n -> n.id().startsWith("gallery.card.")),"Search removes hidden cards from navigation");
         fixture.runtime.dispatchText("gallery.search","");
         fixture.selectB();
-        System.out.println("PASS compiled native Tab/ShiftTab/Enter -> real runtime focus/reveal -> compiled widget materialization/focus/ack; hidden search exclusion; synthetic widget allocation, not game");
+        System.out.println("PASS compiled native Tab/ShiftTab visible traversal without scrolling; Down reveals; expanded card focus, Enter/Space and hidden search exclusion; synthetic widgets, not game");
         host.width=854; host.height=480; host.setFocused(null);
+    }
+
+    private static String navigationKey(Class<?> type,Object screen,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture fixture,KeyEvent key) throws Exception {
+        check((Boolean)invokeResult(type,screen,"keyPressed",new Class<?>[]{KeyEvent.class},key),"Native navigation key is consumed: "+key);
+        var host=(ScreenTerminal)screen;
+        var request=fixture.runtime.view(host.width,host.height,0,0).focusRequest().orElseThrow();
+        @SuppressWarnings("unchecked") var widgets=(Map<String,WidgetTerminal>)type.getField("widgets").get(screen);
+        check(widgets.get(request.widgetId())==null || !widgets.get(request.widgetId()).isFocused(),
+                "Pending request is not already forced focus");
+        applyNavigationFocus(type,screen,fixture);
+        String focused=(String)invokeResult(type,screen,"focusedWidgetId",new Class<?>[0]);
+        check(request.widgetId().equals(focused),"Native host applies focus to the materialized request");
+        check(fixture.runtime.view(host.width,host.height,0,0).focusRequest().isEmpty(),"Runtime acknowledges native focus");
+        return focused;
     }
 
     private static void applyNavigationFocus(Class<?> type,Object screen,com.naocraftlab.skins.runtime.GalleryNativePassFixture fixture) throws Exception {
@@ -1704,10 +1785,35 @@ public final class CpmOwnedPreviewDispatchProbe {
         public boolean mouseClicked(MouseEvent event, boolean doubleClick) { if (!active || !visible) return false;onClick(event,doubleClick);return true; }
     }
 
+    private static void capeSearchHintConsumer(Class<?> type, Object screen) throws Exception {
+        var bounds = new com.naocraftlab.skins.runtime.Bounds(90, 36, 19, 20);
+        var hint = UiMessage.literal("Long search hint", UiMessage.Severity.INFO);
+        var search = ViewSpec.Widget.textField("editor.cape_search", bounds, UiMessage.info("nclskins.capes.search"),
+                "", hint, true, 128, true, Optional.empty());
+        var view = new ViewSpec("preset_editor", search.label(), 180, 200, List.of(), List.of(),
+                List.of(search), List.of(), Optional.empty());
+        var field = new FieldTerminal();
+        var graphics = new Graphics();
+        var signature = new Class<?>[]{Graphics.class, ViewSpec.class, FieldTerminal.class};
+        invoke(type, screen, "renderCapeSearchHint", signature, graphics, view, field);
+        check(graphics.drawn.equals(List.of(hint.key())), "Empty search paints its untrimmed hint through the scissor");
+        check(graphics.scissors.size() == 1 && java.util.Arrays.equals(graphics.scissors.get(0),
+                new int[]{bounds.x(), bounds.y(), bounds.right(), bounds.bottom()}) && graphics.activeClips.isEmpty(),
+                "Search hint clips to the field, not the pane, and leaves no active scissor");
+        graphics.drawn.clear();
+        field.setFocused(true);
+        invoke(type, screen, "renderCapeSearchHint", signature, graphics, view, field);
+        field.setFocused(false);
+        field.setValue("cape");
+        invoke(type, screen, "renderCapeSearchHint", signature, graphics, view, field);
+        check(graphics.drawn.isEmpty() && graphics.scissors.size() == 1, "Focused or nonempty search does not paint the hint");
+    }
+
     public static final class FieldTerminal extends WidgetTerminal {
+        private String value = "";
         public void setEditable(boolean value) {}
-        public void setValue(String value) {}
-        public String getValue() { return ""; }
+        public void setValue(String value) { this.value = value; }
+        public String getValue() { return value; }
         public void setHighlightPos(int position) {}
         public void setCursorPosition(int position) {}
         public void moveCursorToEnd(boolean select) {}
@@ -1716,6 +1822,7 @@ public final class CpmOwnedPreviewDispatchProbe {
     public interface TextValue {
         String getString();
         Text copy();
+        default TextValue getVisualOrderText() { return this; }
         static Text literal(String value) { return Text.literal(value); }
         static Text translatable(String key, Object... arguments) { return Text.translatable(key, arguments); }
     }
@@ -1832,6 +1939,7 @@ public final class CpmOwnedPreviewDispatchProbe {
         final List<List<TextValue>> tooltips=new ArrayList<>();
         public void renderTooltip(FontTerminal font,List<TextValue> lines,int x,int y) { tooltips.add(lines); }
         public void setTooltipForNextFrame(FontTerminal font,List<TextValue> lines,int x,int y) { tooltips.add(lines); }
+        public void setTooltipForNextFrame(FontTerminal font,TextValue message,int x,int y) { tooltips.add(List.of(message)); }
         public void setTooltipForNextFrame(List<TextValue> lines,int x,int y) { tooltips.add(lines); }
         final List<String> drawn = new ArrayList<>();
         final List<String> blits = new ArrayList<>();

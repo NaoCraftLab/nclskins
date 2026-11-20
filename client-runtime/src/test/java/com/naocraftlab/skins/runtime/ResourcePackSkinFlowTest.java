@@ -363,7 +363,8 @@ final class ResourcePackSkinFlowTest {
 
     private static void assertCards(AddSourceModel model, Set<String> expected) {
         var view = new AddSourcePresenter().present(model, false, 1600, 900);
-        assertEquals(expected, view.widgets().stream().map(ViewSpec.Widget::id)
+        assertEquals(expected, view.widgets().stream().filter(widget -> widget.kind() == ViewSpec.WidgetKind.CATALOG_CARD)
+                .map(ViewSpec.Widget::id)
                 .filter(id -> id.startsWith("add.catalog.skin:" + COLLECTION + ":"))
                 .map(id -> id.substring(("add.catalog.skin:" + COLLECTION + ":").length())).collect(Collectors.toSet()));
     }

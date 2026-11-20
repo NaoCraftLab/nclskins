@@ -1097,6 +1097,16 @@ public final class CpmPreviewScopeProbe {
 
     public static final class Graphics {
         static final java.util.List<CpmBakedDisplayProbe.LoadingFrame> loadingFrames = new java.util.ArrayList<>();
+        final java.util.List<int[]> fills = new java.util.ArrayList<>();
+        final java.util.List<String> drawn = new java.util.ArrayList<>();
+        public void fill(int x, int y, int right, int bottom, int color) {
+            fills.add(new int[]{x, y, right, bottom, color});
+        }
+        public int drawString(CpmOwnedPreviewDispatchProbe.FontTerminal font, CpmOwnedPreviewDispatchProbe.TextValue text,
+                int x, int y, int color, boolean shadow) {
+            drawn.add(text.getString());
+            return x;
+        }
         public void blit(Location texture, int x, int y, int width, int height, float u, float v,
                 int sourceWidth, int sourceHeight, int textureWidth, int textureHeight) {
             loadingFrames.add(new CpmBakedDisplayProbe.LoadingFrame(texture.value(), x, y, u, v, width, height, sourceWidth, sourceHeight, textureWidth, textureHeight));
@@ -1122,11 +1132,17 @@ public final class CpmPreviewScopeProbe {
             CpmBakedDisplayProbe.pop();
         }
         public static final class Entry {
-            public org.joml.Matrix4f pose() { return new org.joml.Matrix4f(); }
+            public org.joml.Matrix4f pose() { return new ScaleMatrix(); }
             public org.joml.Matrix3f normal() { return new org.joml.Matrix3f(); }
         }
-        public void scale(float x, float y, float z) {}
-        public void translate(float x, float y, float z) { CpmBakedDisplayProbe.translated(x); }
+        private static final class ScaleMatrix extends org.joml.Matrix4f {
+            @Override public org.joml.Matrix4f scale(float x,float y,float z) {
+                CpmBakedDisplayProbe.scaled(x,y,z);
+                return super.scale(x,y,z);
+            }
+        }
+        public void scale(float x, float y, float z) { CpmBakedDisplayProbe.scaled(x,y,z); }
+        public void translate(float x, float y, float z) { CpmBakedDisplayProbe.translated(x, y); }
         public void mulPose(org.joml.Quaternionfc rotation) {}
         public void mulPose(org.joml.Quaternionf rotation) {}
     }
