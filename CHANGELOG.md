@@ -1,5 +1,22 @@
 ## 1.4.0-beta.3
 
+### Changed
+
+- **Compact skin and cape catalogs**
+    - Cards are more compact, with translucent labels over the previews, just like in `My looks`. You can now rename and delete skins and capes from the card menu
+    - `Add cape` has moved to the top of the catalog. Cape and elytra previews have more room even though the cards are shorter
+- **Import preview**
+    - Looks from launchers and other mods appear in the same compact grid. A blue outline marks the looks selected for import
+- **Look editor**
+    - Tighter spacing leaves more room for settings and the cape catalog
+    - When editing a look, a green outline marks the saved cape and a blue outline marks its selected replacement. The reset button restores the saved settings without closing the editor
+
+### Fixed
+
+- Toggling outer skin layers in `My looks` no longer resets the cape you are previewing
+- Your character no longer flickers on the title screen or in the pause menu when an animated cape changes frames
+- The preview loading indicator now fades its tail by using fewer white pixels instead of transparency. The tail no longer appears solid white on older clients
+
 ## 1.3.1
 
 ### Added
