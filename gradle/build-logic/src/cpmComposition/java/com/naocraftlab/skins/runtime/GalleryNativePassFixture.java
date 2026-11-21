@@ -49,6 +49,8 @@ public final class GalleryNativePassFixture implements AutoCloseable {
 
     private final Map<UUID, byte[]> ownedSkins = new HashMap<>();
     private LocalCapeReference capabilityCape;
+    private String timedCape;
+    public long capeNanos;
 
     public GalleryNativePassFixture freshOwned() throws Exception { return new GalleryNativePassFixture(fixtureAppearance, fixtureSkin, coordinator, true); }
     public GalleryNativePassFixture freshOwnedCpm() throws Exception { return new GalleryNativePassFixture(fixtureAppearance, fixtureSkin, coordinator, true, true); }
@@ -225,6 +227,11 @@ public final class GalleryNativePassFixture implements AutoCloseable {
         operations.attachCapeProviders(coordinator, null);
         var runtimeOperations = sharedCoordinator == null && root == null ? operations : (ClientOperations) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{ClientOperations.class}, (proxy, method, args) -> {
             if (method.getName().equals("close")) return null;
+            if (method.getName().equals("openPreparedCapePreview") && timedCape != null && timedCape.equals(args[2])) {
+                var owner = operations.acquirePreparedCapePreview(timedCape).orElseThrow();
+                return Optional.of(PreparedCapePreview.open(owner, (java.util.concurrent.Executor) args[3],
+                        (ClientExecutor) args[4], () -> capeNanos, (boolean) args[5]));
+            }
             try { return method.invoke(operations, args); }
             catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
         });
@@ -434,6 +441,36 @@ public final class GalleryNativePassFixture implements AutoCloseable {
         var accept = ClientRuntime.class.getDeclaredMethod("acceptInitialData",ClientOperations.InitialData.class,boolean.class);
         accept.setAccessible(true); accept.invoke(runtime,operations.initializeForRuntime(),false);
         runtime.dispatchWidget("gallery.reset"); drainWorkers();
+    }
+
+    public void sharedAnimatedCape() throws Exception {
+        var path = directory.resolve("shared-animated-cape.gif");
+        var writer = javax.imageio.ImageIO.getImageWritersByFormatName("gif").next();
+        try (var output = new javax.imageio.stream.MemoryCacheImageOutputStream(Files.newOutputStream(path))) {
+            writer.setOutput(output);
+            writer.prepareWriteSequence(null);
+            int[] pixels = new int[64 * 32];
+            for (int color : new int[]{0xff224488, 0xffaa6644}) {
+                Arrays.fill(pixels, color);
+                var frame = new java.awt.image.BufferedImage(64, 32, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                frame.setRGB(0, 0, 64, 32, pixels, 0, 64);
+                writer.writeToSequence(new javax.imageio.IIOImage(frame, null, null), null);
+            }
+            writer.endWriteSequence();
+        } finally {
+            writer.dispose();
+        }
+        var entry = operations.importCape(ACCOUNT, path, "Shared animated cape");
+        storage.updateAccount(ACCOUNT, old -> new AccountState(old.schemaVersion(), old.accountId(),
+                old.skinAssets(), old.personalSkins(), old.presets().stream().map(p -> p.withOfflineCape(entry.texture())).toList(),
+                old.updatedAt(), old.personalCapes()));
+        var accept = ClientRuntime.class.getDeclaredMethod("acceptInitialData", ClientOperations.InitialData.class, boolean.class);
+        accept.setAccessible(true);
+        accept.invoke(runtime, operations.initializeForRuntime(), false);
+        runtime.dispatchWidget("gallery.reset");
+        selectB();
+        drainWorkers();
+        timedCape = runtime.galleryPreviewCandidate().orElseGet(this::preview).capeId().orElseThrow();
     }
 
     public void offlineCapeCapability(boolean elytra) throws Exception {

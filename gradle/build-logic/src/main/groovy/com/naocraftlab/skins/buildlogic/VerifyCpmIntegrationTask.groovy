@@ -489,6 +489,7 @@ abstract class VerifyCpmIntegrationTask extends DefaultTask {
         if (rawFamily == null) {
             runProbe(work, 'preview-static-surfaces', behaviorClasspath, 'CpmBakedDisplayProbe', ['card-image'])
             runProbe(work, 'preview-gallery-mode', behaviorClasspath, 'CpmBakedDisplayProbe', ['gallery-mode'])
+            runProbe(work, 'preview-gallery-hover', behaviorClasspath, 'CpmBakedDisplayProbe', ['hidden-image', 'gallery-hover'])
             runProbe(work, 'preview-menu-panel', behaviorClasspath, 'CpmBakedDisplayProbe', ['menu-panel'])
             runProbe(work, 'preview-retention-host', behaviorClasspath, 'CpmBakedDisplayProbe', ['retention-host'])
             runProbe(work, 'preview-retention-image', behaviorClasspath, 'CpmBakedDisplayProbe', ['retention-image'])

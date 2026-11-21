@@ -1308,8 +1308,9 @@ public final class NclSkinsScreen extends Screen {
                         surfaceKey, capeId,
                         () -> runtime.openPreparedCapePreview(capeId),
                         () -> runtime.loadCapePreview(preview),
-                        true, preview.capeHasElytra(), runtime.previewCapeGlint(preview),
-                        () -> runtime.reportCapePreviewFailure(preview));
+                        ViewHostPolicy.playerCapePlaying(current, preview, mouseX, mouseY),
+                        preview.capeHasElytra(), runtime.previewCapeGlint(preview),
+                        () -> runtime.reportCapePreviewFailure(preview), preview.capeHoverOwner().isPresent());
             });
         }
         for (ViewSpec.BackEquipmentPreview preview : current.backEquipmentPreviews()) {

@@ -73,7 +73,7 @@ public final class PreparedCapePreview implements CapePreviewSource {
     @Override public Optional<String> visualSha256() { return Optional.of(asset.visualSha256()); }
 
     @Override public synchronized void playing(boolean requested) {
-        if (closed || !thumbnail || playing == requested) return;
+        if (closed || playing == requested) return;
         playing = requested;
         started = false;
         if (requested) {

@@ -110,6 +110,35 @@ final class GalleryPresenterTest {
     }
 
     @Test
+    void onlyNormalLookPreviewsFollowTheFullClippedCardUnderThePointer() {
+        var account = TestFixtures.account(40);
+        var id = account.presets().get(0).id();
+        var state = TestFixtures.ready(account, id, 0);
+        var view = presenter.present(state, 320, 240, 0, 0, PreviewRenderer.CapeMode.CAPE);
+        var main = view.previews().stream().filter(p -> p.id().equals("gallery.preview")).findFirst().orElseThrow();
+        var card = view.previews().stream().filter(p -> p.id().startsWith("gallery.preset.")).findFirst().orElseThrow();
+        assertEquals(card.presetId().map(preset -> "gallery.card." + preset), card.capeHoverOwner());
+        assertTrue(main.capeHoverOwner().isEmpty());
+        assertTrue(ViewHostPolicy.playerCapePlaying(view, main, 0, 0));
+        var bounds = view.widget(card.capeHoverOwner().orElseThrow()).orElseThrow().bounds();
+        assertFalse(ViewHostPolicy.playerCapePlaying(view, card, 0, 0));
+        assertTrue(ViewHostPolicy.playerCapePlaying(view, card, bounds.x() + 4, bounds.y() + 4));
+        assertTrue(ViewHostPolicy.playerCapePlaying(view, card, bounds.x() + 4, bounds.bottom() - 4));
+        var viewport = view.scrollSurface("gallery.cards").orElseThrow().viewport();
+        int offset = bounds.y() - viewport.y() + 12;
+        var clipped = presenter.present(state, 320, 240, 0, 0, PreviewRenderer.CapeMode.CAPE,
+                SkinVariant.CLASSIC, "", Optional.empty(), offset, null,
+                draft(state.activePresetId(), PreviewRenderer.DisplayKind.ORDINARY),
+                new GalleryPresenter.ControlsInput(true, com.naocraftlab.skins.client.OuterLayerVisibility.allVisible(),
+                        PreviewInteractionModel.gallery(), Optional.empty(), List.of(), 0, Optional.empty()));
+        var moved = clipped.previews().stream().filter(p -> p.id().equals(card.id())).findFirst().orElseThrow();
+        var clip = clipped.clipFor(moved.id()).orElseThrow();
+        assertTrue(moved.bounds().y() < clip.y());
+        assertFalse(ViewHostPolicy.playerCapePlaying(clipped, moved, moved.bounds().x() + 4, moved.bounds().y() + 4));
+        assertTrue(ViewHostPolicy.playerCapePlaying(clipped, moved, moved.bounds().x() + 4, clip.y() + 4));
+    }
+
+    @Test
     void galleryCardNamebarIsTranslucentAndPermanentMoreActionIsTransparent() {
         var account = TestFixtures.account(3);
         var s = TestFixtures.ready(account, account.presets().get(0).id(), 0);

@@ -1187,7 +1187,7 @@ public record ViewSpec(
             Optional<CatalogImage> catalogImage,
             Optional<ExternalImage> externalImage,
             PreviewRenderer.PreviewIntent intent, boolean capeHasElytra, boolean nativeAccessories, boolean ownedPng,
-            Optional<BodySource> bodySource, float layoutScale) {
+            Optional<BodySource> bodySource, float layoutScale, Optional<String> capeHoverOwner) {
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
                 OuterLayerVisibility visibility, float yawDegrees, float pitchDegrees, float scale,
@@ -1196,13 +1196,19 @@ public record ViewSpec(
                 Optional<BodySource> bodySource) {
             this(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode, visibility,
                     yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent,
-                    capeHasElytra, nativeAccessories, ownedPng, bodySource, 1.0F);
+                    capeHasElytra, nativeAccessories, ownedPng, bodySource, 1.0F, Optional.empty());
+        }
+
+        public Preview withCapeHoverOwner(String widgetId) {
+            return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
+                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource, layoutScale, Optional.of(widgetId));
         }
 
         public Preview withLayoutScale(float value) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource, value);
+                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource, value, capeHoverOwner);
         }
 
         public float renderedScale() {
@@ -1222,7 +1228,7 @@ public record ViewSpec(
         public Preview withBodySource(Optional<BodySource> source) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, ownedPng, source, layoutScale);
+                    intent, capeHasElytra, nativeAccessories, ownedPng, source, layoutScale, capeHoverOwner);
         }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
@@ -1237,12 +1243,12 @@ public record ViewSpec(
         public Preview withOwnedPng(boolean value) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, value, bodySource, layoutScale);
+                    intent, capeHasElytra, nativeAccessories, value, bodySource, layoutScale, capeHoverOwner);
         }
         public Preview withAnchorBounds(Bounds anchor) {
             return new Preview(id, bounds, anchor, skin, imageRevision, variant, capeId, capeMode,
                     outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
-                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource, layoutScale);
+                    intent, capeHasElytra, nativeAccessories, ownedPng, bodySource, layoutScale, capeHoverOwner);
         }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
@@ -1255,7 +1261,7 @@ public record ViewSpec(
         public Preview withNativeAccessories(boolean value, PreviewRenderer.CapeMode mode) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant,
                     value ? Optional.empty() : capeId, mode, outerLayerVisibility, yawDegrees, pitchDegrees,
-                    scale, presetId, catalogImage, externalImage, intent, capeHasElytra, value, ownedPng, bodySource, layoutScale);
+                    scale, presetId, catalogImage, externalImage, intent, capeHasElytra, value, ownedPng, bodySource, layoutScale, capeHoverOwner);
         }
         public Preview(String id, Bounds bounds, Bounds anchorBounds, SkinReference skin, String imageRevision,
                 SkinVariant variant, Optional<String> capeId, PreviewRenderer.CapeMode capeMode,
@@ -1267,7 +1273,8 @@ public record ViewSpec(
         }
         public Preview withCapeElytra(boolean value) {
             return new Preview(id, bounds, anchorBounds, skin, imageRevision, variant, capeId, capeMode,
-                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage, intent, value, nativeAccessories, ownedPng, bodySource, layoutScale);
+                    outerLayerVisibility, yawDegrees, pitchDegrees, scale, presetId, catalogImage, externalImage,
+                    intent, value, nativeAccessories, ownedPng, bodySource, layoutScale, capeHoverOwner);
         }
         public Preview(
                 String id,

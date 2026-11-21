@@ -1364,6 +1364,112 @@ final class PreviewAssetCacheTest {
     }
 
     @Test
+    void fullSizeHoverDoesNotQueueBehindRetiredIntervalOrAcceptItsFrame(
+            @org.junit.jupiter.api.io.TempDir Path directory) throws Exception {
+        BufferedImage strip = new BufferedImage(1024, 1024, BufferedImage.TYPE_INT_ARGB);
+        strip.setRGB(0, 0, 0xff112233);
+        strip.setRGB(0, 512, 0xff445566);
+        Path encoded = directory.resolve("full-size.png");
+        assertTrue(ImageIO.write(strip, "png", encoded.toFile()));
+        PreparedCapeAsset asset = new CapeAssetDecoder().prepare(encoded, directory.resolve("full-size.frames"));
+        assertEquals(2, asset.frameCount());
+        java.util.ArrayDeque<Runnable> jobs = new java.util.ArrayDeque<>();
+        AtomicLong now = new AtomicLong();
+        ClientExecutor client = new ClientExecutor() {
+            @Override public boolean isClientThread() { return true; }
+            @Override public void execute(Runnable action) { action.run(); }
+        };
+        FakeRegistry registry = new FakeRegistry();
+        AtomicInteger closes = new AtomicInteger();
+        try (var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, now::get)) {
+            var source = PreparedCapePreview.open(new CatalogRead.PreparedCapeLease() {
+                @Override public PreparedCapeAsset asset() { return asset; }
+                @Override public void close() { closes.incrementAndGet(); }
+            }, jobs::add, client, now::get, false);
+            java.util.function.Consumer<Boolean> demand = playing -> cache.requestCape("card", "asset",
+                    () -> CompletableFuture.completedFuture(Optional.of(source)),
+                    () -> { throw new AssertionError("unexpected static fallback"); },
+                    playing, true, false, () -> { throw new AssertionError("registration failed"); }, true);
+            demand.accept(false);
+            jobs.remove().run();
+            var first = cache.handle("card").orElseThrow();
+            assertEquals(1024, first.width());
+            now.addAndGet(100_000_000L);
+            demand.accept(false);
+            assertTrue(jobs.isEmpty());
+            demand.accept(true);
+            assertEquals(first, cache.handle("card").orElseThrow());
+            now.addAndGet(100_000_000L);
+            demand.accept(true);
+            assertEquals(1, jobs.size());
+            demand.accept(false);
+            demand.accept(true);
+            now.addAndGet(100_000_000L);
+            demand.accept(true);
+            assertEquals(1, jobs.size(), "a rapid re-entry must not queue behind an outstanding retired frame");
+            jobs.remove().run();
+            assertEquals(first, cache.handle("card").orElseThrow(), "old interval cannot install after re-entry");
+            assertEquals(1, registry.registrations);
+            demand.accept(true);
+            jobs.remove().run();
+            var animated = cache.handle("card").orElseThrow();
+            assertFalse(first.equals(animated));
+            assertEquals(1024, animated.width());
+            demand.accept(false);
+            assertEquals(first, cache.handle("card").orElseThrow());
+            assertTrue(jobs.isEmpty());
+            assertEquals(List.of(animated.location()), registry.released);
+        }
+        assertEquals(1, closes.get());
+    }
+
+    @Test
+    void frameReadFailureStillUsesRetryBudgetAfterHoverReentry() {
+        AtomicLong now = new AtomicLong();
+        var pending = new java.util.ArrayDeque<CompletableFuture<Optional<CapePreviewSource.Frame>>>();
+        CapePreviewSource source = new CapePreviewSource() {
+            @Override public CompletableFuture<Optional<Frame>> nextFrame(int index) {
+                assertEquals(-1, index, "failed first-frame read remains uninstalled");
+                var completion = new CompletableFuture<Optional<Frame>>();
+                pending.add(completion);
+                return completion;
+            }
+            @Override public void installed(int index) { throw new AssertionError("failed frame must not install"); }
+            @Override public void close() {}
+        };
+        var registry = new FakeRegistry();
+        try (var cache = new PreviewAssetCache<String>(registry, TextureRegistry.TextureKind.IMAGE, DIAGNOSTICS, now::get)) {
+            java.util.function.Consumer<Boolean> demand = playing -> cache.requestCape("card", "shared-asset",
+                    () -> CompletableFuture.completedFuture(Optional.of(source)),
+                    () -> { throw new AssertionError("unexpected static fallback"); }, playing, true, false,
+                    () -> { throw new AssertionError("unexpected registration failure"); }, true);
+            for (long delay : new long[]{250, 1_000, 5_000}) {
+                demand.accept(true);
+                assertEquals(1, pending.size(), "one admitted first-frame read");
+                demand.accept(false);
+                demand.accept(true);
+                assertEquals(1, pending.size(), "re-entry cannot start a second read while the old one runs");
+                pending.remove().completeExceptionally(new IOException("transient frame read failure"));
+                now.addAndGet(TimeUnit.MILLISECONDS.toNanos(delay - 1));
+                demand.accept(false);
+                demand.accept(true);
+                assertTrue(pending.isEmpty(), "same-source late failure still delays retry for " + delay + " ms");
+                now.addAndGet(TimeUnit.MILLISECONDS.toNanos(1));
+            }
+            demand.accept(true);
+            assertEquals(1, pending.size(), "backoff releases the fourth attempt");
+            demand.accept(false);
+            demand.accept(true);
+            pending.remove().completeExceptionally(new IOException("transient frame read failure"));
+            now.addAndGet(TimeUnit.MINUTES.toNanos(2));
+            demand.accept(false);
+            demand.accept(true);
+            assertTrue(pending.isEmpty(), "hover cannot revive an exhausted same-source retry budget");
+            assertEquals(0, registry.registrations);
+        }
+    }
+
+    @Test
     void leavingHoverRestoresInstalledFirstFrameBeforeAnyWorkerRuns(
             @org.junit.jupiter.api.io.TempDir Path directory) throws Exception {
         BufferedImage strip = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);

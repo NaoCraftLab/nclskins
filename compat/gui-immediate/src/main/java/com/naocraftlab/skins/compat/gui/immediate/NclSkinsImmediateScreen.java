@@ -1881,8 +1881,9 @@ public abstract class NclSkinsImmediateScreen extends Screen {
                         surfaceKey, capeId,
                         () -> runtime.openPreparedCapePreview(capeId),
                         () -> runtime.loadCapePreview(preview),
-                        true, preview.capeHasElytra(), runtime.previewCapeGlint(preview),
-                        () -> runtime.reportCapePreviewFailure(preview));
+                        ViewHostPolicy.playerCapePlaying(view, preview, lastMouseX, lastMouseY),
+                        preview.capeHasElytra(), runtime.previewCapeGlint(preview),
+                        () -> runtime.reportCapePreviewFailure(preview), preview.capeHoverOwner().isPresent());
             });
         }
         for (ViewSpec.BackEquipmentPreview backEquipment : view.backEquipmentPreviews()) {

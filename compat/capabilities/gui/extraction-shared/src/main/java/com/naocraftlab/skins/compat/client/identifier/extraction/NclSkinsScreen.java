@@ -1846,7 +1846,7 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
             }
             preview.capeId().ifPresent(capeId -> {
                 desiredCapes.add(runtime.previewCapeSurfaceKey(preview));
-                ensureCape(preview, capeId);
+                ensureCape(view, preview, capeId);
             });
         }
         for (ViewSpec.BackEquipmentPreview backEquipment : view.backEquipmentPreviews()) {
@@ -1892,13 +1892,14 @@ public final class NclSkinsScreen extends GuiExtraction.ScreenHost {
                 () -> runtime.reportSkinPreviewFailure(preview));
     }
 
-    private void ensureCape(ViewSpec.Preview preview, String capeId) {
+    private void ensureCape(ViewSpec view, ViewSpec.Preview preview, String capeId) {
         capeTextures.requestCape(
                 runtime.previewCapeSurfaceKey(preview), capeId,
                 () -> runtime.openPreparedCapePreview(capeId),
                 () -> runtime.loadCapePreview(preview),
-                true, preview.capeHasElytra(), runtime.previewCapeGlint(preview),
-                        () -> runtime.reportCapePreviewFailure(preview));
+                ViewHostPolicy.playerCapePlaying(view, preview, lastMouseX, lastMouseY),
+                preview.capeHasElytra(), runtime.previewCapeGlint(preview),
+                () -> runtime.reportCapePreviewFailure(preview), preview.capeHoverOwner().isPresent());
     }
 
     private static List<WidgetSignature> signatures(ViewSpec view) {

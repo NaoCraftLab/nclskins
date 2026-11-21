@@ -211,6 +211,11 @@ public final class ViewHostPolicy {
         return "player:" + Objects.requireNonNull(accountId, "accountId") + ":" + preview.id();
     }
 
+    public static boolean playerCapePlaying(ViewSpec view, ViewSpec.Preview preview, double pointerX, double pointerY) {
+        return preview.capeHoverOwner().map(id -> compositeCardHovered(view, id, pointerX, pointerY)
+                && pointerInsideClip(view, preview.id(), pointerX, pointerY)).orElse(true);
+    }
+
     public static String cardCapeKey(ViewSpec.BackEquipmentPreview preview) {
         return "card:" + preview.id() + ":" + preview.capeId();
     }

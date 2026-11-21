@@ -371,7 +371,8 @@ public final class GalleryPresenter {
                 cape, cape.isPresent() ? mode : PreviewRenderer.CapeMode.OFF, p.outerLayerVisibility(),
                 -25, 0, AppearanceCard.SKIN_THUMBNAIL_SCALE,
                 Optional.of(p.id()), Optional.empty(), Optional.empty(), PreviewRenderer.PreviewIntent.ASSET_THUMBNAIL,
-                p.offlineCape() == null || p.offlineCape().hasElytra()).present(prefix + ".preview", b));
+                p.offlineCape() == null || p.offlineCape().hasElytra()).present(prefix + ".preview", b)
+                .withCapeHoverOwner("gallery.card." + p.id()));
         int barTop = menu ? b.y() : b.bottom()-16;
         int nameTop=barTop+(menu ? 5 : 4);
         texts.add(new ViewSpec.Text(prefix + ".name", new Bounds(b.x()+4,nameTop,b.width()-18,10),

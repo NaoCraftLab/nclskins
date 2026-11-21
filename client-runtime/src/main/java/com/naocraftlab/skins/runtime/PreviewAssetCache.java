@@ -177,6 +177,14 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
             Supplier<CompletableFuture<Optional<byte[]>>> staticLoader,
             boolean playing, boolean hasElytra, boolean capeGlint,
             Runnable registrationFailure) {
+        requestCape(key, assetIdentity, opener, staticLoader, playing, hasElytra, capeGlint, registrationFailure, false);
+    }
+
+    public synchronized void requestCape(K key, Object assetIdentity,
+            Supplier<CompletableFuture<Optional<CapePreviewSource>>> opener,
+            Supplier<CompletableFuture<Optional<byte[]>>> staticLoader,
+            boolean playing, boolean hasElytra, boolean capeGlint,
+            Runnable registrationFailure, boolean hoverPlayback) {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(assetIdentity, "assetIdentity");
         Objects.requireNonNull(opener, "opener");
@@ -189,6 +197,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
             if (closed) return;
         }
         entry.assetIdentity = assetIdentity;
+        entry.hoverPlayback = hoverPlayback;
         entry.desiredGlint = capeGlint;
         entry.desiredElytra = hasElytra;
         if (entry.handle != null) {
@@ -198,6 +207,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         if (entry.invalidPrepared) return;
         if (entry.playing != playing) {
             entry.playing = playing;
+            if (entry.hoverPlayback) entry.hoverInterval++;
             if (entry.prepared != null) entry.prepared.playing(playing);
             if (!playing) restoreFirstFrame(entry);
         }
@@ -321,6 +331,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         beginImageAttempt(entry);
         entry.frameInFlight = true;
         long attempt = ++entry.frameAttempt;
+        long interval = entry.hoverInterval;
         boolean requestedPlaying = entry.playing;
         try {
             entry.prepared.nextFrame(entry.installedIndex).whenComplete((frame, failure) -> {
@@ -334,12 +345,12 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
                         if (failure != null) diagnose(DiagnosticEvent.CLIENT_TEXTURE_LOAD_FAILED, failure);
                         if (CapeIntegrityException.isIntegrityFailure(failure)) {
                             invalidatePrepared(entry.assetIdentity);
-                            return;
+                        } else {
+                            scheduleFrameRetry(entry);
                         }
-                        if (failure != null || frame == null) scheduleFrameRetry(entry);
                         return;
                     }
-                    if (entry.playing != requestedPlaying) {
+                    if (entry.hoverInterval != interval || entry.playing != requestedPlaying) {
                         frame.ifPresent(CapePreviewSource.Frame::close);
                         finishFailedImageAttempt(entry);
                         return;
@@ -358,7 +369,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
 
     private void installPreparedFrame(Entry entry, CapePreviewSource.Frame frame,
             Runnable registrationFailure) {
-        if (entry.thumbnail && entry.firstFrameHandle != null
+        if (entry.firstFrameHandle != null
                 && frame.sha256().equals(entry.firstFrameHash)) {
             frame.close();
             TextureHandle previous = entry.handle;
@@ -397,7 +408,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         entry.installedIndex = frame.index();
         entry.prepared.installed(frame.index());
         entry.frameFailures = 0;
-        if (entry.thumbnail && frame.index() == 0 && entry.firstFrameHandle == null) {
+        if ((entry.thumbnail || entry.hoverPlayback) && frame.index() == 0 && entry.firstFrameHandle == null) {
             entry.firstFrameHandle = successor;
             entry.firstFrameHash = frame.sha256();
         }
@@ -446,7 +457,7 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
     }
 
     private void restoreFirstFrame(Entry entry) {
-        if (!entry.thumbnail || entry.firstFrameHandle == null) return;
+        if (entry.firstFrameHandle == null || entry.prepared == null) return;
         TextureHandle previous = entry.handle;
         entry.handle = entry.firstFrameHandle;
         entry.frameHash = entry.firstFrameHash;
@@ -748,6 +759,8 @@ public final class PreviewAssetCache<K> implements AutoCloseable {
         private TextureHandle firstFrameHandle;
         private String firstFrameHash;
         private boolean thumbnail;
+        private boolean hoverPlayback;
+        private long hoverInterval;
         private CapePreviewSource prepared;
         private boolean preparedOpening;
         private boolean preparedResolved;

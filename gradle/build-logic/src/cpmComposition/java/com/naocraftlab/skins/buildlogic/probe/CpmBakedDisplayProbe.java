@@ -682,6 +682,9 @@ public final class CpmBakedDisplayProbe {
         var image=new java.awt.image.BufferedImage(64,64,java.awt.image.BufferedImage.TYPE_INT_ARGB);var bytes=new java.io.ByteArrayOutputStream();javax.imageio.ImageIO.write(image,"PNG",bytes);
         try(var base=new com.naocraftlab.skins.runtime.GalleryNativePassFixture(appearance,bytes.toByteArray());var subject=base.freshOwned()) {
             var hostType=CpmPreviewScreenSlice.loadNative(CpmPreviewScreenSlice.availableOwner(),rendererType);
+            try (var hover = base.freshOwned()) {
+                immediateGalleryHover(hostType, rendererType, hover);
+            }
             var allocatedRenderers = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Object,Boolean>());
             for(var surface:subject.staticSurfaces()) {
                 Object host=hostType.getConstructor().newInstance();var registry=new CpmOwnedPreviewDispatchProbe.Registry();
@@ -970,6 +973,165 @@ public final class CpmBakedDisplayProbe {
                     "CATALOG_FIT deferred consumer applies alignment: expected="+expectedY+" actual="+equipmentConsumerOffsets);
         } finally {
             equipmentConsumerOffsets = null;
+        }
+    }
+
+    private static void immediateGalleryHover(Class<?> hostType, Class<?> rendererType,
+            com.naocraftlab.skins.runtime.GalleryNativePassFixture subject) throws Exception {
+        subject.sharedAnimatedCape();
+        var host = hostType.getConstructor().newInstance();
+        var registry = new CpmOwnedPreviewDispatchProbe.Registry();
+        try (var skins = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry, TextureRegistry.TextureKind.PLAYER_SKIN,
+                     com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding());
+                var capes = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry, TextureRegistry.TextureKind.IMAGE,
+                     com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding())) {
+            for (var f : hostType.getDeclaredFields()) {
+                Object value = switch (f.getName()) {
+                    case "runtime" -> subject.runtime;
+                    case "skinTextures" -> skins;
+                    case "capeTextures" -> capes;
+                    case "capabilities" -> new CpmOwnedPreviewDispatchProbe.Capabilities() {
+                        @SuppressWarnings({"unchecked", "rawtypes"})
+                        public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createSimplePreviewRenderer() {
+                            return (PreviewRenderer) newImmediateRenderer(rendererType);
+                        }
+                        @SuppressWarnings({"unchecked", "rawtypes"})
+                        public PreviewRenderer<CpmOwnedPreviewDispatchProbe.Graphics> createEditorPreviewRenderer() {
+                            return (PreviewRenderer) newImmediateRenderer(rendererType);
+                        }
+                    };
+                    default -> f.getType() == Map.class ? new HashMap<>() : null;
+                };
+                if (value != null) { f.setAccessible(true); f.set(host, value); }
+            }
+            var view = subject.runtime.view(854, 480, 0, 0);
+            var cards = view.previews().stream().filter(p -> p.id().startsWith("gallery.preset.")).toList();
+            var main = view.previews().stream().filter(p -> p.id().equals("gallery.preview")).findFirst().orElseThrow();
+            var cape = main.capeId().orElseThrow();
+            check(cards.size() == 2 && cards.stream().allMatch(p -> p.capeId().orElseThrow().equals(cape)), "IMMEDIATE HOVER actual shared cape slots");
+            var sync = hostType.getDeclaredMethod("synchronizePreviews", com.naocraftlab.skins.runtime.ViewSpec.class);
+            var paint = hostType.getDeclaredMethod("renderStaticPreviews", CpmPreviewScopeProbe.Graphics.class, com.naocraftlab.skins.runtime.ViewSpec.class);
+            sync.setAccessible(true);
+            paint.setAccessible(true);
+            var graphics = new CpmPreviewScopeProbe.Graphics();
+            observeImmediateMenu = true;
+            for (int step = 0; step < 7; step++) {
+                positionGalleryHover(host, subject, cards.get(0).bounds(), false, step);
+                sync.invoke(host, view);
+                subject.drainWorkers();
+                immediateMaterials.clear();
+                immediateTranslations.clear();
+                paint.invoke(host, graphics, view);
+                for (int i = 0; i < cards.size(); i++) {
+                    var material = capes.capeState(subject.runtime.previewCapeSurfaceKey(cards.get(i)), cape).handle().orElseThrow();
+                    check(immediateMaterials.contains(new CpmPreviewScopeProbe.Location(material.location())),
+                            "IMMEDIATE HOVER prepared cape sampled by baked material draw for card " + i + " at step " + step);
+                    check((registry.registered.get(material)[0] & 255) == (i == 0 && (step == 4 || step == 5) ? 0xaa : 0x22),
+                            "IMMEDIATE HOVER card frame " + i + " at step " + step);
+                }
+                var mainFrame = capes.capeState(subject.runtime.previewCapeSurfaceKey(main), cape).handle().orElseThrow();
+                check((registry.registered.get(mainFrame)[0] & 255) == (step >= 2 && step <= 3 ? 0xaa : 0x22),
+                        "IMMEDIATE HOVER independent main frame at step " + step);
+            }
+            System.out.println("PASS IMMEDIATE GALLERY HOVER actual card materials, namebar and independent main timeline");
+        } finally {
+            observeImmediateMenu = false;
+        }
+    }
+
+    private static void positionGalleryHover(Object host, com.naocraftlab.skins.runtime.GalleryNativePassFixture subject,
+            com.naocraftlab.skins.runtime.Bounds bounds, boolean submission, int step) throws Exception {
+        set(host, submission ? "mouseX" : "lastMouseX", step >= 3 && step <= 5 ? bounds.x() + 5 : 0);
+        set(host, submission ? "mouseY" : "lastMouseY", step >= 4 && step <= 5 ? bounds.bottom() - 4 : step == 3 ? bounds.y() + 4 : 0);
+        if (step == 2 || step == 4) subject.capeNanos += 100_000_000L;
+    }
+
+    private static void galleryHoverHost(Loader loader, Class<?> bakedType, java.lang.reflect.Method prepare,
+            Object dispatcher, boolean late, boolean extraction) throws Exception {
+        var skin = new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        var png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(skin, "PNG", png);
+        var appearance = new PreviewRenderer.PreviewAppearance(new TextureRegistry.TextureHandle("fixture:gallery-hover", 64, 64),
+                SkinModel.CLASSIC, java.util.Optional.empty(), PreviewRenderer.CapeMode.OFF, OuterLayerVisibility.allVisible());
+        try (var base = new com.naocraftlab.skins.runtime.GalleryNativePassFixture(appearance, png.toByteArray());
+                var subject = base.freshOwned()) {
+            subject.sharedAnimatedCape();
+            var hostType = CpmPreviewScreenSlice.loadNative(CpmPreviewScreenSlice.availableOwner(), bakedType);
+            var host = hostType.getConstructor().newInstance();
+            var registry = new CpmOwnedPreviewDispatchProbe.Registry();
+            try (var skins = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry, TextureRegistry.TextureKind.PLAYER_SKIN,
+                         com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding());
+                    var capes = new com.naocraftlab.skins.runtime.PreviewAssetCache<Object>(registry, TextureRegistry.TextureKind.IMAGE,
+                         com.naocraftlab.skins.diagnostics.DiagnosticSinks.discarding())) {
+                for (var f : hostType.getDeclaredFields()) {
+                    Object value = switch (f.getName()) {
+                        case "runtime" -> subject.runtime;
+                        case "editorRenderer" -> submissionOwner(loader, loader.loadClass(bakedType.getPackageName() + "." +
+                                (extraction ? "AvatarRenderStatePreviewRenderer" : "SubmissionPreviewRenderer")));
+                        case "skinTextures" -> skins;
+                        case "capeTextures" -> capes;
+                        case "textureRegistry" -> registry;
+                        case "width" -> 854;
+                        case "height" -> 480;
+                        default -> f.getType() == Map.class ? new HashMap<>() : null;
+                    };
+                    if (value != null) { f.setAccessible(true); f.set(host, value); }
+                }
+                var view = subject.runtime.view(854, 480, 0, 0);
+                var main = view.previews().stream().filter(p -> p.id().equals("gallery.preview")).findFirst().orElseThrow();
+                var cards = view.previews().stream().filter(p -> p.id().startsWith("gallery.preset.")).toList();
+                var cape = main.capeId().orElseThrow();
+                check(cards.size() == 2 && cards.stream().allMatch(p -> p.capeId().orElseThrow().equals(cape)),
+                        "HOVER fixture has the same animated cape in two real cards and main preview");
+                var sync = hostType.getDeclaredMethod(extraction ? "syncPreviewAssets" : "synchronizePreviewAssets", com.naocraftlab.skins.runtime.ViewSpec.class);
+                sync.setAccessible(true);
+                var paint = hostType.getDeclaredMethod("renderStaticPreviews", Graphics.class, com.naocraftlab.skins.runtime.ViewSpec.class);
+                paint.setAccessible(true);
+                var replace = loader.loadClass(bakedType.getPackageName() + "." +
+                        (extraction ? "NclBakedPlayerSubmission" : "BakedPreviewSubmission")).getMethod("replace", Object.class, PipState.class);
+                var states = new java.util.ArrayList<Object>();
+                enqueue = graphics -> states.add(call(replace, null, graphics, new MenuState(((Graphics) graphics).scissor)));
+                var graphics = new Graphics();
+                var materials = CpmExtractionBodyProbe.queuedMaterials();
+                var cardSlots = cards.stream().map(p -> subject.runtime.previewCapeSurfaceKey(p)).toList();
+                var mainSlot = subject.runtime.previewCapeSurfaceKey(main);
+                for (int step = 0; step < 7; step++) {
+                    positionGalleryHover(host, subject, cards.get(0).bounds(), !extraction, step);
+                    sync.invoke(host, view);
+                    subject.drainWorkers();
+                    var first = capes.capeState(cardSlots.get(0), cape).handle().orElseThrow();
+                    var second = capes.capeState(cardSlots.get(1), cape).handle().orElseThrow();
+                    var mainFrame = capes.capeState(mainSlot, cape).handle().orElseThrow();
+                    check(!first.equals(second) && !first.equals(mainFrame) && !second.equals(mainFrame), "HOVER slots own distinct registrations");
+                    states.clear();
+                    paint.invoke(host, graphics, view);
+                    check(states.size() == 2, "HOVER both real cards enqueue their own material");
+                    var handles = java.util.List.of(first, second);
+                    for (int i = 0; i < 2; i++) {
+                        var state = states.get(i);
+                        var handle = handles.get(i);
+                        scheduledBaked(state, extraction);
+                        materials.clear();
+                        CpmExtractionBodyProbe.consumerFrame(loader, () -> prepareRaw(prepare, dispatcher, state, late), () -> {
+                            check(!materials.isEmpty() && materials.get(0).texture.materialInputs.contains(fieldUnchecked(state, "attachmentTexture"))
+                                    && new Identifier(handle.location()).equals(fieldUnchecked(state, "attachmentTexture")),
+                                    "HOVER baked consumer samples this slot's exact prepared cape material");
+                            CpmExtractionBodyProbe.consumerSubmitted();
+                        });
+                        CpmExtractionBodyProbe.signalConsumers();
+                    }
+                    int firstRed = registry.registered.get(first)[0] & 255;
+                    int secondRed = registry.registered.get(second)[0] & 255;
+                    int mainRed = registry.registered.get(mainFrame)[0] & 255;
+                    check(mainRed == (step >= 2 && step <= 3 ? 0xaa : 0x22), "HOVER main timeline advances independently at step " + step);
+                    check(firstRed == (step == 4 || step == 5 ? 0xaa : 0x22) && secondRed == 0x22,
+                            "HOVER expected own frame zero outside hover and animated first card only, step " + step
+                                    + ": first=" + firstRed + " second=" + secondRed + " main=" + mainRed);
+                }
+                System.out.println("PASS GALLERY HOVER actual card materials, independent main timeline, namebar and immediate reset");
+            } finally {
+                enqueue = null;
+            }
         }
     }
 
@@ -1678,6 +1840,10 @@ public final class CpmBakedDisplayProbe {
             }
             if (scenario.equals("gallery-mode")) {
                 galleryModeHost(loader, bakedType, prepare, dispatcher, late, extraction);
+                return;
+            }
+            if (scenario.equals("gallery-hover")) {
+                galleryHoverHost(loader, bakedType, prepare, dispatcher, late, extraction);
                 return;
             }
             if (scenario.equals("card")) {
